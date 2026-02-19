@@ -40,6 +40,7 @@ yarn-error.*
 
 # --- Platform-specific config files ---
 google-services.json
+credentials.json
 
 # TypeScript build info
 *.tsbuildinfo
