@@ -1,0 +1,764 @@
+{
+  "locale": "en-GB",
+  "reportType": "Report Type",
+  "invoice": "Invoice",
+  "dateRange": "Date Range",
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "remove": "Remove",
+    "upload": "Upload",
+    "error": "Error",
+    "success": "Success",
+    "date": "Date",
+    "startTime": "Start Time",
+    "endTime": "End Time",
+    "minutes": "minutes",
+    "saving": "Saving...",
+    "failedToSave": "Failed to save data.",
+    "gotIt": "Got It!",
+    "logout": "Logout",
+    "openSettings": "Open Settings"
+  },
+  "permissions": {
+    "notificationsTitle": "Notifications Permission",
+    "notificationsBody": "HourWise uses notifications to send you critical compliance alerts. Please enable notifications to ensure you don't miss them.",
+    "locationTitle": "Location Permission",
+    "locationBody": "HourWise needs location access to automatically detect driving. Please enable it in your settings.",
+    "backgroundLocationTitle": "Background Location Permission",
+    "backgroundLocationBody": "For reliable tracking, please set location access to 'Allow all the time' in your settings. This is crucial for automatic driving detection even when the app is in the background.",
+    "cameraTitle": "Camera Permission",
+    "cameraBody": "HourWise needs camera access to allow you to upload photos for expenses or other documents. Please enable it in your settings.",
+    "mediaLibraryTitle": "Media Library Permission",
+    "mediaLibraryBody": "HourWise needs access to your media library to allow you to select photos for expenses or other documents. Please enable it in your settings."
+  },
+  "app": {
+    "title": "HourWise EU",
+    "subtitle": "EU Working Time Tracker"
+  },
+  "dashboard": {
+    "previousShiftEnd": "Previous Shift End",
+    "currentShiftStart": "Current Shift Start",
+    "newShiftStarted": "Shift Started",
+    "dailyRest": "Daily Rest",
+    "workTimeRemaining": "Work Time Remaining",
+    "drivingTimeRemaining": "Driving Time Remaining",
+    "breakDuration": "Break Duration",
+    "startShift": "Start Shift",
+    "endShift": "End Shift",
+    "startBreak": "Start Break",
+    "endBreak": "End Break",
+    "poaButtonText": "POA / WAITING TIME",
+    "resumeWork": "Resume Work",
+    "currentStatusLabel": "Current Status:",
+    "timerModeLabel": "Timer Mode:",
+    "shiftDurationLabel": "Shift Duration:",
+    "targetLabel": "Target"
+  },
+  "shiftSummary": {
+    "title": "Current Shift",
+    "totalWork": "Total Work",
+    "totalDriving": "Total Driving",
+    "totalBreaks": "Total Breaks",
+    "totalPOA": "Total POA"
+  },
+  "endShiftConfirmation": {
+    "title": "End Shift Confirmation",
+    "shiftSummary": "Final Shift Summary",
+    "violationsFound": "Violations Found",
+    "greatJob": "Great Job!",
+    "noViolations": "No violations will be recorded for this shift.",
+    "confirmEnd": "Confirm & End Shift"
+  },
+  "menu": {
+    "instructions": "Instructions",
+    "privacyInfo": "Privacy Info",
+    "euWorkingTimeRules": "EU Rules",
+    "tachoGuide": "Tacho Guide",
+    "compliance": "Compliance",
+    "workHistory": "Work History",
+    "addExpense": "Add Expense",
+    "downloadReport": "Download Report"
+  },
+  "workHistory": {
+    "title": "Work History",
+    "daySummary": "Day Summary",
+    "recordedShifts": "Recorded Shifts",
+    "totalWork": "Total Work",
+    "totalBreaks": "Total Breaks",
+    "totalPOA": "Total POA",
+    "estimatedEarnings": "Estimated Earnings",
+    "ongoing": "Ongoing",
+    "workTime": "Work Time",
+    "noShifts": "No shifts recorded for this date.",
+    "noShiftsRecordedForDate": "No shifts recorded for this date.",
+    "addShift": "Add Shift",
+    "editShift": "Edit Shift",
+    "updateShift": "Update Shift",
+    "totalBreakTime": "Total Break Time",
+    "totalPOATime": "Total POA Time",
+    "noShiftsTitle": "Rest Day"
+  },
+  "calendar": {
+    "dayDetailsTitle": "Day Details",
+    "timeSummaryTitle": "Time Summary",
+    "paySummaryTitle": "Pay Summary",
+    "period": "Period",
+    "worked": "Worked",
+    "breaks": "Breaks",
+    "violations": "Violations",
+    "estimatedPay": "Est. Pay",
+    "lastCompletedWeek": "Last Completed Week",
+    "currentWeek": "Current Week",
+    "monthToDate": "Month to Date",
+    "selectedMonthSummary": "Selected Month",
+    "lastWeekOfSelectedMonth": "Last Week of Month"
+  },
+  "fatigue": {
+    "title": "Fatigue & Focus Index",
+    "fullyAlert": "Fully Alert",
+    "freshAndFocused": "Fresh & Focused",
+    "mild": "Mild Fatigue",
+    "moderate": "Moderate Fatigue",
+    "high": "High Fatigue",
+    "critical": "Critical Fatigue",
+    "approaching13h": "Approaching 13 hours spread-over. Plan rest now.",
+    "over10h": "Over 10 hours of work today.",
+    "need45minBreak": "A 45-minute break is required for shifts over 9 hours.",
+    "need30minBreak": "A 30-minute break is required for shifts over 6 hours.",
+    "drivingExceeded10h": "Exceeded 10 hours of driving today.",
+    "drivingOver9h": "Driving over 9 hours (using extension).",
+    "dailyRestBelow9h": "Daily rest was below the legal minimum of 9 hours.",
+    "reducedDailyRest": "Reduced daily rest taken (below 11 hours).",
+    "workTimeExceeded": "Work time limit exceeded by {{time}}."
+  },
+  "complianceScorecard": {
+    "title": "Daily Compliance Scorecard",
+    "outOf100": "out of 100",
+    "violationsRecorded": "Violations Recorded:",
+    "greatJob": "Great job!",
+    "noViolations": "No compliance violations were recorded for this day."
+  },
+  "dailyReport": {
+    "title": "Yesterday's Report",
+    "violationsFound": "Violations Found",
+    "greatJob": "Great Job!",
+    "noViolations": "No violations recorded for yesterday's shift."
+  },
+  "day": {
+    "mon": "Mon",
+    "tue": "Tue",
+    "wed": "Wed",
+    "thu": "Thu",
+    "fri": "Fri",
+    "sat": "Sat",
+    "sun": "Sun"
+  },
+  "safetyWarning": {
+    "title": "Safety Warning",
+    "body": "Do not interact with the app while driving. Stop safely before making changes.",
+    "acknowledge": "I understand"
+  },
+  "firstTimeSetup": {
+    "title": "Welcome to HourWise!",
+    "subtitle": "A few steps to get you started correctly:",
+    "step1": "Enable All Permissions: For automatic driving detection to work, please grant all permissions, especially setting Location to 'Allow all the time'.",
+    "step2": "Complete Driver Setup: Fill in your details. This is essential for reports and optional pay calculations.",
+    "step3": "Enter Your Last Shift: Go to Menu > Work History and add your last completed shift. This is crucial for correct daily rest calculation.",
+    "button": "I Understand, Let's Go!"
+  },
+  "settingsMenu": {
+    "manageSubscription": "Manage Subscription",
+    "businessProfile": "Business Profile",
+    "driverSettings": "Driver Settings",
+    "selectLanguage": "Select Language",
+    "timezone": {
+      "label": "Timezone"
+    },
+    "signOut": {
+      "action": "Sign Out"
+    }
+  },
+  "driverSetup": {
+    "header": {
+      "welcomeSetup": "Welcome Setup",
+      "driverSettings": "Driver Settings"
+    },
+    "sections": {
+      "personalInformation": "Personal Information",
+      "companyLink": "Company Link",
+      "payConfiguration": "Pay Configuration"
+    },
+    "fields": {
+      "driverNameLabel": "Driver Name",
+      "basicHourlyRate": "Basic hourly rate",
+      "unpaidBreakDuration": "Unpaid break duration (minutes)"
+    },
+    "placeholders": {
+      "enterFullName": "Enter full name",
+      "hourlyRate": "e.g. 15.00",
+      "unpaidBreak": "e.g. 45"
+    },
+    "company": {
+      "codeOptionalLabel": "Company link code (optional)",
+      "codePlaceholder": "Enter company code",
+      "helperText": "Enter the code provided by your company to join their fleet.",
+      "linkedToCompany": "Linked to company"
+    },
+    "allowances": {
+      "title": "Shift Allowances",
+      "addAllowance": "Add allowance"
+    },
+    "overtime": {
+      "title": "Overtime Rules",
+      "thresholdLabel": "Overtime threshold",
+      "thresholdPlaceholder": "e.g. 40",
+      "rateMultiplierLabel": "Rate multiplier",
+      "rateMultiplierPlaceholder": "e.g. 1.5",
+      "additional": {
+        "addTier": "Add another tier"
+      }
+    },
+    "units": {
+      "overtime": {
+        "day": "per day",
+        "week": "per week",
+        "month": "per month"
+      },
+      "allowance": {
+        "hour": "per hour",
+        "day": "per day",
+        "week": "per week",
+        "month": "per month",
+        "shift": "per shift"
+      }
+    }
+  },
+  "instructions": {
+    "title": "How to Use HourWise",
+    "disclaimer": {
+      "title": "Official Guidance First",
+      "body": "This app is a powerful tool to aid compliance, but it is not a replacement for official training or legal advice. Always refer to EU regulations and your company policy."
+    },
+    "initialSetup": {
+      "title": "Your First Steps",
+      "step1": {
+        "title": "1. Enter Your Last Shift (Crucial!)",
+        "body": "For correct 'Daily Rest' calculation, you MUST manually enter details of your last completed shift. Go to Menu -> Work History -> tap the correct date and add the shift."
+      },
+      "step2": {
+        "title": "2. Complete Your Driver Profile",
+        "body": "Go to Settings (gear icon) -> Driver Setup. Your name is required for reports. Pay details are optional for generating invoices."
+      },
+      "step3": {
+        "title": "3. Add Business Details (Optional)",
+        "body": "For invoicing, go to Settings -> Business Profile. Your details will automatically appear on generated PDF invoices."
+      }
+    },
+    "workflow": {
+      "title": "Daily Workflow",
+      "step1": {
+        "title": "1. Start & End Your Shift",
+        "body": "Use the main 'Start Shift' and 'End Shift' buttons. At the end of a shift, a confirmation screen will show your totals and any violations."
+      },
+      "step2": {
+        "title": "2. Automatic Driving Detection",
+        "body": "The app automatically detects driving based on speed and motion, switching your status to 'Driving'. When you stop, it reverts to 'Working'."
+      },
+      "step3": {
+        "title": "3. Taking a Break",
+        "body": "Press 'Start Break' to pause your work timers. The app tracks the total break duration. A continuous break of at least 45 minutes will reset your 4.5-hour driving timer."
+      },
+      "step4": {
+        "title": "4. Period of Availability (POA)",
+        "body": "Use 'POA / Waiting Time' for periods when you are available but not actively working (e.g., waiting for a loading bay). This time is tracked separately from work and breaks."
+      }
+    },
+    "keyFeatures": {
+      "title": "Key Features",
+      "fatigue": {
+        "title": "Fatigue & Focus Monitor",
+        "body": "This appears on the main screen during your shift, providing real-time compliance warnings for insufficient daily rest, upcoming break requirements, and driving/work time limits."
+      },
+      "compliance": {
+        "title": "Compliance Heatmap",
+        "body": "Visible on the dashboard and in the menu. This calendar shows your compliance score for each day. Tap it to see a detailed monthly view and identify any days with issues."
+      },
+      "history": {
+        "title": "Work History & Manual Edits",
+        "body": "From the Main Menu (top left), select 'Work History' to view past shifts. Here you can tap any day to see a detailed summary, and manually add or edit past shifts to correct your records."
+      },
+      "expenses": {
+        "title": "Add & Track Expenses",
+        "body": "From the Main Menu, select 'Add Expense' to log costs like fuel or meals. You can scan receipts with your camera, and the app will try to automatically fill in the amount."
+      },
+      "reports": {
+        "title": "Download Reports & Invoices",
+        "body": "From the Main Menu, select 'Download Report' to generate a professional PDF of your work summary or a customer invoice for any date range."
+      },
+      "dailyReport": {
+        "title": "Daily Compliance Report",
+        "body": "When you open the app for the first time each day, you may see a pop-up summarizing any compliance violations from the previous day's shift."
+      }
+    },
+    "footer": {
+      "gotIt": "Got It!"
+    }
+  },
+  "euRules": {
+    "title": "EU Rules & Driving Time",
+    "closeButton": "Close",
+    "accessibility": {
+      "closeRules": "Close rules",
+      "closeAndReturn": "Close and return"
+    },
+    "about": {
+      "title": "About these rules",
+      "description": "This screen summarises key EU drivers’ hours and working time guidance. Always follow official regulations and your company policy."
+    },
+    "overview": {
+      "title": "Overview",
+      "point1": "Track work, breaks, POA, and driving accurately.",
+      "point2": "Plan breaks and rest early to avoid infringements.",
+      "point3": "Use reduced rest and driving extensions carefully."
+    },
+    "drivingLimits": {
+      "title": "Driving Time Limits",
+      "daily": {
+        "label": "Daily driving limit:",
+        "description": "9 hours (can be extended to 10 hours twice per week)."
+      },
+      "weekly": {
+        "label": "Weekly driving limit:",
+        "description": "56 hours."
+      },
+      "fortnightly": {
+        "label": "Fortnightly driving limit:",
+        "description": "90 hours."
+      },
+      "breaks": {
+        "label": "Driving breaks:",
+        "description": "After 4.5 hours driving, take 45 minutes break."
+      },
+      "breaksSplitExample": "The 45 minutes can be split into 15 minutes + 30 minutes (in that order)."
+    },
+    "restPeriods": {
+      "title": "Rest Periods",
+      "daily": {
+        "title": "Daily rest:",
+        "regular": "Regular daily rest: at least 11 hours.",
+        "reduced": "Reduced daily rest: at least 9 hours (limited use).",
+        "split": "Split daily rest: must total at least 12 hours (e.g., 3 + 9)."
+      },
+      "weekly": {
+        "title": "Weekly rest:",
+        "regular": "Regular weekly rest: at least 45 hours.",
+        "reduced": "Reduced weekly rest: at least 24 hours (compensation required).",
+        "frequency": "Weekly rest must be taken within required rolling periods."
+      }
+    },
+    "workingTimeLimits": {
+      "title": "Working Time Limits",
+      "maxWeekly": {
+        "label": "Max weekly working time:",
+        "description": "60 hours (absolute cap)."
+      },
+      "avgWeekly": {
+        "label": "Average weekly working time:",
+        "description": "48 hours on average over the reference period."
+      },
+      "nightWork": {
+        "label": "Night work limit:",
+        "description": "Typically 10 hours in any 24-hour period (subject to rules)."
+      }
+    },
+    "workBreaks": {
+      "title": "Working Time Break Requirements",
+      "intro": "Working time breaks depend on total hours worked.",
+      "rules": {
+        "sixToNine": "If you work more than 6 hours: take at least 30 minutes break (total).",
+        "ninePlus": "If you work more than 9 hours: take at least 45 minutes break (total)."
+      },
+      "noteDriving": "Driving breaks (4.5h rule) are separate and must also be respected."
+    },
+    "interaction": {
+      "title": "How the app tracks this",
+      "point1": "Work and driving timers run while you’re active; POA pauses work-cycle time.",
+      "point2": "A qualifying break can reset your 4.5-hour driving cycle."
+    }
+  },
+  "tachoGuide": {
+    "title": "Digital Tachograph Manual Entry Guide",
+    "prepare": {
+      "title": "Prepare",
+      "point1": "Have your driver card ready.",
+      "point2": "Make sure the tachograph is in manual entry mode if needed.",
+      "point3": "Check the time and timezone settings on the unit."
+    },
+    "confirmManualEntry": {
+      "title": "Confirm manual entry",
+      "point1": "Confirm you want to add activities since your last card removal."
+    },
+    "enterActivities": {
+      "title": "Enter activities",
+      "point1": "Select the correct activity type (rest/work/availability).",
+      "point2": "Enter the start time and end time accurately.",
+      "point3": "Repeat for each missing period.",
+      "point4": "Double-check the sequence matches what actually happened."
+    },
+    "adjustTimes": {
+      "title": "Adjust times",
+      "point1": "If times look wrong, go back and correct them.",
+      "point2": "Make sure there are no overlaps or gaps.",
+      "point3": "Confirm each entry before moving on."
+    },
+    "confirm": {
+      "title": "Confirm",
+      "point1": "Review the summary on the tachograph screen.",
+      "point2": "Accept to save the manual entries."
+    },
+    "finalCheck": {
+      "title": "Final check",
+      "point1": "Verify the activity timeline is correct.",
+      "point2": "Begin your shift only when everything looks right."
+    },
+    "closeButton": "Close"
+  },
+  "language": {
+    "english": "English",
+    "german": "Deutsch",
+    "french": "Français",
+    "spanish": "Español",
+    "italian": "Italiano",
+    "polish": "Polski",
+    "romanian": "Română",
+    "dutch": "Nederlands",
+    "portuguese": "Português",
+    "ukrainian": "Українська",
+    "hungarian": "Magyar",
+    "bulgarian": "Български",
+    "lithuanian": "Lietuvių",
+    "czech": "Čeština",
+    "slovak": "Slovenčina",
+    "latvian": "Latviešu",
+    "turkish": "Türkçe"
+  },
+  "selectLanguage": "Select Language",
+  "signOut": "Sign Out",
+  "confirmSignOut": "Are you sure you want to sign out?",
+  "manageSubscription": "Manage Subscription",
+  "validation": {
+    "invalidTimeFormat": "Please enter a valid time in HH:MM format."
+  },
+  "validationError": "Validation Error",
+  "pleaseEnterName": "Please enter your name.",
+  "driverSettings": "Driver Settings",
+  "welcomeSetup": "Welcome Setup",
+  "personalInformation": "Personal Information",
+  "driverName": "Driver Name",
+  "enterFullName": "Enter full name",
+  "companyLink": "Company Link",
+  "linkedToCompany": "Linked to company",
+  "companyLinkCodeOptional": "Company link code (optional)",
+  "enterCodeToJoinFleet": "Enter the code provided by your company to join their fleet.",
+  "payConfiguration": "Pay Configuration",
+  "basicHourlyRate": "Basic hourly rate",
+  "unpaidBreakDuration": "Unpaid break duration (minutes)",
+  "shiftAllowances": "Shift Allowances",
+  "addAllowance": "Add allowance",
+  "overtimeRules": "Overtime Rules",
+  "overtimeThreshold": "Overtime threshold",
+  "rateMultiplier": "Rate multiplier",
+  "addAnotherTier": "Add another tier",
+  "invalidCode": "Invalid Code",
+  "companyCodeNotFound": "We couldn't find that company code.",
+  "expiredCodeTitle": "Code Expired",
+  "expiredCodeMessage": "That company code has expired. Please request a new one.",
+  "privacyTitle": "Privacy & Your Data",
+  "privacySubtitle": "Your Data, Your Control",
+  "privacyIntro": "We are committed to protecting your privacy. This policy explains what data HourWise collects to provide its features, how it's stored, and how you remain in control of your information.",
+  "privacyWhyTitle": "Why We Collect Data",
+  "privacyWhyDesc": "We only collect data that is essential for the app's core functionality, such as calculating your work hours, ensuring compliance with EU regulations, and generating accurate reports and invoices.",
+  "privacyDataCollectedTitle": "What We Store",
+  "privacyDataCollectedDesc": "To enable all features, we securely store the following information you provide:",
+  "privacyDataPoints": [
+    "Your name (for reports)",
+    "Your recorded shifts (start/end times, driving, work, breaks, POA)",
+    "Location data (solely for automatic driving detection)",
+    "Compliance scores and rule violations",
+    "Expense details, including receipt images and extracted text",
+    "Pay configuration settings (optional, for pay estimates)",
+    "Business profile and bank details (optional, for invoicing)"
+  ],
+  "privacyStorageTitle": "Secure Cloud Storage",
+  "privacyStorageDesc": "Your data is stored in your own private, secure cloud account, synchronized across your devices. We use industry-standard encryption to protect it both in transit and at rest.",
+  "privacyControlTitle": "You Are In Control",
+  "privacyControlDesc": "The data stored is the data you create. You have the ability to view, edit, and permanently delete your work history, expenses, and personal information at any time through the app.",
+  "privacyThirdPartyTitle": "Third-Party Services",
+  "privacyThirdPartyDesc": "To provide features like receipt scanning, we may send data to third-party services. For instance, receipt images are sent to an OCR service to extract text. We do not share your data for marketing or advertising purposes.",
+  "privacyDisclaimerTitle": "Important",
+  "privacyDisclaimer": "While we use a secure, industry-standard system, no method of transmission over the internet is 100% secure. We cannot guarantee absolute security but are fully committed to protecting your data.",
+  "notification": {
+    "trackingTitle": "Tracking Driving Time",
+    "trackingBody": "HourWise is actively monitoring your location for driving."
+  },
+  "enableComplianceNotifications": "Please enable notifications to receive compliance alerts.",
+  "locationPermissionRequired": "Location permission is required for driving detection.",
+  "backgroundLocationPermissionRequired": "Background location permission is required to track driving reliably.",
+  "failedToResumeShift": "Failed to resume shift from server.",
+  "startShiftError": "Failed to start shift.",
+  "endShiftError": "Failed to end shift on server. Please check connection.",
+  "cannotGoToPoaFromBreak": "Cannot switch to POA while on break.",
+  "proactiveNotificationTitle": "Review of Your Last Shift",
+  "proactiveNotificationBody": "A friendly tip for today:",
+  "workTimeWarningTitle": "Work Time Warning",
+  "drivingTimeWarningTitle": "Driving Time Warning",
+  "workTime30minLeft": "30 minutes remaining in your work cycle.",
+  "workTime15minLeft": "15 minutes remaining in your work cycle.",
+  "workTime5minLeft": "5 minutes remaining in your work cycle.",
+  "workTimeLimitReached": "Work time limit reached.",
+  "drivingTime30minLeft": "30 minutes remaining in your driving cycle.",
+  "drivingTime15minLeft": "15 minutes remaining in your driving cycle.",
+  "drivingTime5minLeft": "5 minutes remaining in your driving cycle.",
+  "drivingTimeLimitReached": "Driving time limit reached.",
+  "audioShiftStarted": "Shift started.",
+  "audioShiftEnded": "Shift ended.",
+  "audioBreakStarted": "Break started.",
+  "audioResumeWork": "Resuming work.",
+  "audioPoaStarted": "POA started.",
+  "audioDrivingTimeReset": "Driving time reset.",
+  "audioDrivingLimitReached": "Driving limit reached.",
+  "audioDriving5minLeft": "5 minutes of driving remaining.",
+  "audioDriving15minLeft": "15 minutes of driving remaining.",
+  "audioDriving30minLeft": "30 minutes of driving remaining.",
+  "audioWork5h15": "15 minutes remaining in your work cycle.",
+  "audioWork5h30": "30 minutes remaining in your work cycle.",
+  "audioWork5h55": "5 minutes remaining in your work cycle.",
+  "safetyWarningTitle": "Safety Warning",
+  "safetyWarningBody": "Do not interact with the app while driving. Stop safely before making changes.",
+  "acknowledge": "Acknowledge",
+  "auth": {
+    "title": {
+      "signIn": "Sign In",
+      "signUp": "Create Account"
+    },
+    "subtitle": {
+      "signIn": "Welcome back! Please sign in.",
+      "signUp": "Join us and start tracking your hours."
+    },
+    "fields": {
+      "email": {
+        "label": "Email Address",
+        "placeholder": "your.email@example.com"
+      },
+      "password": {
+        "label": "Password",
+        "placeholder": "Enter your password"
+      },
+      "driverName": {
+        "label": "Driver's Full Name",
+        "placeholder": "e.g., John Smith"
+      },
+      "companyCode": {
+        "label": "Company Code",
+        "placeholder": "Enter code from your company"
+      }
+    },
+    "buttons": {
+      "signIn": "Sign In",
+      "createAccount": "Create Account"
+    },
+    "switchTo": {
+      "signUp": "Don't have an account? Sign Up",
+      "signIn": "Already have an account? Sign In"
+    },
+    "accountType": {
+      "solo": {
+        "title": "Solo Driver",
+        "subtitle": "Independent professional"
+      },
+      "fleet": {
+        "title": "Fleet Member",
+        "subtitle": "Part of a company"
+      }
+    },
+    "alerts": {
+      "missingInfo": {
+        "title": "Missing Information",
+        "body": "Please fill in all required fields."
+      },
+      "companyCodeRequired": {
+        "title": "Company Code Required",
+        "body": "Please enter your company's code to proceed as a fleet member."
+      },
+      "invalidCode": {
+        "title": "Invalid Code",
+        "expired": "This company code has expired. Please request a new one.",
+        "notFound": "The company code you entered is not valid."
+      },
+      "signUpError": {
+        "title": "Sign-Up Error"
+      },
+      "signUpFailed": {
+        "title": "Sign-Up Failed",
+        "body": "We could not create your account at this time. Please try again later."
+      },
+      "profileCreationFailed": {
+        "title": "Profile Creation Failed",
+        "body": "Your account was created, but we failed to set up your profile. Please contact support."
+      },
+      "checkEmail": {
+        "title": "Check Your Email",
+        "body": "A confirmation link has been sent to your email address. Please verify your account to continue."
+      },
+      "signInMissing": {
+        "title": "Missing Information",
+        "body": "Please enter both your email and password."
+      },
+      "signInError": {
+        "title": "Sign-In Error"
+      }
+    }
+  },
+  "paywall": {
+    "title": "Unlock HourWise Pro",
+    "subtitle": "Access all premium features including unlimited tracking and reports.",
+    "subscribeNow": "Subscribe Now",
+    "restorePurchases": "Restore Purchases",
+    "loading": "Opening…",
+    "restoring": "Restoring…",
+    "alert": {
+      "successTitle": "Success",
+      "purchased": "Your purchase has been completed!",
+      "restored": "Your purchases have been restored!",
+      "paywallError": "An error occurred. Please try again.",
+      "couldNotDisplay": "Could not display the subscription page.",
+      "restoreSuccess": "Your purchases have been restored.",
+      "noPurchasesTitle": "No Purchases Found",
+      "noPurchasesBody": "We couldn't find any active subscriptions to restore.",
+      "restoreError": "Could not restore purchases."
+    }
+  },
+  "settings": {
+    "subscription": {
+      "openError": "Could not open subscription management page.",
+      "opening": "Opening…"
+    }
+  },
+  "businessProfile": {
+    "title": "Business Profile",
+    "subtitle": "For invoices and reports",
+    "alerts": {
+      "profileSaved": "Business profile saved successfully."
+    },
+    "sections": {
+      "companyDetails": "Company Details",
+      "bankDetails": "Bank Details",
+      "companyLogo": "Company Logo"
+    },
+    "fields": {
+      "legalName": {
+        "label": "Legal / Company Name",
+        "placeholder": "e.g., Your Company Ltd."
+      },
+      "address": {
+        "label": "Business Address",
+        "placeholder": "Enter your full business address"
+      },
+      "email": {
+        "label": "Contact Email",
+        "placeholder": "e.g., contact@your.company"
+      },
+      "phone": {
+        "label": "Contact Phone",
+        "placeholder": "e.g., +447123456789"
+      },
+      "taxId": {
+        "label": "VAT / Tax ID",
+        "placeholder": "e.g., GB123456789"
+      },
+      "accountName": {
+        "label": "Bank Account Name",
+        "placeholder": "Name of the account holder"
+      },
+      "sortCode": {
+        "label": "Sort Code",
+        "placeholder": "e.g., 12-34-56"
+      },
+      "accountNumber": {
+        "label": "Account Number",
+        "placeholder": "e.g., 12345678"
+      },
+      "iban": {
+        "label": "IBAN",
+        "placeholder": "e.g., GB29 NWBK 6016 1331 9268 19"
+      }
+    }
+  },
+  "violation": {
+    "EXCEEDED_6H_WORK": {
+      "title": "Exceeded 6 Hours Work Without Break",
+      "tip": "A 30-minute break is required after 6 hours of work. Plan your breaks accordingly."
+    },
+    "INSUFFICIENT_BREAK_FOR_9H_WORK": {
+      "title": "Insufficient Break for >9 Hours Work",
+      "tip": "For shifts over 9 hours, a total of 45 minutes in breaks is required."
+    },
+    "INSUFFICIENT_DAILY_REST": {
+      "title": "Insufficient Daily Rest",
+      "tip": "Ensure you take at least 11 hours of daily rest between shifts. This can be reduced to 9 hours three times a week."
+    },
+    "REDUCED_DAILY_REST_TAKEN": {
+      "title": "Reduced Daily Rest Taken",
+      "tip": "You have taken a reduced daily rest period. Remember, you can only do this three times between any two weekly rest periods."
+    },
+    "EXCEEDED_4_5H_DRIVING": {
+      "title": "Exceeded 4.5 Hours Driving",
+      "tip": "You must take a 45-minute break after 4.5 hours of continuous driving."
+    },
+    "EXCEEDED_DAILY_DRIVING_LIMIT": {
+      "title": "Exceeded Daily Driving Limit",
+      "tip": "Daily driving is limited to 9 hours, extendable to 10 hours only twice a week."
+    },
+    "USED_10H_DRIVING_EXTENSION": {
+      "title": "10-Hour Driving Extension Used",
+      "tip": "You have used one of your two weekly 10-hour driving extensions."
+    },
+    "EXCEEDED_WEEKLY_DRIVING_LIMIT": {
+      "title": "Exceeded Weekly Driving Limit",
+      "tip": "The maximum weekly driving time is 56 hours. Plan your weeks carefully to stay within this limit."
+    },
+    "EXCEEDED_WEEKLY_WORK_LIMIT": {
+      "title": "Exceeded Weekly Work Limit",
+      "tip": "The maximum weekly working time is 60 hours in any single week. Ensure you take adequate rest."
+    },
+    "WORK_TIME_LIMIT_EXCEEDED": {
+      "title": "Work Time Limit Exceeded",
+      "tip": "You exceeded your work cycle limit. The overage of {{time}} has been recorded."
+    },
+    "FORTNIGHTLY_DRIVING_LIMIT_EXCEEDED": {
+      "title": "Exceeded Fortnightly Driving Limit",
+      "tip": "The maximum driving time in any two consecutive weeks is 90 hours."
+    },
+    "default": {
+      "title": "Compliance Violation",
+      "tip": "A compliance rule was broken. Review your shift details to ensure all rules are followed."
+    }
+  },
+  "dateRangeError": "End date must be after start date.",
+  "noDataForRange": "No data found for this period.",
+  "failedToGenerate": "Failed to generate report.",
+  "workReport": "Work Report",
+  "reportFrom": "From",
+  "to": "To",
+  "summary": "Summary",
+  "totalWorkTime": "Total Work Time",
+  "totalBreakTime": "Total BreakTime",
+  "estimatedEarnings": "Estimated Earnings",
+  "previousWeek": "Previous Week",
+  "lastMonth": "Last Month",
+  "customRange": "Custom Range",
+  "generateReport": "Generate Report"
+}

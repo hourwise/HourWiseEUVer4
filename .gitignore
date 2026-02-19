@@ -7,7 +7,9 @@ gitignore
 # Expo
 /.expo
 /dist
-/web-build# Native build artifacts
+/web-build
+
+# Native build artifacts
 .kotlin/
 *.orig.*
 *.jks
@@ -33,12 +35,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# -- CRITICAL: Local Environment Variables --
-# Ignore all .env files. Only commit .env.example.
+# -- CRITICAL: Local Environment Variables & Config --
+# Ignore all .env files and sensitive config files.
 .env
 .env*.local
-
-# --- Platform-specific config files ---
 google-services.json
 credentials.json
 
