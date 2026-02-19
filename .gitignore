@@ -38,6 +38,9 @@ yarn-error.*
 .env
 .env*.local
 
+# --- Platform-specific config files ---
+google-services.json
+
 # TypeScript build info
 *.tsbuildinfo
 
