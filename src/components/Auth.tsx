@@ -1,228 +1,136 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  TouchableWithoutFeedback,
-  Keyboard
+  StyleSheet,
+  Alert,
+  Image,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { User, Lock, Mail, LucideIcon } from 'lucide-react-native';
-import * as LocalAuthentication from 'expo-local-authentication';
+import { verifyInviteCode, acceptInvite } from '../lib/inviteService';
+import type { Database } from '../lib/database.types';
 
-// --- Reusable Input Component ---
-interface InputFieldProps {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  onChangeText: (text: string) => void;
-  placeholder: string;
-  secureTextEntry?: boolean;
-  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
-  keyboardType?: 'default' | 'email-address' | 'numeric';
-}
+type Invite = Database['public']['Tables']['driver_invites']['Row'];
+type AccountType = 'solo' | 'fleet';
 
-const InputField = ({
-  icon: Icon,
-  label,
-  value,
-  onChangeText,
-  placeholder,
-  secureTextEntry,
-  autoCapitalize = 'none',
-  keyboardType = 'default'
-}: InputFieldProps) => (
-  <View>
-    <Text className="text-white mb-2 font-semibold">{label}</Text>
-    <View className="flex-row items-center bg-slate-700 rounded-lg px-3 border border-slate-600 focus:border-blue-500">
-      <Icon color="#94a3b8" size={20} />
-      <TextInput
-        className="flex-1 p-3 text-white h-12"
-        placeholder={placeholder}
-        placeholderTextColor="#64748b"
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry}
-        autoCapitalize={autoCapitalize}
-        keyboardType={keyboardType}
-      />
-    </View>
-  </View>
-);
+export default function Auth() {
+  // CORRECTED: Default to 'signIn' for returning users.
+  const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
+  const [accountType, setAccountType] = useState<AccountType>('solo');
 
-/// --- Main Component ---
- export default function Auth() {
-    const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [driverName, setDriverName] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+
+  const [verifiedInvite, setVerifiedInvite] = useState<Invite | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isBiometricSupported, setIsBiometricSupported] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
-  useEffect(() => {
-    checkBiometrics();
-    checkExistingSession();
-  }, []);
+  const handleVerifyCode = async () => {
+    setVerifying(true);
+    const inviteData = await verifyInviteCode(inviteCode);
+    setVerifying(false);
 
-  const checkBiometrics = async () => {
-    const compatible = await LocalAuthentication.hasHardwareAsync();
-    const enrolled = await LocalAuthentication.isEnrolledAsync();
-    setIsBiometricSupported(compatible && enrolled);
-  };
-
-  // improved session check utilizing Supabase persistence instead of unsafe storage
-  const checkExistingSession = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        // If a session exists, try to unlock with biometrics immediately
-        promptBiometrics();
-      }
-    } catch (error) {
-      console.log('Session check failed', error);
+    if (inviteData) {
+      Alert.alert("Success", "Invite code is valid. Your details have been pre-filled.");
+      setVerifiedInvite(inviteData);
+      setEmail(inviteData.email || '');
+      setFullName(inviteData.full_name || '');
+    } else {
+      Alert.alert("Error", "Invalid or expired invite code. Please check the code and try again.");
     }
   };
 
-  const promptBiometrics = async () => {
-    if (!isBiometricSupported) return;
-
-    const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Unlock with Biometrics',
-      fallbackLabel: 'Use Passcode',
-    });
-
-    if (result.success) {
-        }
-  };
-
-  const handleAuth = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-    if (mode === 'signUp' && !driverName) {
-        Alert.alert('Error', 'Please enter your name');
-        return;
-    }
+  const handleSignUp = async () => {
+    if (accountType === 'fleet' && !verifiedInvite) return Alert.alert("Error", "Please verify your invite code before creating an account.");
+    if (!email || !password) return Alert.alert("Error", "Email and password are required.");
+    if (accountType === 'solo' && !fullName) return Alert.alert("Error", "Please enter your full name.");
 
     setLoading(true);
+
     try {
-      if (mode === 'signIn') {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
+        const { data, error: authError } = await supabase.auth.signUp({ email, password });
+
+        if (authError) throw new Error(authError.message);
+        if (!data.user) throw new Error('Could not create user account. Please try again.');
+
+        const { error: profileError } = await supabase.from('profiles').insert({
+            id: data.user.id, user_id: data.user.id, email: data.user.email,
+            full_name: fullName, account_type: accountType,
+            company_id: verifiedInvite?.company_id || null, role: 'driver'
         });
-        if (error) throw error;
-        // Supabase client automatically persists the session now.
-      } else {
-        const { data: { user, session }, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-        if (signUpError) throw signUpError;
 
-        if (user && !session) {
-             Alert.alert('Check your email', 'Please check your email for a confirmation link to complete your registration.');
-             setLoading(false);
-             return;
-        }
+        if (profileError) console.warn("Best-effort profile creation failed on signup:", profileError.message);
+        if (accountType === 'fleet' && verifiedInvite) await acceptInvite(verifiedInvite.id, data.user.id);
+        if (!data.session && data.user) Alert.alert("Check Your Email", "A confirmation link has been sent.");
 
-        if (user && session) {
-            const { error: profileError } = await supabase
-                .from('driver_profiles')
-                .upsert(
-                    { user_id: user.id, driver_name: driverName },
-                    { onConflict: 'user_id' }
-                );
-
-            if (profileError) {
-                console.error("Error creating profile:", profileError);
-                throw new Error("Account created, but failed to save profile. Please try logging in.");
-            }
-        }
-      }
-
-         } catch (error: any) {
-      Alert.alert('Authentication Error', error.message || 'An unexpected error occurred');
+    } catch (error: any) {
+        Alert.alert('Sign-Up Error', error.message);
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 
+  async function handleLogin() {
+    setLoading(true);
+    try {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw new Error(error.message);
+    } catch (error: any) {
+        Alert.alert("Login Failed", error.message);
+    } finally {
+        setLoading(false);
+    }
+   }
+
+  const renderSignUpForm = () => (
+    <>
+      <View style={styles.toggleContainer}><TouchableOpacity style={[styles.toggleButton, accountType === 'solo' && styles.toggleButtonActive]} onPress={() => setAccountType('solo')}><Text style={[styles.toggleButtonText, accountType === 'solo' && styles.toggleButtonTextActive]}>Solo Driver</Text></TouchableOpacity><TouchableOpacity style={[styles.toggleButton, accountType === 'fleet' && styles.toggleButtonActive]} onPress={() => setAccountType('fleet')}><Text style={[styles.toggleButtonText, accountType === 'fleet' && styles.toggleButtonTextActive]}>Fleet Member</Text></TouchableOpacity></View>
+      {accountType === 'solo' ? (<TextInput style={styles.input} placeholder="Full Name" value={fullName} onChangeText={setFullName} placeholderTextColor="#94a3b8" />) : (<><View style={styles.inviteContainer}><TextInput style={[styles.input, styles.inviteInput]} placeholder="Invite Code" value={inviteCode} onChangeText={setInviteCode} autoCapitalize="characters" editable={!verifiedInvite} placeholderTextColor="#94a3b8" /><TouchableOpacity style={styles.verifyButton} onPress={handleVerifyCode} disabled={verifying || !!verifiedInvite}>{verifying ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Verify</Text>}</TouchableOpacity></View>{verifiedInvite && <Text style={styles.verifiedText}>✓ Verified: Welcome, {fullName}!</Text>}</>)}
+      <TextInput style={[styles.input, verifiedInvite && styles.inputDisabled]} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" editable={!verifiedInvite} placeholderTextColor="#94a3b8" />
+      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry placeholderTextColor="#94a3b8" />
+    </>
+  );
+
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1 bg-slate-900 justify-center p-4"
-      >
-        <View className="w-full max-w-md bg-slate-800 p-6 rounded-2xl shadow-xl">
-          <Text className="text-3xl font-bold text-white text-center mb-2">
-            {mode === 'signIn' ? 'Welcome Back' : 'Create Account'}
-          </Text>
-          <Text className="text-slate-400 text-center mb-8">
-            {mode === 'signIn' ? 'Sign in to start your shift' : 'Set up your driver profile'}
-          </Text>
-
-          <View className="space-y-4">
-            {mode === 'signUp' && (
-              <InputField
-                label="Driver Name"
-                icon={User}
-                value={driverName}
-                onChangeText={setDriverName}
-                placeholder="Your Full Name"
-                autoCapitalize="words"
-              />
-            )}
-
-            <InputField
-              label="Email"
-              icon={Mail}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="email@example.com"
-              keyboardType="email-address"
-            />
-
-            <InputField
-              label="Password"
-              icon={Lock}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="••••••••"
-              secureTextEntry
-            />
-
-            <TouchableOpacity
-              onPress={handleAuth}
-              disabled={loading}
-              className="bg-blue-600 p-4 rounded-lg mt-4 active:bg-blue-700"
-            >
-              {loading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text className="text-white text-center font-bold text-lg">
-                  {mode === 'signIn' ? 'Sign In' : 'Create Account'}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}
-              className="mt-4 p-2"
-            >
-              <Text className="text-slate-400 text-center">
-                {mode === 'signIn' ? "Don't have an account? Sign Up" : 'Already have an account? Sign In'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </TouchableWithoutFeedback>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
+      <View style={{ alignItems: 'center', marginBottom: 32 }}><Image source={require('../../assets/favicon.png')} style={styles.logo} /><Text style={styles.appName}>HourWise EU</Text><Text style={styles.tagline}>EU Compliance & Work Time Tracking Made Simple</Text></View>
+      <View style={styles.card}>
+        <Text style={styles.title}>{mode === 'signIn' ? 'Sign In' : 'Create Account'}</Text>
+        {mode === 'signUp' && renderSignUpForm()}
+        {mode === 'signIn' && (<><TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" placeholderTextColor="#94a3b8" /><TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry placeholderTextColor="#94a3b8" /></>)}
+        <TouchableOpacity style={styles.button} onPress={mode === 'signIn' ? handleLogin : handleSignUp} disabled={loading}>{loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue</Text>}</TouchableOpacity>
+        <TouchableOpacity onPress={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}><Text style={styles.switch}>{mode === 'signIn' ? "Don't have an account? Sign Up" : 'Already have an account? Sign In'}</Text></TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  logo: { width: 120, height: 120, resizeMode: 'contain', marginBottom: 12 },
+  appName: { fontSize: 32, fontWeight: 'bold', color: 'white' },
+  tagline: { fontSize: 16, color: '#94a3b8', marginTop: 4 },
+  card: { width: '100%', maxWidth: 450, backgroundColor: '#1e293b', padding: 24, borderRadius: 16, marginTop: 20 },
+  title: { fontSize: 24, color: 'white', marginBottom: 20, textAlign: 'center', fontWeight: 'bold' },
+  input: { backgroundColor: '#334155', padding: 12, marginBottom: 10, color: 'white', borderRadius: 8 },
+  inputDisabled: { backgroundColor: '#475569' },
+  button: { backgroundColor: '#2563eb', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 10 },
+  buttonText: { color: 'white', fontWeight: '600' },
+  switch: { color: '#94a3b8', textAlign: 'center', marginTop: 12 },
+  toggleContainer: { flexDirection: 'row', backgroundColor: '#334155', borderRadius: 8, marginBottom: 16, padding: 4 },
+  toggleButton: { flex: 1, paddingVertical: 10, borderRadius: 6 },
+  toggleButtonActive: { backgroundColor: '#4f46e5' },
+  toggleButtonText: { color: '#94a3b8', textAlign: 'center', fontWeight: '600' },
+  toggleButtonTextActive: { color: 'white' },
+  inviteContainer: { flexDirection: 'row', gap: 8 },
+  inviteInput: { flex: 1, marginBottom: 0 },
+  verifyButton: { backgroundColor: '#16a34a', paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
+  verifiedText: { color: '#4ade80', marginBottom: 10, fontStyle: 'italic' },
+});

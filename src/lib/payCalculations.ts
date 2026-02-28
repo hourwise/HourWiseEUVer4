@@ -1,179 +1,157 @@
 // src/lib/payCalculations.ts
 
 // --- 1. Interfaces ---
-interface OvertimeTier {
+interface Tier {
     threshold: number;
-multiplier?: number;
-percentage?: number;
+    rate?: number; // Can be a direct rate or multiplier
+    multiplier?: number;
+    unit: 'day' | 'week' | 'month' | 'hour' | 'shift';
+}
+
+interface Allowance {
+    amount: number;
+    unit: 'hour' | 'day' | 'week' | 'month' | 'shift';
 }
 
 interface PayConfiguration {
-hourlyRate: number;
-shiftAllowance: number;
-overtimeThresholdHours?: number;
-overtimeRateMultiplier?: number;
-overtimeRatePercentage?: number;
-unpaidBreakMinutes: number;
-additionalOvertimeTiers?: OvertimeTier[];
+    hourlyRate: number;
+    unpaidBreakMinutes: number;
+    overtimeThreshold?: number;
+    overtimeThresholdUnit?: 'day' | 'week' | 'month';
+    overtimeRateMultiplier?: number;
+    additionalOvertimeTiers?: Tier[];
+    allowanceTiers?: Allowance[];
 }
 
 interface WorkSession {
-startTime: string;
-endTime: string;
-totalWorkMinutes: number;
+    date: string; // YYYY-MM-DD
+    totalWorkMinutes: number;
 }
 
-// --- 2. Helper: Safe Rate Calculation ---
-const calculateTierRate = (baseRate: number, tier: OvertimeTier): number => {
-if (tier.multiplier !== undefined) {
-    return baseRate * tier.multiplier;
-  }
-  if (tier.percentage !== undefined) {
-    return baseRate * (1 + tier.percentage / 100);
-  }
-  return baseRate;
+interface DailyPayDetails {
+    date: string;
+    basePay: number;
+    overtimePay: number;
+    allowancePay: number;
+    totalPay: number;
+    paidMinutes: number;
+}
+
+// --- 2. Core Calculation Logic ---
+
+/**
+ * Calculates pay for a set of sessions based on the provided configuration.
+ * This is the main exported function.
+ */
+export const calculatePay = (
+    sessions: WorkSession[],
+    config: PayConfiguration
+): Map<string, DailyPayDetails> => {
+    const dailyMinutes = new Map<string, number>();
+    for (const session of sessions) {
+        const currentMins = dailyMinutes.get(session.date) || 0;
+        dailyMinutes.set(session.date, currentMins + session.totalWorkMinutes);
+    }
+
+    const weeklyTotalMinutes = Array.from(dailyMinutes.values()).reduce((a, b) => a + b, 0);
+    let weeklyOvertimeMinutes = 0;
+
+    if (config.overtimeThresholdUnit === 'week' && config.overtimeThreshold) {
+        const weeklyThresholdMinutes = config.overtimeThreshold * 60;
+        if (weeklyTotalMinutes > weeklyThresholdMinutes) {
+            weeklyOvertimeMinutes = weeklyTotalMinutes - weeklyThresholdMinutes;
+        }
+    }
+
+    const results = new Map<string, DailyPayDetails>();
+
+    for (const [date, totalMinutes] of dailyMinutes.entries()) {
+        const paidMinutes = Math.max(0, totalMinutes - config.unpaidBreakMinutes);
+        let hoursWorked = paidMinutes / 60;
+
+        let basePay = 0;
+        let overtimePay = 0;
+
+        // Daily Overtime Calculation
+        if (config.overtimeThresholdUnit === 'day' && config.overtimeThreshold && hoursWorked > config.overtimeThreshold) {
+            const baseHours = config.overtimeThreshold;
+            const overtimeHours = hoursWorked - baseHours;
+            basePay = baseHours * config.hourlyRate;
+            overtimePay = overtimeHours * config.hourlyRate * (config.overtimeRateMultiplier || 1);
+        } else {
+            basePay = hoursWorked * config.hourlyRate;
+        }
+
+        // Weekly Overtime Distribution (simplified)
+        // This distributes weekly overtime pay proportionally across the days worked
+        if (weeklyOvertimeMinutes > 0) {
+            const dailyProportion = totalMinutes / weeklyTotalMinutes;
+            const otMinutesForDay = weeklyOvertimeMinutes * dailyProportion;
+            overtimePay += (otMinutesForDay / 60) * config.hourlyRate * (config.overtimeRateMultiplier || 1);
+            // To prevent double counting, we'd need a more elaborate system,
+            // but for now, we remove the base pay attributed to these minutes.
+            basePay -= (otMinutesForDay / 60) * config.hourlyRate;
+        }
+
+        // Allowance Calculation
+        const allowancePay = (config.allowanceTiers || []).reduce((total, allowance) => {
+            if (allowance.unit === 'shift' || allowance.unit === 'day') {
+                return total + allowance.amount;
+            }
+            if (allowance.unit === 'hour') {
+                return total + (allowance.amount * hoursWorked);
+            }
+            return total;
+        }, 0);
+
+        const totalPay = basePay + overtimePay + allowancePay;
+
+        results.set(date, {
+            date,
+            basePay,
+            overtimePay,
+            allowancePay,
+            totalPay,
+            paidMinutes,
+        });
+    }
+
+    return results;
 };
 
-// --- 3. Core Calculation Logic ---
-function calculateDailyPayInternal(
-  sessions: WorkSession[],
-  payConfig: PayConfiguration
-): number {
-  if (!sessions || sessions.length === 0) {
-    return 0;
-  }
 
-  const totalMinutesWorked = sessions.reduce(
-    (sum, session) => sum + session.totalWorkMinutes,
-    0
-  );
-
-  // Ensure we don't subtract more break time than worked time
-  const paidMinutes = Math.max(0, totalMinutesWorked - payConfig.unpaidBreakMinutes);
-  const hoursWorked = paidMinutes / 60;
-
-  // --- DEBUGGING BLOCK: FORCE LOG ONCE ---
-  // This log will show up in your Metro bundler terminal
-  if (sessions.length > 0) {
-     console.log(`[PAY CALC] Rate: £${payConfig.hourlyRate}/hr | Raw Mins: ${totalMinutesWorked} | Config Break Ded: ${payConfig.unpaidBreakMinutes}m | Final Paid Mins: ${paidMinutes}`);
-  }
-  // ---------------------------------------
-
-  if (hoursWorked <= 0) {
-    return 0;
-  }
-
-  let totalPay = 0;
-
-  // Base Pay
-  const threshold = payConfig.overtimeThresholdHours ?? Infinity;
-  const baseHours = Math.min(hoursWorked, threshold);
-
-  totalPay += baseHours * payConfig.hourlyRate;
-
-  // Overtime Logic
-  const totalOvertimeHours = Math.max(0, hoursWorked - baseHours);
-
-  if (totalOvertimeHours > 0) {
-    const tiers: OvertimeTier[] = [];
-
-    const hasLegacyConfig = payConfig.overtimeRateMultiplier || payConfig.overtimeRatePercentage;
-    if (hasLegacyConfig || !payConfig.additionalOvertimeTiers?.length) {
-       tiers.push({
-        threshold: 0,
-        multiplier: payConfig.overtimeRateMultiplier,
-        percentage: payConfig.overtimeRatePercentage,
-      });
-    }
-
-    if (payConfig.additionalOvertimeTiers) {
-      tiers.push(...payConfig.additionalOvertimeTiers);
-    }
-
-    tiers.sort((a, b) => a.threshold - b.threshold);
-
-    for (let i = 0; i < tiers.length; i++) {
-      const currentTier = tiers[i];
-      const nextTier = tiers[i + 1];
-      const tierStart = currentTier.threshold;
-      const tierEnd = nextTier ? nextTier.threshold : Infinity;
-
-      const hoursInThisTier = Math.max(0, Math.min(totalOvertimeHours, tierEnd) - tierStart);
-
-      if (hoursInThisTier > 0) {
-        const rate = calculateTierRate(payConfig.hourlyRate, currentTier);
-        totalPay += hoursInThisTier * rate;
-      }
-    }
-  }
-
-  totalPay += payConfig.shiftAllowance;
-
-  return Number(totalPay.toFixed(2));
-}
-
-
-// --- 4. EXPORTED ADAPTERS ---
+// --- 3. EXPORTED ADAPTERS ---
 
 export const formatCurrency = (amount: number | undefined | null, currencySymbol = '£') => {
   if (amount === undefined || amount === null || isNaN(amount)) {
     return `${currencySymbol}0.00`;
   }
-  try {
-      return new Intl.NumberFormat('en-GB', {
-        style: 'currency',
-        currency: 'GBP',
-      }).format(amount);
-  } catch (e) {
-      return `${currencySymbol}${amount.toFixed(2)}`;
-  }
+  return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(amount);
 };
 
-export const calculateDailyPay = (rawSessions: any[], rawConfig: any): number => {
+// This adapter prepares raw Supabase data for the calculation engine.
+export const calculatePayFromRaw = (rawSessions: any[], rawConfig: any): Map<string, DailyPayDetails> => {
     if (!rawConfig) {
-        console.log("[PAY ERROR] No Pay Configuration found.");
-        return 0;
-    }
-    if (!rawSessions || rawSessions.length === 0) {
-        return 0;
+        console.warn("[PAY CALC] No Pay Configuration found.");
+        return new Map();
     }
 
-    const safeNum = (val: any) => {
-        const n = Number(val);
-        return isNaN(n) ? 0 : n;
-    };
+    const safeNum = (val: any, defaultVal = 0) => (val === null || val === undefined || isNaN(Number(val))) ? defaultVal : Number(val);
 
     const payConfig: PayConfiguration = {
         hourlyRate: safeNum(rawConfig.hourly_rate),
-        shiftAllowance: safeNum(rawConfig.shift_allowance),
-        overtimeThresholdHours: rawConfig.overtime_threshold_hours ? safeNum(rawConfig.overtime_threshold_hours) : undefined,
-        overtimeRateMultiplier: rawConfig.overtime_rate_multiplier ? safeNum(rawConfig.overtime_rate_multiplier) : undefined,
-        overtimeRatePercentage: rawConfig.overtime_rate_percentage ? safeNum(rawConfig.overtime_rate_percentage) : undefined,
         unpaidBreakMinutes: safeNum(rawConfig.unpaid_break_minutes),
-        additionalOvertimeTiers: rawConfig.additional_overtime_tiers || []
+        overtimeThreshold: rawConfig.overtime_threshold_hours ? safeNum(rawConfig.overtime_threshold_hours) : undefined,
+        overtimeThresholdUnit: rawConfig.overtime_threshold_unit,
+        overtimeRateMultiplier: rawConfig.overtime_rate_multiplier ? safeNum(rawConfig.overtime_rate_multiplier) : undefined,
+        additionalOvertimeTiers: rawConfig.additional_overtime_tiers || [],
+        allowanceTiers: rawConfig.allowance_tiers || [],
     };
 
     const sessions: WorkSession[] = rawSessions.map(s => ({
-        startTime: s.start_time,
-        endTime: s.end_time,
-        totalWorkMinutes: safeNum(s.total_work_minutes)
+        date: s.date, // Assuming session has a 'date' field in 'YYYY-MM-DD' format
+        totalWorkMinutes: safeNum(s.total_work_minutes),
     }));
 
-    return calculateDailyPayInternal(sessions, payConfig);
-};
-
-export const calculateWeeklyPay = (dailyPays: Map<string, number>, weekStartDate: Date): number => {
-  let weeklyTotal = 0;
-  const currentCursor = new Date(weekStartDate);
-
-  for (let i = 0; i < 7; i++) {
-    const dateStr = currentCursor.toISOString().split('T')[0];
-    const pay = dailyPays.get(dateStr);
-    if (pay) {
-      weeklyTotal += pay;
-    }
-    currentCursor.setDate(currentCursor.getDate() + 1);
-  }
-
-  return Number(weeklyTotal.toFixed(2));
+    return calculatePay(sessions, payConfig);
 };

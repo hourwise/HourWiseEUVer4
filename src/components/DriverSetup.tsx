@@ -1,437 +1,173 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, Modal, Platform, Switch } from 'react-native';
-import { X, User, DollarSign, Clock, Save, Trash2, Plus } from 'lucide-react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, StyleSheet, SafeAreaView } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { Save, Plus, Trash2, X } from 'react-native-feather';
 import { Session } from '@supabase/supabase-js';
+import { useAuth } from '../providers/AuthProvider';
 
-type Unit = 'day' | 'week' | 'month';
+// Types
+type OvertimeUnit = 'day' | 'week' | 'month';
+type AllowanceUnit = 'hour' | 'day' | 'week' | 'month' | 'shift';
 
-interface AdditionalTier {
-    id: string;
-    threshold: string;
-    unit: Unit;
-    multiplier: string;
-    percentage: string;
-}
+interface Tier { id: string; threshold: string; rate: string; unit: OvertimeUnit; }
+interface AllowanceTier { id:string; amount: string; unit: AllowanceUnit; }
 
 interface DriverSetupProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: () => void;
-  // FIX: t is explicitly defined as a function here
-  session: Session;
+  session: Session | null;
+  onClose?: () => void;
 }
 
-const UNIT_LABEL: Record<Unit, string> = {
-  day: 'Per Day',
-  week: 'Per Week',
-  month: 'Per Month'
+const createOvertimeTier = (): Tier => ({ id: Math.random().toString(36).substring(7), threshold: '', rate: '', unit: 'week' });
+const createAllowanceTier = (): AllowanceTier => ({ id: Math.random().toString(36).substring(7), amount: '', unit: 'shift' });
+
+const UnitSelector = ({ value, options, onChange }: { value: string, options: string[], onChange: (newValue: string) => void }) => {
+    const currentIndex = options.indexOf(value);
+    const nextIndex = (currentIndex + 1) % options.length;
+    return (
+        <TouchableOpacity style={styles.unitSelector} onPress={() => onChange(options[nextIndex])}>
+            <Text style={styles.unitSelectorText}>{value}</Text>
+        </TouchableOpacity>
+    );
 };
 
-const UNIT_ORDER: Unit[] = ['day', 'week', 'month'];
+const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose }) => {
+    const { t } = useTranslation();
+    const { refreshProfile } = useAuth(); // We only need refreshProfile now
+    const [loading, setLoading] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
 
-export default function DriverSetup({ isOpen, onClose, onSave, session }: DriverSetupProps) {
-  const { t } = useTranslation();
-  const [driverName, setDriverName] = useState('');
+    // Form state
+    const [fullName, setFullName] = useState('');
+    const [hourlyRate, setHourlyRate] = useState('');
+    const [unpaidBreakMinutes, setUnpaidBreakMinutes] = useState('');
+    const [overtimeThreshold, setOvertimeThreshold] = useState('');
+    const [overtimeThresholdUnit, setOvertimeThresholdUnit] = useState<OvertimeUnit>('week');
+    const [overtimeMultiplier, setOvertimeMultiplier] = useState('1.5');
+    const [additionalTiers, setAdditionalTiers] = useState<Tier[]>([]);
+    const [allowanceTiers, setAllowanceTiers] = useState<AllowanceTier[]>([]);
 
-  const [hourlyRate, setHourlyRate] = useState('');
-  const [shiftAllowance, setShiftAllowance] = useState('');
-  const [overtimeThreshold, setOvertimeThreshold] = useState('');
+    useEffect(() => {
+        const fetchExistingData = async () => {
+             if (!session?.user) { setLoading(false); return; }
+            setLoading(true);
+            try {
+                const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+                if (profileError && profileError.code !== 'PGRST116') throw profileError;
+                if (profile) setFullName(profile.full_name || '');
 
-  const [overtimeThresholdUnit, setOvertimeThresholdUnit] = useState<Unit>('day');
-
-  const [overtimeMultiplier, setOvertimeMultiplier] = useState('1.5');
-  const [overtimePercentage, setOvertimePercentage] = useState('');
-  const [unpaidBreak, setUnpaidBreak] = useState('');
-
-  const [loading, setLoading] = useState(false);
-  const [profileId, setProfileId] = useState<string | null>(null);
-
-  const [overtimeType, setOvertimeType] = useState<'multiplier' | 'percentage'>('multiplier');
-
-  const [previousShiftEnd, setPreviousShiftEnd] = useState<Date | null>(null);
-  const [showDateTimePicker, setShowDateTimePicker] = useState(false);
-  const [isFirstTime, setIsFirstTime] = useState(false);
-
-  const [additionalTiers, setAdditionalTiers] = useState<AdditionalTier[]>([]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadExistingData = async () => {
-      if (!session?.user) return;
-
-      try {
-        const { data: profile } = await supabase
-            .from('driver_profiles')
-            .select(`
-                *,
-                pay_configurations (*)
-            `)
-            .eq('user_id', session.user.id)
-            .maybeSingle();
-
-        if (isMounted) {
-            if (profile) {
-                setDriverName(profile.driver_name);
-                setProfileId(profile.id);
-
-                const payData = Array.isArray(profile.pay_configurations)
-                    ? profile.pay_configurations[0]
-                    : profile.pay_configurations;
-
-                if (payData) {
-                    setHourlyRate(payData.hourly_rate?.toString() || '');
-                    setShiftAllowance(payData.shift_allowance?.toString() || '');
-                    setOvertimeThreshold(payData.overtime_threshold_hours?.toString() || '');
-                    setOvertimeThresholdUnit((payData.overtime_threshold_unit as Unit) || 'day');
-                    setOvertimeMultiplier(payData.overtime_rate_multiplier?.toString() || '1.5');
-                    setOvertimePercentage(payData.overtime_rate_percentage?.toString() || '');
-                    setUnpaidBreak(payData.unpaid_break_minutes?.toString() || '');
-
-                    if (payData.overtime_rate_percentage !== null) setOvertimeType('percentage');
-
-                    if (payData.additional_overtime_tiers) {
-                        const tiers = payData.additional_overtime_tiers.map((tier: any) => ({
-                            id: Math.random().toString(),
-                            threshold: tier.threshold.toString(),
-                            unit: (tier.unit as Unit) || 'day',
-                            multiplier: tier.multiplier?.toString() || '',
-                            percentage: tier.percentage?.toString() || ''
-                        }));
-                        setAdditionalTiers(tiers);
-                    }
-                } else {
-                    setIsFirstTime(true);
-                }
-            } else {
-                setIsFirstTime(true);
+                const { data: payConfig, error: payError } = await supabase.from('pay_configurations').select('*').eq('user_id', session.user.id).single();
+                if (payError && payError.code !== 'PGRST116') throw payError;
+                 if (payConfig) {
+                    const mapTiers = (tiers: any) => (tiers && Array.isArray(tiers) && tiers.length > 0) ? tiers.map(t => ({ ...t, id: Math.random().toString(36).substring(7) })) : [];
+                    setHourlyRate(payConfig.hourly_rate?.toString() || '');
+                    setUnpaidBreakMinutes(payConfig.unpaid_break_minutes?.toString() || '');
+                    setOvertimeThreshold(payConfig.overtime_threshold_hours?.toString() || '');
+                    setOvertimeThresholdUnit(payConfig.overtime_threshold_unit as OvertimeUnit || 'week');
+                    setOvertimeMultiplier(payConfig.overtime_rate_multiplier?.toString() || '1.5');
+                    setAdditionalTiers(mapTiers(payConfig.additional_overtime_tiers));
+                    setAllowanceTiers(mapTiers(payConfig.allowance_tiers));
+                 }
+            } catch (error: any) {
+                console.error("Error fetching setup data:", error.message);
+            } finally {
+                setLoading(false);
             }
+        };
+        fetchExistingData();
+    }, [session]);
+
+    const addTier = (setter: React.Dispatch<React.SetStateAction<any[]>>, creator: () => any) => setter(prev => [...prev, creator()]);
+    const removeTier = (setter: React.Dispatch<React.SetStateAction<any[]>>, id: string) => setter(prev => prev.filter(t => t.id !== id));
+    const updateTier = (setter: React.Dispatch<React.SetStateAction<any[]>>, id: string, field: string, value: string) => setter(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
+
+    const handleSave = async () => {
+        if (!session?.user) return Alert.alert("Error", "You are not logged in.");
+        if (!fullName.trim()) return Alert.alert("Validation Error", "Please enter your full name.");
+
+        setIsSaving(true);
+        try {
+            const { error: profileError } = await supabase.from('profiles').upsert({ id: session.user.id, user_id: session.user.id, full_name: fullName.trim(), email: session.user.email }, { onConflict: 'id' });
+            if (profileError) throw profileError;
+
+            const payConfigData = {
+                user_id: session.user.id,
+                hourly_rate: parseFloat(hourlyRate) || 0,
+                unpaid_break_minutes: parseInt(unpaidBreakMinutes, 10) || 0,
+                overtime_threshold_hours: parseFloat(overtimeThreshold) || null,
+                overtime_threshold_unit: overtimeThresholdUnit,
+                overtime_rate_multiplier: parseFloat(overtimeMultiplier) || null,
+                additional_overtime_tiers: additionalTiers.filter(t => t.threshold && t.rate).map(t => ({ threshold: parseFloat(t.threshold), rate: parseFloat(t.rate), unit: t.unit })),
+                allowance_tiers: allowanceTiers.filter(t => t.amount).map(t => ({ amount: parseFloat(t.amount), unit: t.unit })),
+            };
+            const { error: payConfigError } = await supabase.from('pay_configurations').upsert(payConfigData, { onConflict: 'user_id' });
+            if (payConfigError) throw payConfigError;
+
+            // This will now trigger the AuthProvider to re-check the setup status
+            // and the AppNavigator will react automatically.
+            await refreshProfile();
+
+            if (onClose) onClose();
+        } catch (error: any) {
+            Alert.alert("Save Error", error.message);
+        } finally {
+            setIsSaving(false);
         }
-      } catch (err) {
-          console.error("Error loading data", err);
-      }
     };
 
-    if (isOpen) loadExistingData();
-
-    return () => { isMounted = false; };
-  }, [isOpen, session]);
-
-  const handleClearData = useCallback(async () => {
-      Alert.alert(
-          t('resetData'), // UPDATED to function call
-          t('confirmReset'), // UPDATED
-          [
-              { text: t('cancel'), style: 'cancel' }, // UPDATED
-              {
-                  text: t('delete'), // UPDATED
-                  style: 'destructive',
-                  onPress: async () => {
-                      setDriverName('');
-                      setHourlyRate('');
-                      setShiftAllowance('');
-                      setOvertimeThreshold('');
-                      setOvertimeThresholdUnit('day');
-                      setOvertimeMultiplier('1.5');
-                      setUnpaidBreak('');
-                      setAdditionalTiers([]);
-                  }
-              }
-          ]
-      );
-  }, [t]);
-
-  const handleSave = useCallback(async () => {
-    if (!session?.user) {
-      Alert.alert(t('error'), 'User not authenticated. Please restart the app.'); // UPDATED
-      return;
-    }
-    if (!driverName.trim()) {
-      Alert.alert(t('validationError'), t('pleaseEnterName')); // UPDATED
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const { data: profile, error: profileError } = await supabase
-        .from('driver_profiles')
-        .upsert({
-            user_id: session.user.id,
-            driver_name: driverName
-        }, { onConflict: 'user_id' })
-        .select()
-        .single();
-
-      if (profileError || !profile) {
-          console.error("Profile Save Error:", profileError);
-          throw new Error("Couldn't create profile");
-      }
-
-      const formattedTiers = additionalTiers
-        .map(tier => ({
-            threshold: parseFloat(tier.threshold),
-            unit: tier.unit,
-            multiplier: overtimeType === 'multiplier' ? (parseFloat(tier.multiplier) || undefined) : undefined,
-            percentage: overtimeType === 'percentage' ? (parseFloat(tier.percentage) || undefined) : undefined
-        }))
-        .filter(tier => !isNaN(tier.threshold));
-
-      const payConfigToSave = {
-        driver_profile_id: profile.id,
-        user_id: session.user.id,
-        hourly_rate: parseFloat(hourlyRate) || 0,
-        shift_allowance: parseFloat(shiftAllowance) || 0,
-        overtime_threshold_hours: overtimeThreshold ? parseFloat(overtimeThreshold) : null,
-        overtime_threshold_unit: overtimeThresholdUnit,
-        overtime_rate_multiplier: overtimeType === 'multiplier' ? (parseFloat(overtimeMultiplier) || null) : null,
-        overtime_rate_percentage: overtimeType === 'percentage' ? (parseFloat(overtimePercentage) || null) : null,
-        unpaid_break_minutes: parseFloat(unpaidBreak) || 0,
-        additional_overtime_tiers: formattedTiers
-      };
-
-      const { error: payError } = await supabase
-        .from('pay_configurations')
-        .upsert(payConfigToSave, { onConflict: 'driver_profile_id' });
-
-      if (payError) {
-          console.error("Pay Config Save Error:", payError);
-          throw new Error("Failed to save pay settings");
-      }
-
-      if (isFirstTime && previousShiftEnd) {
-        const { count } = await supabase.from('work_sessions').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('is_manual_entry', true);
-
-        if (count === 0) {
-             await supabase.from('work_sessions').insert({
-                 user_id: session.user.id,
-                 end_time: previousShiftEnd.toISOString(),
-                 is_manual_entry: true,
-                 date: previousShiftEnd.toISOString().split('T')[0],
-                 start_time: previousShiftEnd.toISOString()
-             });
-        }
-      }
-
-      onSave();
-      onClose();
-    } catch (error) {
-      console.error('Error saving driver data:', error);
-      Alert.alert(t('error'), t('failedToSave')); // UPDATED
-    } finally {
-      setLoading(false);
-    }
-  }, [session, driverName, additionalTiers, overtimeType, hourlyRate, shiftAllowance, overtimeThreshold, overtimeThresholdUnit, overtimeMultiplier, overtimePercentage, unpaidBreak, isFirstTime, previousShiftEnd, onSave, onClose, t]);
-
-  const onDateChange = (event: any, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-        setShowDateTimePicker(false);
-    }
-    if (event.type === 'set' && selectedDate) {
-      setPreviousShiftEnd(selectedDate);
-    }
-  };
-
-  const addTier = useCallback(() => {
-      setAdditionalTiers(prev => [...prev, { id: Math.random().toString(), threshold: '', unit: 'day', multiplier: '', percentage: '' }]);
-  }, []);
-
-  const removeTier = useCallback((id: string) => {
-      setAdditionalTiers(prev => prev.filter(t => t.id !== id));
-  }, []);
-
-  const updateTier = useCallback((id: string, field: keyof AdditionalTier, value: string | Unit) => {
-      setAdditionalTiers(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
-  }, []);
-
-  const cycleUnit = (current: Unit) => {
-    const idx = UNIT_ORDER.indexOf(current);
-    return UNIT_ORDER[(idx + 1) % UNIT_ORDER.length];
-  };
-
-  return (
-    <Modal visible={isOpen} onRequestClose={onClose} transparent={true} animationType="slide">
-      <View className="flex-1 justify-center items-center bg-black/50 p-4">
-        <View style={{ maxHeight: '90%' }} className="bg-white rounded-lg shadow-xl w-full flex-1">
-          <View className="bg-white border-b border-gray-200 px-6 py-4 flex-row items-center justify-between">
-            {/* UPDATED t usages below */}
-            <Text className="text-xl font-bold text-gray-900">{profileId ? t('driverSettings') : t('welcomeSetup')}</Text>
-            <TouchableOpacity onPress={onClose} className="p-1"><X size={24} color="gray" /></TouchableOpacity>
-          </View>
-
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24 }}>
-            {isFirstTime && (
-              <View className="mb-6 p-4 bg-blue-100 rounded-lg">
-                  <Text className="text-blue-800 text-sm">Welcome! Please set up your profile to get started.</Text>
-              </View>
-            )}
-            <View className="space-y-6">
-
-              {/* Personal Info */}
-              <View className="space-y-4">
-                <View className="flex-row items-center gap-2">
-                  <User size={20} color="black" />
-                  <Text className="text-lg font-semibold text-gray-900">{t('personalInformation')}</Text>
-                </View>
-                <View>
-                  <Text className="text-sm font-medium text-gray-700 mb-2">{t('driverName')} *</Text>
-                  <TextInput value={driverName} onChangeText={setDriverName} className="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder={t('enterFullName')} />
-                </View>
-              </View>
-
-              {/* Pay Config */}
-              <View className="space-y-4">
-                <View className="flex-row items-center gap-2">
-                    <DollarSign size={20} color="black" />
-                    <Text className="text-lg font-semibold text-gray-900">{t('payConfiguration')}</Text>
-                </View>
-
-                <View className="flex-row gap-4">
-                    <View className="flex-1">
-                        <Text className="text-sm font-medium text-gray-700 mb-2">{t('hourlyRate')}</Text>
-                        <TextInput
-                            value={hourlyRate}
-                            onChangeText={setHourlyRate}
-                            keyboardType="numeric"
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                            placeholder="0.00"
-                        />
-                    </View>
-                    <View className="flex-1">
-                        <Text className="text-sm font-medium text-gray-700 mb-2">{t('shiftAllowance')}</Text>
-                        <TextInput
-                            value={shiftAllowance}
-                            onChangeText={setShiftAllowance}
-                            keyboardType="numeric"
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                            placeholder="0.00"
-                        />
-                    </View>
-                </View>
-
-                <View>
-                    <Text className="text-sm font-medium text-gray-700 mb-2">{t('unpaidBreakDuration')}</Text>
-                    <TextInput
-                        value={unpaidBreak}
-                        onChangeText={setUnpaidBreak}
-                        keyboardType="numeric"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        placeholder="45"
-                    />
-                    <Text className="text-xs text-gray-500 mt-1">Minutes deducted from daily total before pay calculation.</Text>
-                </View>
-
-                <View className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <Text className="font-semibold mb-4">{t('overtimeRules')}</Text>
-
-                    {/* Overtime Threshold */}
-                    <View className="mb-4">
-                        <Text className="text-sm font-medium text-gray-700 mb-2">{t('overtimeThreshold')}</Text>
-
-                        <View className="flex-row items-center gap-2">
-                             <View className="flex-1">
-                                 <TextInput
-                                     value={overtimeThreshold}
-                                     onChangeText={setOvertimeThreshold}
-                                     keyboardType="numeric"
-                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white"
-                                     placeholder="e.g. 8"
-                                 />
-                             </View>
-
-                             <TouchableOpacity
-                                 onPress={() => setOvertimeThresholdUnit(prev => cycleUnit(prev))}
-                                 className="px-3 py-2 border border-gray-300 rounded-lg bg-white"
-                             >
-                                 <Text className="text-sm text-gray-700 font-medium">{UNIT_LABEL[overtimeThresholdUnit]}</Text>
-                             </TouchableOpacity>
-                        </View>
-                    </View>
-
-                    {/* Rate Value Input */}
-                    <View className="mb-4">
-                        <Text className="text-sm font-medium text-gray-700 mb-2">{t('rateMultiplier')}</Text>
-                        <TextInput
-                            value={overtimeType === 'multiplier' ? overtimeMultiplier : overtimePercentage}
-                            onChangeText={overtimeType === 'multiplier' ? setOvertimeMultiplier : setOvertimePercentage}
-                            keyboardType="numeric"
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white"
-                            placeholder="1.5"
-                        />
-                    </View>
-
-                    <Text className="font-medium mb-2 mt-2">{t('addAnotherTier')}</Text>
-                    {additionalTiers.map((tier, index) => (
-                        <View key={tier.id} className="mb-3 p-2 border border-gray-200 rounded-lg bg-white">
-                            <View className="flex-row gap-2 mb-2 items-end">
-                                <View className="flex-1">
-                                    <Text className="text-xs text-gray-500">After Hours</Text>
-                                    <TextInput
-                                        value={tier.threshold}
-                                        onChangeText={(v) => updateTier(tier.id, 'threshold', v)}
-                                        keyboardType="numeric"
-                                        className="px-2 py-1 border border-gray-300 rounded bg-white"
-                                    />
-                                </View>
-
-                                <TouchableOpacity
-                                     onPress={() => updateTier(tier.id, 'unit', cycleUnit(tier.unit))}
-                                     className="px-3 py-2 border border-gray-300 rounded bg-white self-start"
-                                 >
-                                     <Text className="text-sm text-gray-700">{UNIT_LABEL[tier.unit]}</Text>
-                                 </TouchableOpacity>
-                            </View>
-
-                            <View className="flex-row gap-2 items-end">
-                                <View className="flex-1">
-                                    <Text className="text-xs text-gray-500">Multiplier</Text>
-                                    <TextInput
-                                        value={overtimeType === 'multiplier' ? tier.multiplier : tier.percentage}
-                                        onChangeText={(v) => updateTier(tier.id, overtimeType === 'multiplier' ? 'multiplier' : 'percentage', v)}
-                                        keyboardType="numeric"
-                                        className="px-2 py-1 border border-gray-300 rounded bg-white"
-                                    />
-                                </View>
-                                <TouchableOpacity onPress={() => removeTier(tier.id)} className="p-2 bg-red-100 rounded">
-                                    <Trash2 size={16} color="red" />
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    ))}
-
-                    <TouchableOpacity onPress={addTier} className="flex-row items-center justify-center p-2 mt-2 border border-dashed border-gray-400 rounded-lg">
-                        <Plus size={16} color="gray" className="mr-2" />
-                        <Text className="text-gray-600">{t('addAnotherTier')}</Text>
-                    </TouchableOpacity>
-                </View>
-              </View>
-
+    return (
+        <SafeAreaView style={styles.container}>
+             <View style={styles.header}>
+                <Text style={styles.title}>{t('driverSetup.title')}</Text>
+                {onClose && <TouchableOpacity onPress={onClose} style={styles.closeButton}><X color="white" size={24} /></TouchableOpacity>}
             </View>
-          </ScrollView>
+            {loading ? <ActivityIndicator size="large" color="#FFFFFF" /> : (
+                <ScrollView contentContainerStyle={styles.scrollContent}>
+                     <View style={styles.section}>
+                        <Text style={styles.label}>{t('driverSetup.pleaseEnterName')}</Text>
+                        <TextInput style={styles.input} value={fullName} onChangeText={setFullName} placeholder="e.g. John Smith" placeholderTextColor="#64748B" />
+                    </View>
+                    <Text style={styles.subtitle}>{t('payConfiguration', 'Pay Configuration (Optional)')}</Text>
 
-          <View className="p-4 border-t border-gray-200 flex-row gap-3">
-             <TouchableOpacity onPress={handleClearData} className="p-4 rounded-lg bg-red-50 mr-auto border border-red-200">
-                 <Trash2 size={20} color="#dc2626" />
-             </TouchableOpacity>
+                    <View style={styles.inlineInputContainer}><View style={{flex: 1}}><Text style={styles.label}>Hourly Rate (£)</Text><TextInput style={styles.input} value={hourlyRate} onChangeText={setHourlyRate} keyboardType="numeric" placeholder="15.50" placeholderTextColor="#64748B" /></View><View style={{flex: 1}}><Text style={styles.label}>Unpaid Break (mins)</Text><TextInput style={styles.input} value={unpaidBreakMinutes} onChangeText={setUnpaidBreakMinutes} keyboardType="numeric" placeholder="30" placeholderTextColor="#64748B" /></View></View>
+                    <View style={styles.section}><Text style={styles.sectionTitle}>Overtime</Text><View style={styles.inlineInputContainer}><View style={{flex: 1}}><Text style={styles.label}>OT Threshold (hrs)</Text><TextInput style={styles.input} value={overtimeThreshold} onChangeText={setOvertimeThreshold} keyboardType="numeric" placeholder="40" placeholderTextColor="#64748B" /></View><View style={{flex: 1}}><Text style={styles.label}>Unit</Text><UnitSelector value={overtimeThresholdUnit} options={['week', 'day', 'month']} onChange={(val) => setOvertimeThresholdUnit(val as OvertimeUnit)} /></View><View style={{flex: 1}}><Text style={styles.label}>OT Multiplier</Text><TextInput style={styles.input} value={overtimeMultiplier} onChangeText={setOvertimeMultiplier} keyboardType="numeric" placeholder="1.5" placeholderTextColor="#64748B" /></View></View></View>
+                    <View style={styles.section}><Text style={styles.sectionTitle}>Allowances</Text>{allowanceTiers.map((tier) => (<View key={tier.id} style={styles.inlineInputContainer}><View style={{flex: 2}}><Text style={styles.label}>Amount (£)</Text><TextInput style={styles.input} value={tier.amount} onChangeText={(v) => updateTier(setAllowanceTiers, tier.id, 'amount', v)} keyboardType="numeric" /></View><View style={{flex: 2}}><Text style={styles.label}>Unit</Text><UnitSelector value={tier.unit} options={['shift', 'hour', 'day', 'week', 'month']} onChange={(v) => updateTier(setAllowanceTiers, tier.id, 'unit', v)} /></View><TouchableOpacity style={styles.removeButton} onPress={() => removeTier(setAllowanceTiers, tier.id)}><Trash2 size={20} color="#F87171" /></TouchableOpacity></View>))}<TouchableOpacity style={styles.addButton} onPress={() => addTier(setAllowanceTiers, createAllowanceTier)}><Plus size={16} color="#FFFFFF" /><Text style={styles.addButtonText}>Add Allowance</Text></TouchableOpacity></View>
+                    <View style={styles.section}><Text style={styles.sectionTitle}>Additional Overtime Tiers</Text>{additionalTiers.map((tier) => (<View key={tier.id} style={styles.inlineInputContainer}><View style={{flex: 1}}><Text style={styles.label}>After (hrs)</Text><TextInput style={styles.input} value={tier.threshold} onChangeText={(v) => updateTier(setAdditionalTiers, tier.id, 'threshold', v)} keyboardType="numeric" /></View><View style={{flex: 1}}><Text style={styles.label}>Unit</Text><UnitSelector value={tier.unit} options={['week', 'day', 'month']} onChange={(v) => updateTier(setAdditionalTiers, tier.id, 'unit', v)} /></View><View style={{flex: 1}}><Text style={styles.label}>New Rate</Text><TextInput style={styles.input} value={tier.rate} onChangeText={(v) => updateTier(setAdditionalTiers, tier.id, 'rate', v)} keyboardType="numeric" /></View><TouchableOpacity style={styles.removeButton} onPress={() => removeTier(setAdditionalTiers, tier.id)}><Trash2 size={20} color="#F87171" /></TouchableOpacity></View>))}<TouchableOpacity style={styles.addButton} onPress={() => addTier(setAdditionalTiers, createOvertimeTier)}><Plus size={16} color="#FFFFFF" /><Text style={styles.addButtonText}>Add Overtime Tier</Text></TouchableOpacity></View>
+                </ScrollView>
+            )}
+             <View style={styles.buttonContainer}>
+                {onClose ? (
+                    <TouchableOpacity onPress={onClose} style={styles.skipButton}><Text style={styles.skipButtonText}>Close</Text></TouchableOpacity>
+                ) : (
+                    <View style={styles.skipButton} />
+                )}
+                <TouchableOpacity onPress={handleSave} style={styles.saveButton} disabled={isSaving}>{isSaving ? <ActivityIndicator color="#FFFFFF" /> : <><Save size={20} color="#FFFFFF" /><Text style={styles.saveButtonText}>Save</Text></>}</TouchableOpacity>
+            </View>
+        </SafeAreaView>
+    );
+};
 
-             <TouchableOpacity onPress={onClose} className="flex-1 p-4 rounded-lg bg-gray-100">
-                <Text className="text-center font-bold text-gray-700">{t('cancel')}</Text>
-             </TouchableOpacity>
+const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: '#0F172A' },
+    header: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 24, paddingBottom: 12, position: 'relative' },
+    title: { fontSize: 24, fontWeight: 'bold', color: 'white', textAlign: 'center' },
+    closeButton: { position: 'absolute', right: 24, top: 24 },
+    scrollContent: { padding: 24, paddingTop: 12 },
+    section: { marginBottom: 24 },
+    label: { fontSize: 14, color: '#94A3B8', marginBottom: 8 },
+    input: { backgroundColor: '#1E293B', color: 'white', padding: 12, borderRadius: 8, fontSize: 16 },
+    buttonContainer: { flexDirection: 'row', gap: 12, padding: 24, borderTopWidth: 1, borderTopColor: '#1E293B' },
+    skipButton: { flex: 1 },
+    saveButton: { flex: 2, padding: 16, borderRadius: 8, backgroundColor: '#2563EB', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+    saveButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+    subtitle: { fontSize: 18, color: '#94A3B8', marginBottom: 24, textAlign: 'center' },
+    sectionTitle: { fontSize: 20, fontWeight: '600', color: 'white', marginBottom: 12 },
+    inlineInputContainer: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 12 },
+    unitSelector: { backgroundColor: '#334155', height: 50, justifyContent: 'center', alignItems: 'center', borderRadius: 8, paddingHorizontal: 12 },
+    unitSelectorText: { color: 'white', fontWeight: '600', textTransform: 'capitalize' },
+    addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#334155', padding: 12, borderRadius: 8, marginTop: 8 },
+    addButtonText: { color: 'white', fontWeight: '600' },
+    removeButton: { paddingTop: 30 },
+});
 
-             <TouchableOpacity
-                onPress={handleSave}
-                disabled={loading}
-                className="flex-1 p-4 rounded-lg bg-blue-600 shadow-sm"
-             >
-                <Text className="text-center font-bold" style={{ color: 'white' }}>
-                    {loading ? 'Saving...' : t('save')}
-                </Text>
-             </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
+export default DriverSetup;

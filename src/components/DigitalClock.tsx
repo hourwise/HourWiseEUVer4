@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text } from 'react-native';
-import { Clock } from 'lucide-react-native';
+import { Clock } from 'react-native-feather';
 
 export const DigitalClock = () => {
   const [time, setTime] = useState(new Date());

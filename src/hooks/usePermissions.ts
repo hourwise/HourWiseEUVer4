@@ -4,93 +4,100 @@ import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
-import { Accelerometer } from 'expo-sensors';
 
-export type PermissionState = Location.PermissionStatus | 'granted' | 'denied' | 'undetermined';
-
-export interface PermissionMap {
-  notifications: PermissionState;
-  location: PermissionState;
-  backgroundLocation: PermissionState;
-  camera: PermissionState;
-  mediaLibrary: PermissionState;
-  accelerometer: PermissionState;
+export interface PermissionStatus {
+  isGranted: boolean;
+  canAskAgain: boolean;
 }
 
+export interface PermissionState {
+  notifications: PermissionStatus;
+  location: PermissionStatus;
+  backgroundLocation: PermissionStatus;
+  camera: PermissionStatus;
+  mediaLibrary: PermissionStatus;
+}
+
+// Helper to get all relevant permission statuses
+const getPermissions = async (): Promise<PermissionState> => {
+  const [notifications, location, backgroundLocation, camera, mediaLibrary] = await Promise.all([
+    Notifications.getPermissionsAsync(),
+    Location.getForegroundPermissionsAsync(),
+    Location.getBackgroundPermissionsAsync(),
+    ImagePicker.getCameraPermissionsAsync(),
+    MediaLibrary.getPermissionsAsync(),
+  ]);
+
+  return {
+    notifications: { isGranted: notifications.status === 'granted', canAskAgain: notifications.canAskAgain },
+    location: { isGranted: location.status === 'granted', canAskAgain: location.canAskAgain },
+    backgroundLocation: { isGranted: backgroundLocation.status === 'granted', canAskAgain: backgroundLocation.canAskAgain },
+    camera: { isGranted: camera.status === 'granted', canAskAgain: camera.canAskAgain },
+    mediaLibrary: { isGranted: mediaLibrary.status === 'granted', canAskAgain: mediaLibrary.canAskAgain },
+  };
+};
+
 export const usePermissions = () => {
-  const [permissionState, setPermissionState] = useState<PermissionMap | null>(null);
+  const [state, setState] = useState<PermissionState | null>(null);
+  const [areAllGranted, setAreAllGranted] = useState(false);
 
-  const getPermissionsStatus = useCallback(async (): Promise<PermissionMap> => {
-    try {
-      const [
-        notifications,
-        location,
-        backgroundLocation,
-        camera,
-        mediaLibrary,
-        accelerometer,
-      ] = await Promise.all([
-        Notifications.getPermissionsAsync(),
-        Location.getForegroundPermissionsAsync(),
-        Location.getBackgroundPermissionsAsync(),
-        ImagePicker.getCameraPermissionsAsync(),
-        Platform.OS === 'web' ? { status: 'granted' } : MediaLibrary.getPermissionsAsync(),
-        Accelerometer.getPermissionsAsync(),
-      ]);
-
-      return {
-        notifications: notifications.status,
-        location: location.status,
-        backgroundLocation: backgroundLocation.status,
-        camera: camera.status,
-        mediaLibrary: mediaLibrary.status,
-        accelerometer: accelerometer.status,
-      };
-    } catch (e) {
-      console.error('getPermissionsStatus failed:', e);
-      // IMPORTANT: return a safe default so AppNavigator can continue
-      return {
-        notifications: 'undetermined',
-        location: 'undetermined',
-        backgroundLocation: 'undetermined',
-        camera: 'undetermined',
-        mediaLibrary: 'undetermined',
-        accelerometer: 'undetermined',
-      };
+  const refresh = useCallback(async (retryCount = 0): Promise<PermissionState> => {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('messages', {
+        name: 'Messages',
+        importance: Notifications.AndroidImportance.MAX,
+      });
     }
+
+    // 1. Get the current status
+    let statuses = await getPermissions();
+
+    // 2. THE ANDROID FIX: If background is denied but we just returned from settings,
+    // wait 800ms and try one more time. This clears the OS permission cache.
+    if (Platform.OS === 'android' && !statuses.backgroundLocation.isGranted && retryCount < 2) {
+      await new Promise(resolve => setTimeout(resolve, 800));
+      return refresh(retryCount + 1);
+    }
+
+    setState(statuses);
+    // The navigator ONLY cares about these three.
+    const criticalPermissionsGranted = statuses.location.isGranted && statuses.backgroundLocation.isGranted && statuses.notifications.isGranted;
+    setAreAllGranted(criticalPermissionsGranted);
+    return statuses;
   }, []);
 
-  const requestAllPermissions = useCallback(async (): Promise<PermissionMap> => {
-    await Notifications.requestPermissionsAsync();
-    const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
-    
-    if (fgStatus === 'granted') {
-        await Location.requestBackgroundPermissionsAsync();
+  const request = useCallback(async (): Promise<PermissionState> => {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('messages', {
+        name: 'Messages',
+        importance: Notifications.AndroidImportance.MAX,
+      });
     }
-    
-    await ImagePicker.requestCameraPermissionsAsync();
 
-    if (Platform.OS !== 'web') {
-        await MediaLibrary.requestPermissionsAsync();
-    }
-    
-    await Accelerometer.requestPermissionsAsync();
-    
-    // After requesting, refresh the state with the final results
-    const finalStatuses = await getPermissionsStatus();
-    setPermissionState(finalStatuses);
-    return finalStatuses;
-  }, [getPermissionsStatus]);
-  
-  const refreshPermissions = useCallback(async () => {
-    const statuses = await getPermissionsStatus();
-    setPermissionState(statuses);
-  }, [getPermissionsStatus]);
+    try {
+      await Notifications.requestPermissionsAsync();
+      const { status: foreStatus } = await Location.requestForegroundPermissionsAsync();
+
+      if (foreStatus === 'granted') {
+        // This will often send the user to System Settings
+        await Location.requestBackgroundPermissionsAsync();
+      }
+    } catch (e) { console.error("Location permission error:", e); }
+    try { await ImagePicker.requestCameraPermissionsAsync(); } catch (e) { console.error("Camera permission error:", e); }
+    try { await MediaLibrary.requestPermissionsAsync(); } catch (e) { console.error("MediaLibrary permission error:", e); }
+
+    // Refresh once immediately, then again with the Android-specific delay
+    return refresh();
+  }, [refresh]);
 
   useEffect(() => {
-    // Initial check on mount
-    refreshPermissions();
-  }, [refreshPermissions]);
+    refresh();
+  }, [refresh]);
 
-  return { permissionState, requestAllPermissions, refreshPermissions };
+  return {
+    state,
+    areAllGranted,
+    request,
+    refresh,
+  };
 };

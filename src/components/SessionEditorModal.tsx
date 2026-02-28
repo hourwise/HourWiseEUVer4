@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Alert, Platform, TextInput, ScrollView, Modal } from 'react-native';
-import { X, Save } from 'lucide-react-native';
+import { X, Save } from 'react-native-feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase';
-// 1. Import the useTranslation hook
 import { useTranslation } from 'react-i18next';
+
+// Helper to get YYYY-MM-DD from a local date, ignoring timezone shifts
+const toLocalDateString = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 interface Session {
   id: string;
@@ -20,11 +27,10 @@ interface SessionEditorModalProps {
   onSave: () => void;
   sessionToEdit: Session | null;
   selectedDate: string | null;
-  visible: boolean; // Control visibility from the parent
+  visible: boolean;
 }
 
 export default function SessionEditorModal({ onClose, onSave, sessionToEdit, selectedDate, visible }: SessionEditorModalProps) {
-  // 2. Get the 't' function from the hook
   const { t } = useTranslation();
 
   const getInitialDate = () => {
@@ -40,7 +46,7 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
   };
 
   const getInitialEndDate = () => {
-    if (sessionToEdit) return new Date(sessionToEdit.end_time);
+    if (sessionToEdit && sessionToEdit.end_time) return new Date(sessionToEdit.end_time);
     const d = getInitialDate();
     d.setHours(17, 0, 0, 0); // Default 5 PM
     return d;
@@ -59,7 +65,7 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
   useEffect(() => {
     if (sessionToEdit) {
       setStartDateTime(new Date(sessionToEdit.start_time));
-      setEndDateTime(new Date(sessionToEdit.end_time));
+      if (sessionToEdit.end_time) setEndDateTime(new Date(sessionToEdit.end_time));
       setTotalBreakMinutes(sessionToEdit.total_break_minutes?.toString() || '0');
       setTotalPoaMinutes(sessionToEdit.total_poa_minutes?.toString() || '0');
     } else if (selectedDate) {
@@ -120,7 +126,7 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
 
     const sessionData = {
       user_id: user.id,
-      date: finalStart.toISOString().split('T')[0],
+      date: toLocalDateString(finalStart), // Use local date for the 'date' field
       start_time: finalStart.toISOString(),
       end_time: finalEnd.toISOString(),
       total_work_minutes: Math.max(0, grossWorkMinutes - breakMinutes - poaMinutes),
@@ -140,8 +146,7 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
     }
 
     if (error) {
-      // 3. Use correct translation syntax for alerts
-      Alert.alert(t('error'), t('failedToSave'));
+      Alert.alert(t('common.error'), t('common.failedToSave'));
       console.error(error);
     } else {
       onSave();
@@ -162,21 +167,21 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
 
           <ScrollView>
             <TouchableOpacity onPress={() => showMode('date')} className="bg-slate-700 p-3 rounded-lg mb-4">
-              <Text className="text-gray-400 text-xs mb-1">{t('date')}</Text>
+              <Text className="text-gray-400 text-xs mb-1">{t('common.date')}</Text>
               <Text className="text-white text-lg">{startDateTime.toLocaleDateString()}</Text>
             </TouchableOpacity>
 
             <View className="flex-row gap-4 mb-4">
               <View className="flex-1">
                 <TouchableOpacity onPress={() => showMode('time', 'start')} className="bg-slate-700 p-3 rounded-lg">
-                  <Text className="text-gray-400 text-xs mb-1">{t('startTime')}</Text>
+                  <Text className="text-gray-400 text-xs mb-1">{t('common.startTime')}</Text>
                   <Text className="text-white text-xl font-semibold text-center">{formatTime(startDateTime)}</Text>
                 </TouchableOpacity>
               </View>
 
               <View className="flex-1">
                 <TouchableOpacity onPress={() => showMode('time', 'end')} className="bg-slate-700 p-3 rounded-lg">
-                  <Text className="text-gray-400 text-xs mb-1">{t('endTime')}</Text>
+                  <Text className="text-gray-400 text-xs mb-1">{t('common.endTime')}</Text>
                   <Text className="text-white text-xl font-semibold text-center">{formatTime(endDateTime)}</Text>
                 </TouchableOpacity>
               </View>
@@ -193,7 +198,7 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
             )}
 
             <View className="mb-4">
-              <Text className="text-white mb-2">{t('totalBreakTime')} ({t('minutes')})</Text>
+              <Text className="text-white mb-2">{t('workHistory.totalBreakTime')} ({t('common.minutes')})</Text>
               <TextInput
                 className="bg-slate-700 p-3 rounded-lg text-white"
                 keyboardType="numeric"
@@ -204,7 +209,7 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
             </View>
 
             <View className="mb-6">
-              <Text className="text-white mb-2">{t('totalPOATime')} ({t('minutes')})</Text>
+              <Text className="text-white mb-2">{t('workHistory.totalPOATime')} ({t('common.minutes')})</Text>
               <TextInput
                 className="bg-slate-700 p-3 rounded-lg text-white"
                 keyboardType="numeric"
@@ -216,7 +221,7 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
 
             <TouchableOpacity onPress={handleSave} className="bg-green-600 p-4 rounded-lg flex-row items-center justify-center gap-2">
               <Save size={20} color="white" />
-              <Text className="text-white font-bold text-lg">{sessionToEdit ? t('updateShift') : t('save')}</Text>
+              <Text className="text-white font-bold text-lg">{sessionToEdit ? t('workHistory.updateShift') : t('common.save')}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>

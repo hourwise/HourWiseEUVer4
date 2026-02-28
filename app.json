@@ -3,7 +3,7 @@
     "name": "HourWise EU",
     "slug": "HourWise-EU",
     "owner": "pcgsoft",
-    "version": "5.0.2",
+    "version": "7.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,9 +13,21 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "useNextNotificationsApi": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.PCGsoft.hourwise.eu"
+      "bundleIdentifier": "com.PCGsoft.hourwise.eu",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "This app uses the camera to allow you to take photos of receipts for expense tracking.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to save receipt images.",
+        "NSLocationWhenInUseUsageDescription": "Actively tracking your location to monitor driving time.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Actively tracking your location to monitor driving time, even when the app is in the background."
+      },
+      "UIBackgroundModes": [
+        "location",
+        "fetch"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -23,16 +35,36 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.PCGsoft.hourwise.eu",
-      "versionCode": 9,
+      "versionCode": 26,
       "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.USE_BIOMETRIC"
-      ]
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
+      ],
+      "foregroundService": {
+        "location": {
+          "description": "Actively tracking your location to monitor driving time."
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "The app needs access to your camera to scan receipts."
+        }
+      ],
       [
         "expo-av",
         {
@@ -43,22 +75,32 @@
         "expo-build-properties",
         {
           "android": {
-            "targetSdkVersion": 35
+            "minSdkVersion": 24,
+            "targetSdkVersion": 35,
+            "ndkVersion": "25.2.9519653"
           }
         }
       ],
-      "expo-localization"
+      "expo-localization",
+      "expo-location",
+      "expo-notifications",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow HourWise EU to use Face ID."
+        }
+      ]
     ],
+    "runtimeVersion": "7.0.1",
+    "updates": {
+      "enabled": false,
+      "url": "https://u.expo.dev/dcfc655c-3967-47b9-9466-aab75e53f5e4"
+    },
     "extra": {
       "eas": {
         "projectId": "dcfc655c-3967-47b9-9466-aab75e53f5e4"
-      }
-    },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/dcfc655c-3967-47b9-9466-aab75e53f5e4"
+      },
+      "EXPO_PUBLIC_OCR_SPACE_API_KEY": "K86409945288957"
     }
   }
 }

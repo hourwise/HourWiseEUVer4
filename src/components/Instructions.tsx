@@ -1,111 +1,101 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Modal } from 'react-native';
-import { X, Clock, Play, AlertCircle } from 'lucide-react-native';
+import { X, AlertTriangle, Play, Settings, BarChart2, Calendar, FilePlus, Download, UserCheck } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface InstructionsProps {
   onClose: () => void;
   visible: boolean;
 }
 
-const SectionHeader = ({ icon, title }: { icon: React.ReactNode; title: string }) => (
-  <View className="flex-row items-center gap-2 mb-4">
-    {icon}
-    <Text className="text-xl font-bold text-white">{title}</Text>
-  </View>
-);
-
-const StepCard = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <View className="bg-slate-900 p-4 rounded-lg mb-4">
-    <Text className="text-lg font-semibold text-white mb-2">{title}</Text>
+const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <View className="mb-6">
+    <Text className="text-xl font-bold text-slate-200 mb-3 border-b border-slate-600 pb-2">{title}</Text>
     {children}
   </View>
 );
 
+const Step = ({ title, body }: { title: string; body: string }) => (
+  <View className="bg-slate-700/50 p-4 rounded-lg mb-3">
+    <Text className="text-lg font-semibold text-white mb-1">{title}</Text>
+    <Text className="text-slate-300 leading-relaxed">{body}</Text>
+  </View>
+);
+
+const Feature = ({ icon, title, body }: { icon: React.ReactNode, title: string; body: string }) => (
+    <View className="bg-slate-700/50 p-4 rounded-lg mb-3 flex-row items-start gap-4">
+        {icon}
+        <View className="flex-1">
+            <Text className="text-lg font-semibold text-white mb-1">{title}</Text>
+            <Text className="text-slate-300 leading-relaxed">{body}</Text>
+        </View>
+    </View>
+);
+
+
 function Instructions({ onClose, visible }: InstructionsProps) {
   const { t } = useTranslation();
 
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View className="flex-1 justify-center items-center bg-black/75 p-4">
-        <View className="bg-slate-800 rounded-2xl w-full flex-1 max-h-[90%] overflow-hidden">
+  const renderContent = () => (
+    <>
+      <View className="bg-amber-900/50 p-4 rounded-lg border border-amber-500 mb-6">
+        <View className="flex-row items-center gap-3 mb-2">
+          <AlertTriangle color="#fcd34d" size={20} />
+          <Text className="text-lg font-bold text-amber-300">{t('instructions.disclaimer.title')}</Text>
+        </View>
+        <Text className="text-amber-100">{t('instructions.disclaimer.body')}</Text>
+      </View>
 
+      <Section title={t('instructions.initialSetup.title')}>
+        <Step title={t('instructions.initialSetup.step1.title')} body={t('instructions.initialSetup.step1.body')} />
+        <Step title={t('instructions.initialSetup.step2.title')} body={t('instructions.initialSetup.step2.body')} />
+        <Step title={t('instructions.initialSetup.step3.title')} body={t('instructions.initialSetup.step3.body')} />
+      </Section>
+
+      <Section title={t('instructions.workflow.title')}>
+        <Step title={t('instructions.workflow.step1.title')} body={t('instructions.workflow.step1.body')} />
+        <Step title={t('instructions.workflow.step2.title')} body={t('instructions.workflow.step2.body')} />
+        <Step title={t('instructions.workflow.step3.title')} body={t('instructions.workflow.step3.body')} />
+        <Step title={t('instructions.workflow.step4.title')} body={t('instructions.workflow.step4.body')} />
+      </Section>
+
+      <Section title={t('instructions.keyFeatures.title')}>
+        <Feature icon={<UserCheck color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.fatigue.title')} body={t('instructions.keyFeatures.fatigue.body')} />
+        <Feature icon={<BarChart2 color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.compliance.title')} body={t('instructions.keyFeatures.compliance.body')} />
+        <Feature icon={<Calendar color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.history.title')} body={t('instructions.keyFeatures.history.body')} />
+        <Feature icon={<FilePlus color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.expenses.title')} body={t('instructions.keyFeatures.expenses.body')} />
+        <Feature icon={<Download color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.reports.title')} body={t('instructions.keyFeatures.reports.body')} />
+        <Feature icon={<AlertTriangle color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.dailyReport.title')} body={t('instructions.keyFeatures.dailyReport.body')} />
+      </Section>
+    </>
+  );
+
+  return (
+    <Modal visible={visible} transparent={false} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView className="flex-1 bg-slate-800" edges={['top', 'bottom']}>
+        <View className="flex-1">
           {/* Header */}
-          <View className="border-b border-slate-700 p-6 flex-row justify-between items-center bg-slate-800">
-            <Text className="text-2xl font-bold text-white">{t('instructionsTitle')}</Text>
-            <TouchableOpacity onPress={onClose} className="p-2 rounded-lg active:bg-slate-700">
+          <View className="px-4 py-3 flex-row justify-between items-center border-b border-slate-700 bg-slate-800">
+            <Text className="text-xl font-bold text-white">{t('instructions.title')}</Text>
+            <TouchableOpacity onPress={onClose} className="p-2 rounded-full active:bg-slate-700">
               <X color="white" size={24} />
             </TouchableOpacity>
           </View>
 
           {/* Scrollable Content */}
-          <ScrollView className="flex-1" contentContainerStyle={{ padding: 24 }}>
-
-            {/* Disclaimer */}
-            <View className="bg-amber-900/40 rounded-xl p-4 border border-amber-600 mb-8">
-              <View className="flex-row items-center gap-2 mb-3">
-                <AlertCircle size={20} color="#facc15" />
-                <Text className="text-xl font-bold text-amber-400">{t('instructionsDisclaimerTitle')}</Text>
-              </View>
-              <Text className="text-slate-200">{t('instructionsDisclaimer')}</Text>
-            </View>
-
-            {/* Getting Started */}
-            <View className="mb-8">
-              <SectionHeader icon={<Clock size={20} color="white" />} title={t('instructionsGettingStartedTitle')} />
-              <View className="bg-blue-900/30 p-4 rounded-lg border border-blue-500/50 mb-2">
-                <Text className="text-blue-200 font-semibold">{t('instructionsGettingStartedDesc')}</Text>
-              </View>
-            </View>
-
-            {/* Step-by-Step Guide */}
-            <View className="mb-8">
-              <SectionHeader icon={<Play size={20} color="white" />} title={t('instructionsStepGuideTitle')} />
-
-              <StepCard title={t('instructionsStep1Title')}>
-                <Text className="text-slate-300">{t('instructionsStep1Desc')}</Text>
-              </StepCard>
-
-              <StepCard title={t('instructionsStep2Title')}>
-                <Text className="text-slate-300 mb-2">{t('instructionsStep2Desc')}</Text>
-                <View className="space-y-2 ml-4">
-                  <View>
-                    <Text className="text-blue-400 font-semibold">{t('instructionsBreak15Title')}</Text>
-                    <Text className="text-slate-400 ml-4">{t('instructionsBreak15Desc')}</Text>
-                  </View>
-                  <View>
-                    <Text className="text-blue-400 font-semibold">{t('instructionsBreak30Title')}</Text>
-                    <Text className="text-slate-400 ml-4">{t('instructionsBreak30Desc')}</Text>
-                  </View>
-                  <View>
-                    <Text className="text-blue-400 font-semibold">{t('instructionsBreak45Title')}</Text>
-                    <Text className="text-slate-400 ml-4">{t('instructionsBreak45Desc')}</Text>
-                  </View>
-                </View>
-              </StepCard>
-
-              <StepCard title={t('instructionsStep3Title')}>
-                <Text className="text-slate-300">{t('instructionsStep3Desc')}</Text>
-              </StepCard>
-            </View>
-
-            {/* Safety Warning */}
-            <View className="bg-red-900/30 rounded-xl p-4 border border-red-700 mb-4">
-              <Text className="text-xl font-bold text-red-400 mb-3">{t('instructionsSafetyWarningTitle')}</Text>
-              <Text className="text-slate-200">{t('instructionsSafetyWarningDesc')}</Text>
-            </View>
-
+          <ScrollView contentContainerStyle={{ padding: 16 }}>
+            {renderContent()}
           </ScrollView>
 
-          {/* Footer */}
-          <View className="border-t border-slate-700 p-6 bg-slate-800">
-            <TouchableOpacity onPress={onClose} className="w-full px-6 py-3 bg-blue-600 rounded-lg active:bg-blue-700">
-              <Text className="text-white font-semibold text-center">{t('instructionsButtonGotIt')}</Text>
+           {/* Footer */}
+          <View className="px-4 py-3 border-t border-slate-700">
+             <TouchableOpacity onPress={onClose} className="w-full py-3 bg-blue-600 rounded-lg active:bg-blue-700">
+                <Text className="text-white text-lg font-semibold text-center">{t('instructions.footer.gotIt')}</Text>
             </TouchableOpacity>
           </View>
-
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }

@@ -79,7 +79,7 @@
     "tachoGuide": "Tacho Guide",
     "compliance": "Compliance",
     "workHistory": "Work History",
-    "addExpense": "Add Expense",
+    "addExpense": "Add Expenses",
     "downloadReport": "Download Report"
   },
   "workHistory": {
@@ -182,59 +182,23 @@
     }
   },
   "driverSetup": {
-    "header": {
-      "welcomeSetup": "Welcome Setup",
-      "driverSettings": "Driver Settings"
-    },
-    "sections": {
-      "personalInformation": "Personal Information",
-      "companyLink": "Company Link",
-      "payConfiguration": "Pay Configuration"
-    },
-    "fields": {
-      "driverNameLabel": "Driver Name",
-      "basicHourlyRate": "Basic hourly rate",
-      "unpaidBreakDuration": "Unpaid break duration (minutes)"
-    },
-    "placeholders": {
-      "enterFullName": "Enter full name",
-      "hourlyRate": "e.g. 15.00",
-      "unpaidBreak": "e.g. 45"
-    },
-    "company": {
-      "codeOptionalLabel": "Company link code (optional)",
-      "codePlaceholder": "Enter company code",
-      "helperText": "Enter the code provided by your company to join their fleet.",
-      "linkedToCompany": "Linked to company"
-    },
-    "allowances": {
-      "title": "Shift Allowances",
-      "addAllowance": "Add allowance"
-    },
-    "overtime": {
-      "title": "Overtime Rules",
-      "thresholdLabel": "Overtime threshold",
-      "thresholdPlaceholder": "e.g. 40",
-      "rateMultiplierLabel": "Rate multiplier",
-      "rateMultiplierPlaceholder": "e.g. 1.5",
-      "additional": {
-        "addTier": "Add another tier"
-      }
-    },
-    "units": {
-      "overtime": {
-        "day": "per day",
-        "week": "per week",
-        "month": "per month"
-      },
-      "allowance": {
-        "hour": "per hour",
-        "day": "per day",
-        "week": "per week",
-        "month": "per month",
-        "shift": "per shift"
-      }
-    }
+    "title": "Driver Setup",
+    "notAuthenticated": "User not authenticated. Please restart the app.",
+    "hourlyRate": "Hourly Rate",
+    "unpaidBreak": "Unpaid Break",
+    "minutes": "Minutes",
+    "overtimeThreshold": "Overtime Threshold",
+    "hours": "Hours per week",
+    "overtimeMultiplier": "Overtime Rate Multiplier",
+    "shiftAllowances": "Shift Allowances",
+    "additionalOvertime": "Additional Overtime Tiers",
+    "threshold": "Threshold (Hours)",
+    "rate": "Rate (£)",
+    "addTier": "Add Tier",
+    "skip": "Skip for Now",
+    "save": "Save & Continue",
+    "validationError": "Validation Error",
+    "pleaseEnterName": "Please enter your name."
   },
   "instructions": {
     "title": "How to Use HourWise",
@@ -500,6 +464,31 @@
   "privacyThirdPartyDesc": "To provide features like receipt scanning, we may send data to third-party services. For instance, receipt images are sent to an OCR service to extract text. We do not share your data for marketing or advertising purposes.",
   "privacyDisclaimerTitle": "Important",
   "privacyDisclaimer": "While we use a secure, industry-standard system, no method of transmission over the internet is 100% secure. We cannot guarantee absolute security but are fully committed to protecting your data.",
+  "privacy": {
+    "gdprRightsTitle": "Your GDPR Rights",
+    "gdprRightsDesc": "Under GDPR, you have the right to access, rectify, or erase your personal data. You can manage these rights directly in the app or submit a formal request via our online portal."
+  },
+  "account": {
+    "title": "Account Management",
+    "manageMyData": "Manage My Data",
+    "profileSection": "Profile",
+    "editName": "Edit Full Name",
+    "changeEmail": "Change Email",
+    "changePassword": "Change Password",
+    "dataSection": "Data Management",
+    "exportData": "Export My Data",
+    "manageSubscription": "Manage My Subscription",
+    "dangerZone": "Danger Zone",
+    "delete": {
+      "title": "Delete My Account",
+      "confirmTitle": "Delete Account?",
+      "confirmMessage": "This will permanently erase your shift history, compliance records, and profile. This action cannot be undone.",
+      "confirmButton": "Delete Everything",
+      "successTitle": "Account Deleted",
+      "successMessage": "Your account and all associated data have been permanently removed.",
+      "errorMessage": "We could not delete your account at this time. Please contact support."
+    }
+  },
   "notification": {
     "trackingTitle": "Tracking Driving Time",
     "trackingBody": "HourWise is actively monitoring your location for driving."

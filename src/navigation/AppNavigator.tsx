@@ -1,99 +1,65 @@
-import React, { useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { useAuth } from '../providers/AuthProvider';
 import { useSubscriptionData } from '../providers/SubscriptionProvider';
-import { usePermissions, PermissionMap } from '../hooks/usePermissions';
+import { usePermissions } from '../hooks/usePermissions';
 
 import Auth from '../components/Auth';
-import { Dashboard } from '../screens/Dashboard';
-import PaywallScreen from '../screens/PaywallScreen';
-import DriverSetup from '../components/DriverSetup';
+import LoadingScreen from '../components/LoadingScreen';
+import Dashboard from '../screens/Dashboard';
 import PermissionsScreen from '../screens/PermissionsScreen';
-import FirstTimeSetupGuide from '../components/FirstTimeSetupGuide'; // Import the guide
+import FirstTimeSetupGuide from '../components/FirstTimeSetupGuide';
+import DriverSetup from '../components/DriverSetup';
+import PaywallScreen from '../screens/PaywallScreen';
+import AccountManagementScreen from '../screens/AccountManagementScreen';
+import MessagesScreen from '../screens/MessagesScreen'; // 1. Import the new screen
 
 const Stack = createNativeStackNavigator();
 
-const LoadingScreen = () => (
-  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' }}>
-    <ActivityIndicator size="large" color="white" />
-  </View>
-);
-
-const areAllPermissionsGranted = (state: PermissionMap | null): boolean => {
-  if (!state) return false;
-  const criticalPermissions: (keyof PermissionMap)[] = ['location', 'backgroundLocation', 'notifications', 'camera'];
-  return criticalPermissions.every(p => state[p] === 'granted');
+const SetupStack = () => {
+  const { session } = useAuth();
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="FirstTimeSetup" component={FirstTimeSetupGuide} />
+      <Stack.Screen name="DriverSetup">
+        {(props) => <DriverSetup {...props} session={session} />}
+      </Stack.Screen>
+    </Stack.Navigator>
+  );
 };
 
-const AppNavigator = () => {
-  const { session, profile, loading: authLoading, refreshProfile } = useAuth();
+export default function AppNavigator() {
+  const { session, needsSetup, loading: authLoading } = useAuth();
   const { isSubscribed, isLoading: subscriptionLoading } = useSubscriptionData();
-  const { permissionState, requestAllPermissions, refreshPermissions } = usePermissions();
-  const [showFirstTimeGuide, setShowFirstTimeGuide] = useState(true);
+  const { areAllGranted, state: permissionState } = usePermissions();
 
-
-  if (authLoading || subscriptionLoading || (session?.user && !permissionState)) {
+  if (authLoading || subscriptionLoading || (session && permissionState === null)) {
     return <LoadingScreen />;
   }
 
-  const isProfileComplete = profile?.full_name && profile.full_name !== profile.email;
-  const allPermissionsGranted = areAllPermissionsGranted(permissionState);
-  const needsSetup = !isProfileComplete || !allPermissionsGranted;
-
-  const handleCloseFirstTimeGuide = () => {
-    setShowFirstTimeGuide(false);
-  };
-  
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!session?.user ? (
+        {!session ? (
           <Stack.Screen name="Auth" component={Auth} />
-        ) : needsSetup && showFirstTimeGuide ? (
-            <Stack.Screen name="FirstTimeSetup">
-                {() => <FirstTimeSetupGuide visible={true} onClose={handleCloseFirstTimeGuide} />}
-            </Stack.Screen>
-        ) : !allPermissionsGranted ? ( // <-- Permission check is now first
-          <Stack.Screen name="Permissions">
-            {(props) => (
-              <PermissionsScreen
-                {...props}
-                permissionState={permissionState}
-                requestAllPermissions={requestAllPermissions}
-                onPermissionsGranted={refreshPermissions} 
-              />
-            )}
-          </Stack.Screen>
-        ) : !isProfileComplete ? ( // <-- Profile setup is second
-          <Stack.Screen name="DriverSetup">
-            {() => (
-                <View style={{ flex: 1, backgroundColor: '#0f172a' }}>
-                    <DriverSetup
-                    isOpen={true}
-                    session={session}
-                    onClose={refreshProfile}
-                    onSave={refreshProfile}
-                    />
-                </View>
-            )}
-          </Stack.Screen>
+        ) : needsSetup ? (
+          <Stack.Screen name="Setup" component={SetupStack} />
+        ) : !areAllGranted ? (
+          <Stack.Screen name="Permissions" component={PermissionsScreen} />
+        ) : !isSubscribed ? (
+          <Stack.Screen name="Paywall" component={PaywallScreen} />
         ) : (
           <>
-            {!isSubscribed ? (
-              <Stack.Screen name="Paywall" component={PaywallScreen} />
-            ) : (
-              <Stack.Screen name="Dashboard">
-                {(props) => <Dashboard {...props} session={session} />}
-              </Stack.Screen>
-            )}
+            <Stack.Screen name="Dashboard">
+              {(props) => <Dashboard {...props} session={session} />}
+            </Stack.Screen>
+            <Stack.Screen name="AccountManagement" component={AccountManagementScreen} />
+            <Stack.Screen name="Messages" component={MessagesScreen} />
           </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
   );
-};
-
-export default AppNavigator;
+}

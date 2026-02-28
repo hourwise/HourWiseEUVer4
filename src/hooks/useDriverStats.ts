@@ -1,50 +1,45 @@
-import { useState, useCallback, useEffect } from 'react';import { supabase } from '../lib/supabase';
-import { workSessionService } from '../services/workSessionService';
-import { startOfWeek, subWeeks } from 'date-fns';
+import { useState, useCallback, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../providers/AuthProvider';
 
-export const useDriverStats = (userId: string | undefined) => {
+export const useDriverStats = () => {
+  const { profile, session } = useAuth(); // Also get session for user ID
   const [driverName, setDriverName] = useState<string | null>(null);
-  const [previousShiftEnd, setPreviousShiftEnd] = useState<string | null>(null);
-  const [weeklyHours, setWeeklyHours] = useState(0);
-  const [previousWeekHours, setPreviousWeekHours] = useState(0);
+  const [needsSetup, setNeedsSetup] = useState(true);
   const [loading, setLoading] = useState(true);
 
   const refreshStats = useCallback(async () => {
-    if (!userId) return;
-    setLoading(true);
-    try {
-      // Fetch Profile
-      const { data: profile } = await supabase.from('driver_profiles').select('driver_name').eq('user_id', userId).single();
-      setDriverName(profile?.driver_name || null);
-
-      // Fetch Previous Shift
-      const prevEnd = await workSessionService.fetchPreviousShift(userId);
-      setPreviousShiftEnd(prevEnd);
-
-      // Calculate Weekly Stats
-      const now = new Date();
-      const startOfCurrentWeek = startOfWeek(now, { weekStartsOn: 1 }).toISOString().split('T')[0];
-      const startOfLastWeek = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }).toISOString().split('T')[0];
-      const endOfLastWeek = startOfWeek(now, { weekStartsOn: 1 }).toISOString().split('T')[0];
-
-      const [wHours, pwHours] = await Promise.all([
-        workSessionService.fetchWeeklyMinutes(userId, startOfCurrentWeek),
-        workSessionService.fetchWeeklyMinutes(userId, startOfLastWeek, endOfLastWeek)
-      ]);
-
-      setWeeklyHours(wHours / 60);
-      setPreviousWeekHours(pwHours / 60);
-
-    } catch (e) {
-      console.error("Error loading driver stats:", e);
-    } finally {
+    if (!session?.user?.id || !profile) {
       setLoading(false);
+      return;
     }
-  }, [userId]);
+
+    setLoading(true);
+    setDriverName(profile.full_name || null);
+
+    // Explicitly check for a pay configuration in the database
+    const { data, error } = await supabase
+      .from('pay_configurations')
+      .select('id') // We only need to check for existence
+      .eq('user_id', session.user.id)
+      .limit(1)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // Ignore "0 rows" error
+      console.error('Error checking for pay configuration:', error);
+    }
+
+    // If data exists, setup is complete.
+    setNeedsSetup(!data);
+    setLoading(false);
+  }, [profile, session]);
 
   useEffect(() => {
     refreshStats();
   }, [refreshStats]);
 
-  return { driverName, previousShiftEnd, weeklyHours, previousWeekHours, loading, refreshStats, needsSetup: !driverName && !loading };
+  // You could add a real-time listener to the pay_configurations table here if needed
+  // but for now, a refresh on profile change is sufficient.
+
+  return { driverName, loading, refreshStats, needsSetup };
 };

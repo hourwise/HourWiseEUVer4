@@ -1,273 +1,553 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState } from 'react-native';
+import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { workSessionService } from '../services/workSessionService';
 import * as Speech from 'expo-speech';
+import * as Location from 'expo-location';
+import { Accelerometer } from 'expo-sensors';
 import i18n from '../lib/i18n';
+import { workSessionService } from '../services/workSessionService';
 
 type TimerMode = '6h' | '9h';
 type WorkStatus = 'idle' | 'working' | 'poa' | 'break';
 
-const STORAGE_KEY = 'timerState_v4'; // Incremented version to avoid conflicts
+const STORAGE_KEY = 'timerState_v7';
+
+const DRIVING_SPEED_THRESHOLD_KMH = 8;
+const STILL_SPEED_THRESHOLD_KMH = 3;
+const MOTION_MAGNITUDE_THRESHOLD = 0.12;
+const LOCATION_TASK_NAME = 'background-location-task';
+
+const MAX_WORK_6H = 6 * 3600;
+const MAX_WORK_9H = 9 * 3600;
+const MAX_DRIVE = 4.5 * 3600;
+
+type Totals = { work: number; poa: number; break: number; driving: number };
+
+type BreakTracker = {
+  has15min: boolean;         // took at least 15 min break during current cycle
+  lastBreakSegment: number;  // duration of the most recent completed break segment (seconds)
+};
+
+type PersistedState = {
+  status: WorkStatus;
+  sessionId: string | null;
+  timerMode: TimerMode;
+  workStartTime: string | null;
+  currentSegmentStart: string | null;
+  totals: Totals;
+  workCycleTotal: number;     // work+driving since last qualifying reset
+  breakTracker: BreakTracker;
+  isDriving: boolean;
+  // lastTickMs is no longer needed with the simplified restore logic
+};
 
 export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const [status, setStatus] = useState<WorkStatus>('idle');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [timerMode, setTimerMode] = useState<TimerMode>('6h');
-  const [workStartTime, setWorkStartTime] = useState<string | null>(null); // Shift start time
+
+  const [workStartTime, setWorkStartTime] = useState<string | null>(null);
   const [currentSegmentStart, setCurrentSegmentStart] = useState<string | null>(null);
-  const [totals, setTotals] = useState({ work: 0, poa: 0, break: 0 }); // Totals for the entire session
-  const [workCycleTotal, setWorkCycleTotal] = useState(0); // Work seconds since last reset, for driving time rules
-  const [display, setDisplay] = useState({ work: 0, poa: 0, break: 0, shift: 0, workTimeRemaining: 0, breakDuration: 0 });
 
-  const spokenAlerts = useRef<Set<string>>(new Set());
-  const appState = useRef(AppState.currentState);
+  const [totals, setTotals] = useState<Totals>({ work: 0, poa: 0, break: 0, driving: 0 });
+  const [workCycleTotal, setWorkCycleTotal] = useState(0);
 
-  const persistState = useCallback(async (stateToSave: any) => {
-    if (stateToSave.status !== 'idle') {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
-    } else {
-      await AsyncStorage.removeItem(STORAGE_KEY);
+  const [breakTracker, setBreakTracker] = useState<BreakTracker>({
+    has15min: false,
+    lastBreakSegment: 0,
+  });
+
+  const [isDriving, setIsDriving] = useState(false);
+
+  const [display, setDisplay] = useState({
+    work: 0,
+    poa: 0,
+    break: 0,
+    driving: 0,
+    shift: 0,
+    workTimeRemaining: MAX_WORK_6H,
+    drivingTimeRemaining: MAX_DRIVE,
+    breakDuration: 0,
+  });
+
+  const [shiftSummaryData, setShiftSummaryData] = useState<any>(null);
+
+  // audio guard
+  const prevRemainingTime = useRef({ work: MAX_WORK_6H, drive: MAX_DRIVE });
+
+  // tracking subs
+  const locationSubRef = useRef<Location.LocationSubscription | null>(null);
+  const accelSubRef = useRef<any>(null);
+
+  // driving detection refs
+  const lastSpeedKmhRef = useRef<number>(0);
+  const lastSpeedTsRef = useRef<number>(0);
+  const drivingScoreRef = useRef<number>(0);
+  const isDrivingRef = useRef<boolean>(false);
+
+  const speakAlert = useCallback((key: string) => {
+    try {
+      Speech.speak(i18n.t(key), { language: i18n.language });
+    } catch {
+      // ignore
     }
   }, []);
 
-  const speakAlert = async (translationKey: string, force = false) => {
-    if (spokenAlerts.current.has(translationKey) && !force) return;
-    spokenAlerts.current.add(translationKey);
+  const persistState = useCallback(
+    async (patch?: Partial<PersistedState>) => {
+      // Build from current state (and apply patch)
+      const state: PersistedState = {
+        status,
+        sessionId,
+        timerMode,
+        workStartTime,
+        currentSegmentStart,
+        totals,
+        workCycleTotal,
+        breakTracker,
+        isDriving,
+        ...(patch || {}),
+      };
+
+      if (state.status !== 'idle') {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } else {
+        await AsyncStorage.removeItem(STORAGE_KEY);
+      }
+    },
+    [status, sessionId, timerMode, workStartTime, currentSegmentStart, totals, workCycleTotal, breakTracker, isDriving]
+  );
+
+  const restoreState = useCallback(async () => {
+    const saved = await AsyncStorage.getItem(STORAGE_KEY);
+    if (!saved || !userId) return;
+
+    const s: PersistedState = JSON.parse(saved);
+
+    setStatus(s.status);
+    setSessionId(s.sessionId);
+    setTimerMode(s.timerMode || '6h');
+    setWorkStartTime(s.workStartTime);
+    setCurrentSegmentStart(s.currentSegmentStart);
+    setTotals(s.totals || { work: 0, poa: 0, break: 0, driving: 0 });
+    setWorkCycleTotal(s.workCycleTotal || 0);
+    setBreakTracker(s.breakTracker || { has15min: false, lastBreakSegment: 0 });
+    setIsDriving(!!s.isDriving);
+    isDrivingRef.current = !!s.isDriving;
+  }, [userId]);
+
+  useEffect(() => {
+    restoreState();
+  }, [restoreState]);
+
+  // Persist when app goes background/inactive
+  useEffect(() => {
+    const onAppState = (next: AppStateStatus) => {
+      if (next === 'background' || next === 'inactive') {
+        persistState().catch(() => {});
+      }
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => sub.remove();
+  }, [persistState]);
+
+  const stopTracking = useCallback(async () => {
+    locationSubRef.current?.remove();
+    locationSubRef.current = null;
+
+    accelSubRef.current?.remove();
+    accelSubRef.current = null;
+
+    drivingScoreRef.current = 0;
+    lastSpeedKmhRef.current = 0;
+    lastSpeedTsRef.current = 0;
+
     try {
-      await Speech.speak(i18n.t(translationKey), { language: i18n.language });
-    } catch (e) {
-      console.error("Speech error:", e);
+      const isTaskRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if (isTaskRunning) {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      }
+    } catch {
+      // ignore
     }
-  };
+  }, []);
+
+  const startTracking = useCallback(async () => {
+    try {
+      const { status: foreStatus } = await Location.requestForegroundPermissionsAsync();
+      if (foreStatus !== 'granted') return;
+
+      const { status: backStatus } = await Location.requestBackgroundPermissionsAsync();
+
+      // Foreground speed updates
+      const sub = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.BestForNavigation,
+          distanceInterval: 5,
+          timeInterval: 2000,
+        },
+        (loc) => {
+          const acc = loc.coords.accuracy ?? 9999;
+          if (acc > 60) return;
+
+          const speedMps = loc.coords.speed ?? 0;
+          const speedKmh = Math.max(0, speedMps * 3.6);
+
+          lastSpeedKmhRef.current = speedKmh;
+          lastSpeedTsRef.current = Date.now();
+        }
+      );
+      locationSubRef.current = sub;
+
+      // Background task (requires TaskManager.defineTask elsewhere)
+      if (backStatus === 'granted') {
+        const isTaskRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+        if (!isTaskRunning) {
+          await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: 5000,
+            distanceInterval: 10,
+            pausesLocationUpdatesAutomatically: false,
+            foregroundService: {
+              notificationTitle: i18n.t('notification.trackingTitle'),
+              notificationBody: i18n.t('notification.trackingBody'),
+              notificationColor: '#60a5fa',
+            },
+          });
+        }
+      }
+
+      // Motion confirmation + hysteresis
+      Accelerometer.setUpdateInterval(500);
+      accelSubRef.current = Accelerometer.addListener(({ x, y, z }) => {
+        const mag = Math.sqrt(x * x + y * y + z * z);
+        const motion = Math.abs(mag - 1);
+        const motionSuggestsMoving = motion > MOTION_MAGNITUDE_THRESHOLD;
+
+        const now = Date.now();
+        const speedAgeMs = now - (lastSpeedTsRef.current || 0);
+        const speedFresh = speedAgeMs < 8000;
+        const speedKmh = lastSpeedKmhRef.current || 0;
+
+        const aboveStart = speedFresh && speedKmh >= DRIVING_SPEED_THRESHOLD_KMH;
+        const belowStop = speedFresh && speedKmh <= STILL_SPEED_THRESHOLD_KMH;
+
+        let score = drivingScoreRef.current;
+
+        if (aboveStart && motionSuggestsMoving) score += 2;
+        else if (aboveStart) score += 1;
+        else if (belowStop) score -= 2;
+        else if (!motionSuggestsMoving) score -= 1;
+
+        // If GPS is stale, only nudge score slightly based on motion (prevents “walking = driving”)
+        if (!speedFresh) score += motionSuggestsMoving ? 0.2 : -0.2;
+
+        score = Math.max(-6, Math.min(6, score));
+        drivingScoreRef.current = score;
+
+        const nextDriving =
+          score >= 3 ? true :
+          score <= -3 ? false :
+          isDrivingRef.current;
+
+        if (nextDriving !== isDrivingRef.current) {
+          isDrivingRef.current = nextDriving;
+          setIsDriving(nextDriving);
+        }
+      });
+    } catch (e) {
+      console.error('Tracking setup failed', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status === 'working' || status === 'poa') {
+      startTracking();
+    } else {
+      stopTracking();
+      setIsDriving(false);
+      isDrivingRef.current = false;
+    }
+    return () => {
+      stopTracking();
+    };
+  }, [status, startTracking, stopTracking]);
 
   const calculateDisplay = useCallback(() => {
     if (status === 'idle' || !currentSegmentStart) return;
 
-    const now = Date.now();
-    const segmentStartTime = new Date(currentSegmentStart).getTime();
-    const shiftStartTime = workStartTime ? new Date(workStartTime).getTime() : 0;
-    if (isNaN(segmentStartTime)) return;
+    const nowMs = Date.now();
+    const segStartMs = new Date(currentSegmentStart).getTime();
+    const shiftStartMs = workStartTime ? new Date(workStartTime).getTime() : nowMs;
 
-    const elapsed = Math.floor((now - segmentStartTime) / 1000);
+    const elapsedSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
+    const d: Totals = { ...totals };
+    let cycle = workCycleTotal;
 
-    let currentTotalWork = totals.work;
-    let currentTotalPoa = totals.poa;
-    let currentTotalBreak = totals.break;
-    let currentWorkCycle = workCycleTotal;
-    let currentBreakDuration = 0;
-
-    if (status === 'working') {
-      currentTotalWork += elapsed;
-      currentWorkCycle += elapsed;
+    // Include current segment live in display (without mutating totals)
+    if (status === 'break') {
+      d.break += elapsedSec;
     } else if (status === 'poa') {
-      currentTotalPoa += elapsed;
-    } else if (status === 'break') {
-      currentTotalBreak += elapsed;
-      currentBreakDuration = elapsed;
+      d.poa += elapsedSec;
+    } else if (status === 'working') {
+      if (isDriving) {
+        d.driving += elapsedSec;
+        cycle += elapsedSec;
+      } else {
+        d.work += elapsedSec;
+        cycle += elapsedSec;
+      }
     }
 
-    const maxWorkSeconds = timerMode === '6h' ? 6 * 3600 : 9 * 3600;
-    const workTimeRemaining = Math.max(0, maxWorkSeconds - currentWorkCycle);
+    const maxWork = timerMode === '6h' ? MAX_WORK_6H : MAX_WORK_9H;
 
     setDisplay({
-      work: currentTotalWork,
-      poa: currentTotalPoa,
-      break: currentTotalBreak,
-      shift: shiftStartTime > 0 ? Math.floor((now - shiftStartTime) / 1000) : 0,
-      workTimeRemaining,
-      breakDuration: currentBreakDuration,
+      work: d.work,
+      poa: d.poa,
+      break: d.break,
+      driving: d.driving,
+      shift: Math.floor((nowMs - shiftStartMs) / 1000),
+      workTimeRemaining: Math.max(0, maxWork - cycle),
+      drivingTimeRemaining: Math.max(0, MAX_DRIVE - d.driving),
+      breakDuration: status === 'break' ? elapsedSec : 0, // current break segment duration
     });
+  }, [status, currentSegmentStart, workStartTime, totals, workCycleTotal, timerMode, isDriving]);
 
-    // Work time remaining alerts
-    if (status === 'working') {
-        if (workTimeRemaining <= 5 * 60 && workTimeRemaining > 0) speakAlert('audioWarning5h55');
-        else if (workTimeRemaining <= 15 * 60 && workTimeRemaining > 0) speakAlert('audioWarning5h15');
-        else if (workTimeRemaining <= 30 * 60 && workTimeRemaining > 0) speakAlert('audioWarning5h30');
-    }
+  // --- TIMER INTERVAL FIX ---
+  // 1. Create a ref to hold the callback
+  const savedCalculateDisplay = useRef(calculateDisplay);
 
-  }, [status, currentSegmentStart, workStartTime, totals, timerMode, workCycleTotal]);
-
+  // 2. Update the ref every time the callback changes
   useEffect(() => {
-    const interval = setInterval(calculateDisplay, 1000);
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-        calculateDisplay();
-      }
-      appState.current = nextAppState;
-    });
-    return () => {
-      clearInterval(interval);
-      subscription.remove();
-    };
+    savedCalculateDisplay.current = calculateDisplay;
   }, [calculateDisplay]);
+
+  // 3. Set up the interval to call the function from the ref
+  useEffect(() => {
+    const tick = () => {
+      savedCalculateDisplay.current();
+    };
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, []); // The empty array is now correct and safe
+
+  // Audio warnings: map to *time remaining* that corresponds to “5h15/5h30/5h55” into a 6h cycle
+  useEffect(() => {
+    if (status !== 'working' && status !== 'poa') return;
+
+    const { workTimeRemaining, drivingTimeRemaining } = display;
+    const prevWork = prevRemainingTime.current.work;
+    const prevDrive = prevRemainingTime.current.drive;
+
+    const checkAndSpeak = (current: number, prev: number, threshold: number, key: string) => {
+      if (current <= threshold && prev > threshold) speakAlert(key);
+    };
+
+    // 6h cycle: 5h15 => 45m left; 5h30 => 30m left; 5h55 => 5m left
+    checkAndSpeak(workTimeRemaining, prevWork, 45 * 60, 'audioWork5h15');
+    checkAndSpeak(workTimeRemaining, prevWork, 30 * 60, 'audioWork5h30');
+    checkAndSpeak(workTimeRemaining, prevWork, 5 * 60, 'audioWork5h55');
+
+    checkAndSpeak(drivingTimeRemaining, prevDrive, 30 * 60, 'audioDriving30minLeft');
+    checkAndSpeak(drivingTimeRemaining, prevDrive, 15 * 60, 'audioDriving15minLeft');
+    checkAndSpeak(drivingTimeRemaining, prevDrive, 5 * 60, 'audioDriving5minLeft');
+
+    prevRemainingTime.current = { work: workTimeRemaining, drive: drivingTimeRemaining };
+  }, [display, status, speakAlert]);
+
+  const updateTotalsAndSwitchStatus = useCallback(
+    (newStatus: WorkStatus) => {
+      if (!currentSegmentStart) {
+        const nowIso = new Date().toISOString();
+        setCurrentSegmentStart(nowIso);
+        setStatus(newStatus);
+        persistState({ status: newStatus, currentSegmentStart: nowIso }).catch(() => {});
+        return;
+      }
+
+      const nowMs = Date.now();
+      const segStartMs = new Date(currentSegmentStart).getTime();
+      const elapsedSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
+
+      const prevStatus = status;
+      const wasDriving = isDriving;
+
+      // 1) roll up elapsed time into totals/cycle based on previous status
+      // (note: driving only matters while working)
+      setTotals((prev) => {
+        const next = { ...prev };
+
+        if (prevStatus === 'break') next.break += elapsedSec;
+        else if (prevStatus === 'poa') next.poa += elapsedSec;
+        else if (prevStatus === 'working') {
+          if (wasDriving) next.driving += elapsedSec;
+          else next.work += elapsedSec;
+        }
+
+        return next;
+      });
+
+      if (prevStatus === 'working') {
+        setWorkCycleTotal((prev) => prev + elapsedSec);
+      }
+
+      // 2) break segment rules
+      if (prevStatus === 'break') {
+        const breakSeg = elapsedSec;
+        setBreakTracker((prev) => {
+          let next = { ...prev, lastBreakSegment: breakSeg };
+
+          // mark 15min taken (enables 6h -> 9h extension)
+          if (breakSeg >= 15 * 60) next.has15min = true;
+
+          return next;
+        });
+
+        // If a qualifying break reset is taken: reset workCycleTotal
+        // - full 45 min break
+        // - OR split 15 + 30 (we check lastBreakSegment and current segment)
+        if (elapsedSec >= 45 * 60) {
+          setWorkCycleTotal(0);
+          setBreakTracker({ has15min: false, lastBreakSegment: 0 });
+        } else {
+          const last = breakTracker.lastBreakSegment || 0;
+          if ((last >= 15 * 60 && elapsedSec >= 30 * 60) || (last >= 30 * 60 && elapsedSec >= 15 * 60)) {
+            setWorkCycleTotal(0);
+            setBreakTracker({ has15min: false, lastBreakSegment: 0 });
+          }
+        }
+
+        // If you took a 15 min break during 6h mode, extend to 9h
+        if (timerMode === '6h' && elapsedSec >= 15 * 60) {
+          setTimerMode('9h');
+        }
+      }
+
+      // 3) switch segment
+      const nowIso = new Date(nowMs).toISOString();
+      setCurrentSegmentStart(nowIso);
+      setStatus(newStatus);
+
+      // 4) persist
+      persistState({
+        status: newStatus,
+        currentSegmentStart: nowIso,
+        isDriving: isDrivingRef.current,
+      }).catch(() => {});
+    },
+    [currentSegmentStart, status, isDriving, breakTracker.lastBreakSegment, timerMode, persistState]
+  );
 
   const startWork = useCallback(async () => {
     if (!userId) return;
-    const now = new Date().toISOString();
-    const newTotals = { work: 0, poa: 0, break: 0 };
-    setStatus('working');
-    setWorkStartTime(now);
-    setCurrentSegmentStart(now);
-    setTotals(newTotals);
-    setWorkCycleTotal(0);
-    setTimerMode('6h');
-    spokenAlerts.current.clear();
+
     try {
-      const { data, error } = await workSessionService.startSession(userId, timezone);
-      const newSessionId = data ? data.id : null;
-      setSessionId(newSessionId);
-      await persistState({ status: 'working', sessionId: newSessionId, timerMode: '6h', workStartTime: now, currentSegmentStart: now, totals: newTotals, workCycleTotal: 0 });
-      speakAlert('audioShiftStarted', true);
-      if (error) console.error(error);
-    } catch (e) { console.error(e); }
-  }, [userId, timezone, persistState]);
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = location.coords;
+
+      const nowIso = new Date().toISOString();
+
+      setStatus('working');
+      setWorkStartTime(nowIso);
+      setCurrentSegmentStart(nowIso);
+      setTotals({ work: 0, poa: 0, break: 0, driving: 0 });
+      setWorkCycleTotal(0);
+      setTimerMode('6h');
+      setBreakTracker({ has15min: false, lastBreakSegment: 0 });
+
+      prevRemainingTime.current = { work: MAX_WORK_6H, drive: MAX_DRIVE };
+      setDisplay({
+        work: 0,
+        poa: 0,
+        break: 0,
+        driving: 0,
+        shift: 0,
+        workTimeRemaining: MAX_WORK_6H,
+        drivingTimeRemaining: MAX_DRIVE,
+        breakDuration: 0,
+      });
+
+      const { data } = await workSessionService.startSession(userId, timezone, latitude, longitude);
+      const id = data?.id || null;
+      setSessionId(id);
+
+      await persistState({
+        status: 'working',
+        sessionId: id,
+        timerMode: '6h',
+        workStartTime: nowIso,
+        currentSegmentStart: nowIso,
+        totals: { work: 0, poa: 0, break: 0, driving: 0 },
+        workCycleTotal: 0,
+        breakTracker: { has15min: false, lastBreakSegment: 0 },
+        isDriving: false,
+      });
+
+      speakAlert('audioShiftStarted');
+    } catch (e) {
+      console.error('Could not start work with location stamp', e);
+    }
+  }, [userId, timezone, persistState, speakAlert]);
 
   const endWork = useCallback(async () => {
-    const now = new Date();
-    const start = new Date(currentSegmentStart || now);
-    const elapsed = Math.floor((now.getTime() - start.getTime()) / 1000);
+    const { work, poa, break: breakTime, driving } = display;
 
-    let finalWork = totals.work;
-    let finalPoa = totals.poa;
-    let finalBreak = totals.break;
-
-    if (status === 'working') finalWork += elapsed;
-    if (status === 'poa') finalPoa += elapsed;
-    if (status === 'break') finalBreak += elapsed;
-
-    if (sessionId) {
-      // Assuming breakCounts is no longer needed. If it is, the service call below may need adjustment.
-      await workSessionService.endSession(sessionId, Math.floor(finalWork / 60), Math.floor(finalPoa / 60), Math.floor(finalBreak / 60), {});
+    let endLocation: { latitude: number; longitude: number } | null = null;
+    try {
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      endLocation = { latitude: location.coords.latitude, longitude: location.coords.longitude };
+    } catch (e) {
+      console.error('Could not get end shift location', e);
     }
 
-    setStatus('idle');
-    setSessionId(null);
-    setWorkStartTime(null);
-    setCurrentSegmentStart(null);
-    setTotals({ work: 0, poa: 0, break: 0 });
-    setWorkCycleTotal(0);
-    setDisplay({ work: 0, poa: 0, break: 0, shift: 0, workTimeRemaining: 0, breakDuration: 0 });
-    setTimerMode('6h');
-    speakAlert('audioShiftEnded', true);
-    spokenAlerts.current.clear();
-    await persistState({ status: 'idle' });
-  }, [status, currentSegmentStart, totals, sessionId, persistState]);
+    setShiftSummaryData({
+      totals: { work, poa, break: breakTime, driving },
+      violations: [],
+      onConfirm: async () => {
+        if (!sessionId) return;
 
-  const togglePOA = useCallback(() => {
-    if (status === 'break') return;
+        await stopTracking();
+        await workSessionService.endSession(
+          sessionId,
+          work,
+          poa,
+          breakTime,
+          driving,
+          endLocation?.latitude,
+          endLocation?.longitude
+        );
 
-    const now = new Date();
-    const start = new Date(currentSegmentStart || now);
-    const elapsed = Math.floor((now.getTime() - start.getTime()) / 1000);
-    const newStatus = status === 'poa' ? 'working' : 'poa';
+        setStatus('idle');
+        setIsDriving(false);
+        isDrivingRef.current = false;
 
-    const newTotals = { ...totals };
-    let newWorkCycleTotal = workCycleTotal;
+        await persistState({ status: 'idle' });
 
-    if (status === 'working') {
-        newTotals.work += elapsed;
-        newWorkCycleTotal += elapsed;
-    }
-    if (status === 'poa') newTotals.poa += elapsed;
-
-    setTotals(newTotals);
-    setWorkCycleTotal(newWorkCycleTotal);
-    setStatus(newStatus);
-    setCurrentSegmentStart(now.toISOString());
-    
-    speakAlert(newStatus === 'working' ? 'audioResumeWork' : 'audioPoaStarted', true);
-    
-    persistState({ status: newStatus, sessionId, timerMode, workStartTime, currentSegmentStart: now.toISOString(), totals: newTotals, workCycleTotal: newWorkCycleTotal });
-  }, [status, currentSegmentStart, totals, workCycleTotal, sessionId, timerMode, workStartTime, persistState]);
-
+        speakAlert('audioShiftEnded');
+        setShiftSummaryData(null);
+      },
+    });
+  }, [display, sessionId, stopTracking, persistState, speakAlert]);
 
   const toggleBreak = useCallback(() => {
-    const now = new Date();
-    const start = new Date(currentSegmentStart || now);
-    const elapsed = Math.floor((now.getTime() - start.getTime()) / 1000);
-    
-    let newTotals = { ...totals };
-    let newWorkCycleTotal = workCycleTotal;
-    let newTimerMode = timerMode;
-    let newStatus: WorkStatus;
+    updateTotalsAndSwitchStatus(status === 'break' ? 'working' : 'break');
+  }, [status, updateTotalsAndSwitchStatus]);
 
-    if (status === 'working' || status === 'poa') { // Starting a break
-      newStatus = 'break';
-      if (status === 'working') {
-        newTotals.work += elapsed;
-        newWorkCycleTotal += elapsed;
-      } else { // poa
-        newTotals.poa += elapsed;
-      }
-      speakAlert('audioBreakStarted', true);
-
-    } else { // Ending a break (status === 'break')
-      newStatus = 'working';
-      newTotals.break += elapsed;
-      const breakDuration = elapsed;
-
-      if (breakDuration >= 30 * 60) {
-        newWorkCycleTotal = 0; // Reset work timer
-        newTimerMode = '6h';
-        // Clear work warnings
-        spokenAlerts.current.delete('audioWarning5h30');
-        spokenAlerts.current.delete('audioWarning5h15');
-        spokenAlerts.current.delete('audioWarning5h55');
-      } else if (breakDuration >= 15 * 60) {
-        newTimerMode = '9h'; // Extend to 9h shift
-      }
-      speakAlert('audioResumeWork', true);
-    }
-    
-    setStatus(newStatus);
-    setTotals(newTotals);
-    setWorkCycleTotal(newWorkCycleTotal);
-    setTimerMode(newTimerMode);
-    setCurrentSegmentStart(now.toISOString());
-
-    persistState({
-      status: newStatus,
-      sessionId,
-      timerMode: newTimerMode,
-      workStartTime,
-      currentSegmentStart: now.toISOString(),
-      totals: newTotals,
-      workCycleTotal: newWorkCycleTotal
-    });
-  }, [status, currentSegmentStart, totals, workCycleTotal, timerMode, sessionId, workStartTime, persistState]);
-
-
-  const restoreState = useCallback(async () => {
-    try {
-      const saved = await AsyncStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const state = JSON.parse(saved);
-        if (state && state.status !== 'idle' && state.currentSegmentStart) {
-          setStatus(state.status);
-          setSessionId(state.sessionId);
-          setTimerMode(state.timerMode || '6h');
-          setWorkStartTime(state.workStartTime);
-          setCurrentSegmentStart(state.currentSegmentStart);
-          setTotals(state.totals || { work: 0, poa: 0, break: 0 });
-          setWorkCycleTotal(state.workCycleTotal || 0);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to restore state:", error);
-      await AsyncStorage.removeItem(STORAGE_KEY);
-    }
-  }, []);
+  const togglePOA = useCallback(() => {
+    updateTotalsAndSwitchStatus(status === 'poa' ? 'working' : 'poa');
+  }, [status, updateTotalsAndSwitchStatus]);
 
   return {
     status,
     timerMode,
-    workStartTime,
+    isDriving,
     displaySeconds: display,
+    shiftSummaryData,
+    setShiftSummaryData,
     startWork,
     endWork,
     togglePOA,
-    toggleBreak, // New simplified break handler
-    restoreState
+    toggleBreak,
+    restoreState,
   };
 };

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Modal, TouchableOpacity, FlatList } from 'react-native';
-import { X, Check } from 'lucide-react-native';
+import { X, Check } from 'react-native-feather';
 
 interface LanguageSelectorProps {
   visible: boolean;
@@ -20,6 +20,14 @@ const languages = [
   { code: 'ro', name: 'Română', flag: '🇷🇴' },
   { code: 'nl', name: 'Nederlands', flag: '🇳🇱' },
   { code: 'pt', name: 'Português', flag: '🇵🇹' },
+  { code: 'uk', name: 'Українська', flag: '🇺🇦' },
+  { code: 'hu', name: 'Magyar', flag: '🇭🇺' },
+  { code: 'bg', name: 'Български', flag: '🇧🇬' },
+  { code: 'lt', name: 'Lietuvių', flag: '🇱🇹' },
+  { code: 'cs', name: 'Čeština', flag: '🇨🇿' },
+  { code: 'sk', name: 'Slovenčina', flag: '🇸🇰' },
+  { code: 'lv', name: 'Latviešu', flag: '🇱🇻' },
+  { code: 'tr', name: 'Türkçe', flag: '🇹🇷' },
 ];
 
 export default function LanguageSelector({ visible, onClose, onSelectLanguage, currentLanguage }: LanguageSelectorProps) {

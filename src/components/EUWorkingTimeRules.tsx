@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Modal } from 'react-native';
-import { X, Clock, Coffee, Shield, Info } from 'lucide-react-native';
+import { X, Clock, Coffee, Shield, Info } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 
 interface EUWorkingTimeRulesProps {
@@ -22,7 +22,7 @@ const BulletPoint = ({ children }: { children: React.ReactNode }) => (
 );
 
 const Section = ({ title, icon, children }: SectionProps) => (
-  <View>
+  <View className="mb-5">
     <View className="flex-row items-center gap-2 mb-3">
       {icon}
       <Text className="text-lg font-bold text-white">{title}</Text>
@@ -48,51 +48,69 @@ function EUWorkingTimeRules({ visible, onClose }: EUWorkingTimeRulesProps) {
         <View className="bg-slate-800 rounded-2xl w-full max-h-[90%] flex shadow-xl shadow-black">
 
           <View className="rounded-t-2xl border-b border-slate-700 p-5 flex-row justify-between items-center bg-slate-800">
-            <Text className="text-xl font-bold text-white flex-1 mr-2">{t('euRulesTitle')}</Text>
+            <Text className="text-xl font-bold text-white flex-1 mr-2">{t('euRules.title')}</Text>
             <TouchableOpacity
               onPress={onClose}
               className="p-2 bg-slate-700 rounded-full"
-              accessibilityLabel="Close rules"
+              accessibilityLabel={t('euRules.accessibility.closeRules')}
               accessibilityRole="button"
             >
               <X color="white" size={20} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={{ padding: 20, space: 20 }}>
-            <View className="bg-blue-900/30 rounded-xl p-4 border border-blue-500/50 flex-row gap-3">
+          <ScrollView contentContainerStyle={{ padding: 20 }}>
+            <View className="bg-blue-900/30 rounded-xl p-4 border border-blue-500/50 flex-row gap-3 mb-5">
               <Info size={24} color="#60A5FA" className="mt-1" />
               <View className="flex-1">
-                <Text className="text-lg font-bold text-blue-400 mb-1">{t('euRulesAbout')}</Text>
-                <Text className="text-slate-200 leading-5">{t('euRulesAboutDesc')}</Text>
+                <Text className="text-lg font-bold text-blue-400 mb-1">{t('euRules.about.title')}</Text>
+                <Text className="text-slate-200 leading-5">{t('euRules.about.description')}</Text>
               </View>
             </View>
 
-            <Section title={t('euRulesOverview')} icon={<Shield size={20} color="#CBD5E1" />}>
-              <BulletPoint>{t('euRulesOverviewPoint1')}</BulletPoint>
-              <BulletPoint>{t('euRulesOverviewPoint2')}</BulletPoint>
-              <BulletPoint>{t('euRulesOverviewPoint3')}</BulletPoint>
+            <Section title={t('euRules.overview.title')} icon={<Shield size={20} color="#CBD5E1" />}>
+              <BulletPoint>{t('euRules.overview.point1')}</BulletPoint>
+              <BulletPoint>{t('euRules.overview.point2')}</BulletPoint>
+              <BulletPoint>{t('euRules.overview.point3')}</BulletPoint>
             </Section>
 
-            <Section title={t('euRulesKeyTimeLimits')} icon={<Clock size={20} color="#CBD5E1" />}>
-              <BulletPoint><Text className="font-bold text-white">{t('euRulesAvgWeekly')}</Text></BulletPoint>
-              <BulletPoint><Text className="font-bold text-white">{t('euRulesMaxWeekly')}</Text></BulletPoint>
-              <BulletPoint><Text className="font-bold text-white">{t('euRulesNightWork')}</Text></BulletPoint>
+            <Section title={t('euRules.drivingLimits.title')} icon={<Clock size={20} color="#CBD5E1" />}>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.daily.label')}</Text> {t('euRules.drivingLimits.daily.description')}</BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.weekly.label')}</Text> {t('euRules.drivingLimits.weekly.description')}</BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.fortnightly.label')}</Text> {t('euRules.drivingLimits.fortnightly.description')}</BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.breaks.label')}</Text> {t('euRules.drivingLimits.breaks.description')}</BulletPoint>
+              <BulletPoint>{t('euRules.drivingLimits.breaksSplitExample')}</BulletPoint>
             </Section>
 
-            <Section title={t('euRulesBreakRequirements')} icon={<Coffee size={20} color="#CBD5E1" />}>
-              <Text className="text-slate-300 mb-2 italic">{t('euRulesBreakIntro')}</Text>
+            <Section title={t('euRules.restPeriods.title')} icon={<Coffee size={20} color="#CBD5E1" />}>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.restPeriods.daily.title')}</Text></BulletPoint>
+              <Text className="text-slate-300 ml-4">{t('euRules.restPeriods.daily.regular')}</Text>
+              <Text className="text-slate-300 ml-4">{t('euRules.restPeriods.daily.reduced')}</Text>
+              <Text className="text-slate-300 ml-4 mb-2">{t('euRules.restPeriods.daily.split')}</Text>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.restPeriods.weekly.title')}</Text></BulletPoint>
+              <Text className="text-slate-300 ml-4">{t('euRules.restPeriods.weekly.regular')}</Text>
+              <Text className="text-slate-300 ml-4">{t('euRules.restPeriods.weekly.reduced')}</Text>
+              <Text className="text-slate-300 ml-4">{t('euRules.restPeriods.weekly.frequency')}</Text>
+            </Section>
+
+            <Section title={t('euRules.workingTimeLimits.title')} icon={<Clock size={20} color="#CBD5E1" />}>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.workingTimeLimits.maxWeekly.label')}</Text> {t('euRules.workingTimeLimits.maxWeekly.description')}</BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.workingTimeLimits.avgWeekly.label')}</Text> {t('euRules.workingTimeLimits.avgWeekly.description')}</BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.workingTimeLimits.nightWork.label')}</Text> {t('euRules.workingTimeLimits.nightWork.description')}</BulletPoint>
+            </Section>
+
+            <Section title={t('euRules.workBreaks.title')} icon={<Coffee size={20} color="#CBD5E1" />}>
+              <Text className="text-slate-300 mb-2 italic">{t('euRules.workBreaks.intro')}</Text>
               <View className="space-y-2 pl-2 border-l-2 border-slate-700 my-2">
-                <Text className="text-slate-300">{t('euRulesBreak6to9')}</Text>
-                <Text className="text-slate-300">{t('euRulesBreak9Plus')}</Text>
+                <Text className="text-slate-300">{t('euRules.workBreaks.rules.sixToNine')}</Text>
+                <Text className="text-slate-300">{t('euRules.workBreaks.rules.ninePlus')}</Text>
               </View>
-              <BulletPoint>{t('euRulesBreakSplit')}</BulletPoint>
-              <BulletPoint>{t('euRulesBreakSeparate')}</BulletPoint>
+              <BulletPoint>{t('euRules.workBreaks.noteDriving')}</BulletPoint>
             </Section>
 
-            <Section title={t('euRulesInteraction')} icon={<Info size={20} color="#CBD5E1" />}>
-              <BulletPoint>{t('euRulesInteractionPoint1')}</BulletPoint>
-              <BulletPoint>{t('euRulesInteractionPoint2')}</BulletPoint>
+            <Section title={t('euRules.interaction.title')} icon={<Info size={20} color="#CBD5E1" />}>
+              <BulletPoint>{t('euRules.interaction.point1')}</BulletPoint>
+              <BulletPoint>{t('euRules.interaction.point2')}</BulletPoint>
             </Section>
           </ScrollView>
 
@@ -101,9 +119,9 @@ function EUWorkingTimeRules({ visible, onClose }: EUWorkingTimeRulesProps) {
               onPress={onClose}
               className="w-full py-3.5 bg-blue-600 rounded-xl active:bg-blue-700"
               accessibilityRole="button"
-              accessibilityLabel="Close and return"
+              accessibilityLabel={t('euRules.accessibility.closeAndReturn')}
             >
-              <Text className="text-white font-bold text-center text-lg">{t('euRulesClose')}</Text>
+              <Text className="text-white font-bold text-center text-lg">{t('euRules.closeButton')}</Text>
             </TouchableOpacity>
           </View>
         </View>

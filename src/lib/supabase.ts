@@ -4,15 +4,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-// Fail fast if configuration is missing
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error(
     'Missing Supabase configuration. Check EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file.'
   );
 }
 
-// Initialize client
-// If you generate types, change to: createClient<Database>(...)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: AsyncStorage,
@@ -22,8 +19,35 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// Type Definitions
-// Ideally derived from Database['public']['Tables']['work_sessions']['Row']
+export const getLatestBroadcasts = async () => {
+  const { data, error } = await supabase
+    .from('broadcasts')
+    .select('id, content, created_at')
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (error) {
+    console.error('Error fetching broadcasts:', error);
+    return [];
+  }
+  return data;
+};
+
+export const getSystemMessages = async () => {
+  const { data, error } = await supabase
+    .from('system_messages')
+    .select('id, content, created_at')
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  if (error) {
+    console.error('Error fetching system messages:', error);
+    return [];
+  }
+  return data;
+};
+
+
 export type WorkSession = {
   id: string;
   user_id: string;

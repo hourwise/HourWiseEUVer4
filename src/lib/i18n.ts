@@ -45,7 +45,7 @@ export const i18nConfig = {
   },
   backend: {
     loadPath,
-    queryStringParams: { v: 'dev-1' },
+    queryStringParams: { v: '1.0.1' }, // <-- Incremented version to bust cache
     requestOptions: { cache: 'no-store' },
   },
   react: {

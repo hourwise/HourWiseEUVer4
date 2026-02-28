@@ -1,4 +1,5 @@
-// File: eslint.config.jsimport globals from 'globals';
+// File: eslint.config.js
+import globals from 'globals';
 import pluginJs from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import pluginReactConfig from 'eslint-plugin-react/configs/recommended.js';
@@ -54,11 +55,13 @@ export default [
       // We manually spread these because the plugin format is slightly different
       ...reactNative.configs.all.rules,
 
+      // --- CRITICAL: Enable raw text checking ---
+      'react-native/no-raw-text': 'error',
+
       // Turn off some strict rules that can be annoying in Expo
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': 'warn',
       '@typescript-eslint/no-explicit-any': 'warn',
-      'react-native/no-raw-text': 'off', // Often flags normal text in Text components incorrectly
     },
   },
 ];

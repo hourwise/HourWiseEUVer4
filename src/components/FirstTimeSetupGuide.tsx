@@ -1,48 +1,57 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, StatusBar } from 'react-native';
 import { Check, Compass, Edit3, UserCheck } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-interface FirstTimeSetupGuideProps {
-  visible: boolean;
-  onClose: () => void;
-}
+// Define the type for the navigation stack parameters
+type SetupStackParamList = {
+  FirstTimeSetup: undefined;
+  DriverSetup: undefined; // Add other screens in the stack if any
+};
+
+// Define the navigation prop type for this screen
+type FirstTimeSetupNavigationProp = NativeStackNavigationProp<SetupStackParamList, 'FirstTimeSetup'>;
+
 
 const Step: React.FC<{ icon: React.ReactNode; text: string }> = ({ icon, text }) => (
-  <View className="flex-row items-start gap-4 mb-4">
+  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginBottom: 16 }}>
     {icon}
-    <Text className="text-slate-300 text-base flex-1">{text}</Text>
+    <Text style={{ color: '#CBD5E1', fontSize: 16, flex: 1 }}>{text}</Text>
   </View>
 );
 
-function FirstTimeSetupGuide({ visible, onClose }: FirstTimeSetupGuideProps) {
+function FirstTimeSetupGuide() {
   const { t } = useTranslation();
+  const navigation = useNavigation<FirstTimeSetupNavigationProp>();
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View className="flex-1 justify-center items-center bg-black/80 p-6">
-        <View className="bg-slate-800 rounded-2xl w-full p-6 border border-slate-700">
-          <Text className="text-2xl font-bold text-white mb-2">{t('firstTimeSetup.title')}</Text>
-          <Text className="text-slate-400 text-lg mb-6">{t('firstTimeSetup.subtitle')}</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A' }}>
+      <StatusBar barStyle="light-content" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <View style={{ backgroundColor: '#1E293B', borderRadius: 16, width: '100%', padding: 24, borderWidth: 1, borderColor: '#334155' }}>
+          <Text style={{ fontSize: 24, fontWeight: 'bold', color: 'white', marginBottom: 8 }}>{t('firstTimeSetup.title', "Let's Get You Set Up")}</Text>
+          <Text style={{ color: '#94A3B8', fontSize: 18, marginBottom: 24 }}>{t('firstTimeSetup.subtitle', "Just a few steps to personalize your experience.")}</Text>
 
           <View>
-            <Step icon={<Compass color="#38bdf8" size={24} />} text={t('firstTimeSetup.step1')} />
-            <Step icon={<UserCheck color="#38bdf8" size={24} />} text={t('firstTimeSetup.step2')} />
-            <Step icon={<Edit3 color="#38bdf8" size={24} />} text={t('firstTimeSetup.step3')} />
+            <Step icon={<Compass color="#38bdf8" size={24} />} text={t('firstTimeSetup.step1', "First, we'll need some permissions to track your work accurately.")} />
+            <Step icon={<UserCheck color="#38bdf8" size={24} />} text={t('firstTimeSetup.step2', "Next, you'll set up your driver profile and pay details.")} />
+            <Step icon={<Edit3 color="#38bdf8" size={24} />} text={t('firstTimeSetup.step3', "Finally, you can start tracking your shifts and earnings.")} />
           </View>
 
           <TouchableOpacity
-            onPress={onClose}
-            className="w-full mt-6 px-6 py-3 bg-blue-600 rounded-lg flex-row justify-center items-center gap-2"
+            onPress={() => navigation.navigate('DriverSetup')}
+            style={{ width: '100%', marginTop: 24, paddingVertical: 12, backgroundColor: '#2563EB', borderRadius: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}
           >
             <Check color="white" size={20} />
-            <Text className="text-white font-semibold text-center text-lg">
-              {t('firstTimeSetup.button')}
+            <Text style={{ color: 'white', fontWeight: '600', textAlign: 'center', fontSize: 18 }}>
+              {t('firstTimeSetup.button', "Let's Go!")}
             </Text>
           </TouchableOpacity>
         </View>
       </View>
-    </Modal>
+    </SafeAreaView>
   );
 }
 
