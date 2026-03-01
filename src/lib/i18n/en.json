@@ -32,7 +32,22 @@
     "cameraTitle": "Camera Permission",
     "cameraBody": "HourWise needs camera access to allow you to upload photos for expenses or other documents. Please enable it in your settings.",
     "mediaLibraryTitle": "Media Library Permission",
-    "mediaLibraryBody": "HourWise needs access to your media library to allow you to select photos for expenses or other documents. Please enable it in your settings."
+    "mediaLibraryBody": "HourWise needs access to your media library to allow you to select photos for expenses or other documents. Please enable it in your settings.",
+    "title": "One Last Step",
+    "body": "HourWise requires Location and Notification permissions to function correctly. Your location is used only to detect driving automatically, even when the app is in the background.",
+    "button": "Grant Permissions",
+    "deniedTitle": "Permissions Required",
+    "deniedBody": "You have permanently denied essential permissions. Please go to your device settings to enable Location (Allow all the time) and Notifications."
+  },
+  "messages": {
+    "title": "Messages",
+    "notificationTitle": "New Fleet Message",
+    "systemNotificationTitle": "System Announcement",
+    "newMessageBodyFallback": "You have a new message.",
+    "noMessages": "No messages yet.",
+    "unread": "Unread",
+    "read": "Read",
+    "noUnread": "All caught up! No unread messages."
   },
   "app": {
     "title": "HourWise EU",
@@ -164,9 +179,10 @@
   "firstTimeSetup": {
     "title": "Welcome to HourWise!",
     "subtitle": "A few steps to get you started correctly:",
-    "step1": "Enable All Permissions: For automatic driving detection to work, please grant all permissions, especially setting Location to 'Allow all the time'.",
-    "step2": "Complete Driver Setup: Fill in your details. This is essential for reports and optional pay calculations.",
-    "step3": "Enter Your Last Shift: Go to Menu > Work History and add your last completed shift. This is crucial for correct daily rest calculation.",
+    "step1_new": "First, you'll set up your driver profile and pay details.",
+    "step2_new": "Next, you'll add your last completed shift to ensure your daily rest is calculated correctly.",
+    "step3_new": "Then, we'll ask for the necessary permissions to track your work accurately.",
+    "step4_new": "Finally, you can start tracking your shifts and earnings.",
     "button": "I Understand, Let's Go!"
   },
   "settingsMenu": {
@@ -491,7 +507,11 @@
   },
   "notification": {
     "trackingTitle": "Tracking Driving Time",
-    "trackingBody": "HourWise is actively monitoring your location for driving."
+    "trackingBody": "HourWise is actively monitoring your location for driving.",
+    "shiftStartedTitle": "Shift Started",
+    "shiftStartedBody": "Your work shift has officially begun.",
+    "shiftEndedTitle": "Shift Ended",
+    "shiftEndedBody": "Your work shift has been successfully ended."
   },
   "enableComplianceNotifications": "Please enable notifications to receive compliance alerts.",
   "locationPermissionRequired": "Location permission is required for driving detection.",

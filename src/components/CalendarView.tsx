@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Modal } from 'react-native';
 import { ChevronLeft, ChevronRight, Edit, Plus, X, DollarSign, Clock } from 'react-native-feather';
+import { useTranslation } from 'react-i18next';
 import { supabase, WorkSession } from '../lib/supabase';
 import { calculatePayFromRaw, formatCurrency } from '../lib/payCalculations';
 import SessionEditorModal from './SessionEditorModal';
@@ -36,7 +37,6 @@ const usePayConfig = (userId: string) => {
     const fetchConfig = async () => {
       if (!userId) return;
       try {
-        console.log("DEBUG: Fetching Pay Config for User ID:", userId);
         const { data: config, error: configError } = await supabase
           .from('pay_configurations')
           .select('*')
@@ -115,7 +115,7 @@ const formatTimeFromMinutes = (minutes: number) => {
   return `${hrs}h ${mins}m`;
 };
 
-const DayDetailsModal = ({ visible, onClose, selectedDate, sessions, dailyPay, timezone, onAddShift, onEditShift }: any) => {
+const DayDetailsModal = ({ visible, onClose, selectedDate, sessions, dailyPay, timezone, onAddShift, onEditShift, t }: any) => {
   if (!visible || !selectedDate) return null;
 
   const formatDateTime = (dateTimeStr: string) => new Date(dateTimeStr).toLocaleString('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false });
@@ -134,18 +134,18 @@ const DayDetailsModal = ({ visible, onClose, selectedDate, sessions, dailyPay, t
                     {sessionsForDay.length > 0 ? (
                         <>
                             <View className="bg-slate-800 rounded-lg p-4 mb-4 border border-slate-700">
-                                <Text className="text-white font-bold mb-3 text-lg border-b border-slate-700 pb-2">Day Summary</Text>
-                                <View className="flex-row justify-between mb-2"><Text className="text-slate-400">Total Work:</Text><Text className="text-white font-semibold">{formatTimeFromMinutes(sessionsForDay.reduce((acc: number, s: WorkSession) => acc + (s.total_work_minutes || 0), 0))}</Text></View>
-                                <View className="flex-row justify-between mb-2"><Text className="text-slate-400">Total Breaks:</Text><Text className="text-white font-semibold">{formatTimeFromMinutes(sessionsForDay.reduce((acc: number, s: WorkSession) => acc + (s.total_break_minutes || 0), 0))}</Text></View>
-                                <View className="mt-2 pt-2 border-t border-slate-700 flex-row justify-between items-center"><Text className="text-slate-300 font-bold">Est. Earnings:</Text><Text className="text-green-400 font-bold text-lg">{formatCurrency(dailyPay?.totalPay)}</Text></View>
+                                <Text className="text-white font-bold mb-3 text-lg border-b border-slate-700 pb-2">{t('workHistory.daySummary')}</Text>
+                                <View className="flex-row justify-between mb-2"><Text className="text-slate-400">{t('workHistory.totalWork')}:</Text><Text className="text-white font-semibold">{formatTimeFromMinutes(sessionsForDay.reduce((acc: number, s: WorkSession) => acc + (s.total_work_minutes || 0), 0))}</Text></View>
+                                <View className="flex-row justify-between mb-2"><Text className="text-slate-400">{t('workHistory.totalBreaks')}:</Text><Text className="text-white font-semibold">{formatTimeFromMinutes(sessionsForDay.reduce((acc: number, s: WorkSession) => acc + (s.total_break_minutes || 0), 0))}</Text></View>
+                                <View className="mt-2 pt-2 border-t border-slate-700 flex-row justify-between items-center"><Text className="text-slate-300 font-bold">{t('workHistory.estimatedEarnings')}:</Text><Text className="text-green-400 font-bold text-lg">{formatCurrency(dailyPay?.totalPay)}</Text></View>
                             </View>
-                            <Text className="text-lg font-semibold text-white mb-2 px-2">Recorded Shifts</Text>
+                            <Text className="text-lg font-semibold text-white mb-2 px-2">{t('workHistory.recordedShifts')}</Text>
                             {sessionsForDay.map((session: WorkSession) => (
                                 <TouchableOpacity key={session.id} onPress={() => onEditShift(session)} className="bg-slate-800 rounded-lg p-3 mb-2 border border-slate-700">
                                     <View className="flex-row justify-between items-center">
                                         <View>
-                                            <Text className="text-white font-semibold">{formatDateTime(session.start_time)} - {session.end_time ? formatDateTime(session.end_time) : 'Ongoing'}</Text>
-                                            <Text className="text-slate-400 text-xs mt-1">Work Time: {formatTimeFromMinutes(session.total_work_minutes)}</Text>
+                                            <Text className="text-white font-semibold">{formatDateTime(session.start_time)} - {session.end_time ? formatDateTime(session.end_time) : t('workHistory.ongoing')}</Text>
+                                            <Text className="text-slate-400 text-xs mt-1">{t('workHistory.workTime')}: {formatTimeFromMinutes(session.total_work_minutes)}</Text>
                                         </View>
                                         <Edit size={18} color="#94a3b8"/>
                                     </View>
@@ -154,15 +154,15 @@ const DayDetailsModal = ({ visible, onClose, selectedDate, sessions, dailyPay, t
                         </>
                     ) : (
                         <View className="bg-slate-800 rounded-lg p-6 items-center justify-center border-2 border-slate-700 border-dashed">
-                            <Text className="text-2xl font-bold text-slate-400 mb-2">Rest Day</Text>
-                            <Text className="text-slate-400 text-center">No shifts recorded for this date.</Text>
+                            <Text className="text-2xl font-bold text-slate-400 mb-2">{t('workHistory.noShiftsTitle')}</Text>
+                            <Text className="text-slate-400 text-center">{t('workHistory.noShifts')}</Text>
                         </View>
                     )}
                 </ScrollView>
                 <View className="absolute bottom-0 left-0 right-0 p-4 bg-slate-900 border-t border-slate-700">
                      <TouchableOpacity onPress={onAddShift} className="flex-row gap-2 items-center justify-center bg-green-600 px-3 py-3 rounded-lg">
                         <Plus size={20} color="white" />
-                        <Text className="text-white font-bold text-lg">Add New Shift</Text>
+                        <Text className="text-white font-bold text-lg">{t('workHistory.addShift', 'Add New Shift')}</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -175,6 +175,7 @@ const DayDetailsModal = ({ visible, onClose, selectedDate, sessions, dailyPay, t
 // --- Main Component ---
 
 export default function CalendarView({ timezone, userId, onClose, onDataChanged }: CalendarViewProps) {
+  const { t } = useTranslation();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [periodView, setPeriodView] = useState<PeriodView>('monthly');
@@ -188,7 +189,6 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
 
   const dailyPays = useMemo(() => {
     if (!payConfig || sessions.length === 0) return new Map();
-    // Use the adapter to handle raw Supabase data and get a map of daily pay details
     return calculatePayFromRaw(sessions, payConfig);
   }, [sessions, payConfig]);
 
@@ -227,7 +227,7 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
   return (
     <View className="flex-1 bg-slate-950 pt-12">
       <View className="px-4 pb-2 flex-row justify-between items-center border-b border-slate-800">
-        <Text className="text-white text-xl font-bold">Work History</Text>
+        <Text className="text-white text-xl font-bold">{t('workHistory.title')}</Text>
         <TouchableOpacity onPress={onClose} className="p-2 bg-slate-800 rounded-full"><X size={24} color="white" /></TouchableOpacity>
       </View>
 
@@ -260,23 +260,23 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
         </View>
 
         <View className="bg-slate-900 rounded-xl p-4 mb-4 border border-slate-800">
-            <Text className="text-white font-bold text-lg mb-3">Monthly Time Summary</Text>
+            <Text className="text-white font-bold text-lg mb-3">{t('calendar.timeSummaryTitle')}</Text>
             <View className="flex-row flex-wrap gap-4">
-                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">Total Work</Text><Text className="text-white font-bold text-lg">{formatTimeFromMinutes(monthlyTotals.work)}</Text></View>
-                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">Total Breaks</Text><Text className="text-white font-bold text-lg">{formatTimeFromMinutes(monthlyTotals.break)}</Text></View>
-                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">Total POA</Text><Text className="text-white font-bold text-lg">{formatTimeFromMinutes(monthlyTotals.poa)}</Text></View>
-                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">Rest Days</Text><Text className="text-green-400 font-bold text-lg">{monthlyTotals.restDays} Days</Text></View>
+                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">{t('workHistory.totalWork')}</Text><Text className="text-white font-bold text-lg">{formatTimeFromMinutes(monthlyTotals.work)}</Text></View>
+                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">{t('workHistory.totalBreaks')}</Text><Text className="text-white font-bold text-lg">{formatTimeFromMinutes(monthlyTotals.break)}</Text></View>
+                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">{t('workHistory.totalPOA')}</Text><Text className="text-white font-bold text-lg">{formatTimeFromMinutes(monthlyTotals.poa)}</Text></View>
+                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">{t('workHistory.noShiftsTitle')}</Text><Text className="text-green-400 font-bold text-lg">{monthlyTotals.restDays} Days</Text></View>
             </View>
         </View>
 
         <View className="bg-slate-900 rounded-xl p-4 mb-8 border border-slate-800">
-            <View className="flex-row justify-between items-center mb-2"><Text className="text-white font-bold text-lg">Estimated Gross Pay</Text><View className="bg-green-900/30 px-2 py-1 rounded border border-green-800"><Text className="text-green-400 text-xs font-bold">ESTIMATE</Text></View></View>
+            <View className="flex-row justify-between items-center mb-2"><Text className="text-white font-bold text-lg">{t('calendar.paySummaryTitle')}</Text><View className="bg-green-900/30 px-2 py-1 rounded border border-green-800"><Text className="text-green-400 text-xs font-bold">ESTIMATE</Text></View></View>
             <Text className="text-slate-400 text-xs mb-3">Based on configured rates for {monthName}. Excludes tax.</Text>
             <View className="bg-slate-800 p-4 rounded-lg border border-slate-700 items-center"><Text className="text-green-400 font-bold text-3xl">{formatCurrency(monthlyTotals.pay)}</Text></View>
         </View>
       </ScrollView>
 
-      <DayDetailsModal visible={!!selectedDate} onClose={() => setSelectedDate(null)} selectedDate={selectedDate} sessions={sessions} dailyPay={selectedDate ? dailyPays.get(selectedDate) : null} timezone={timezone} onAddShift={handleAddShift} onEditShift={handleEditShift} />
+      <DayDetailsModal t={t} visible={!!selectedDate} onClose={() => setSelectedDate(null)} selectedDate={selectedDate} sessions={sessions} dailyPay={selectedDate ? dailyPays.get(selectedDate) : null} timezone={timezone} onAddShift={handleAddShift} onEditShift={handleEditShift} />
       {isEditorOpen && <SessionEditorModal visible={isEditorOpen} onClose={() => setIsEditorOpen(false)} sessionToEdit={editingSession} selectedDate={newShiftDate} onSave={() => { setIsEditorOpen(false); refreshSessions(); onDataChanged(); }} />}
     </View>
   );

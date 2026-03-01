@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -53,6 +53,7 @@ import { FatigueMonitor } from '../components/FatigueMonitor';
 import DailyComplianceReportModal from '../components/DailyComplianceReportModal';
 import EndShiftConfirmationModal from '../components/EndShiftConfirmationModal';
 import AddExpenseModal from '../components/AddExpenseModal';
+import { TimeGapConfirmationModal } from '../components/TimeGapConfirmationModal';
 
 // --- Hooks & Services ---
 import { useWorkTimer } from '../hooks/useWorkTimer';
@@ -152,16 +153,15 @@ const ActivityStatusIcon = ({ status, isDriving }: { status: string; isDriving: 
 export function Dashboard({ session, navigation }: { session: Session; navigation: any }) {
   const { t, i18n, ready } = useTranslation();
   const { profile, refreshProfile } = useAuth();
-  // Initialize permissions hook to ensure channel is created
   usePermissions();
-
 
   if (!session?.user?.id) { return <View className="flex-1 bg-brand-dark justify-center items-center"><ActivityIndicator size="large" color="#F59E0B" /></View>; }
   const userId = session.user.id;
 
-  const { status, timerMode, displaySeconds, startWork, endWork, togglePOA, toggleBreak, isDriving, shiftSummaryData, setShiftSummaryData } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const { status, timerMode, displaySeconds, startWork, endWork, togglePOA, toggleBreak, isDriving, shiftSummaryData, setShiftSummaryData, unconfirmedTimespan, resolveUnconfirmedTimespan } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
   const display = displaySeconds || { workTimeRemaining: 0, drivingTimeRemaining: 0, breakDuration: 0, work: 0, poa: 0, break: 0, driving: 0 };
   const driverName = profile?.full_name;
+  const payrollNumber = profile?.payroll_number;
   const { previousShiftEnd, currentShiftStart, dailyRest, refreshShiftInfo } = useShiftInfo(userId);
   const [currentComplianceDate, setCurrentComplianceDate] = useState(new Date());
   const { complianceMap, isLoading: isComplianceLoading } = useComplianceData(userId, currentComplianceDate);
@@ -184,26 +184,16 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
 
   useEffect(() => {
     const checkUnreadMessages = async () => {
-        const [broadcasts, systemMessages] = await Promise.all([
-            getLatestBroadcasts(),
-            getSystemMessages(),
-        ]);
+        const [broadcasts, systemMessages] = await Promise.all([ getLatestBroadcasts(), getSystemMessages() ]);
         const allMessages = [...broadcasts, ...systemMessages];
         if (allMessages.length > 0) {
             allMessages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
             const lastViewed = await AsyncStorage.getItem(LAST_VIEWED_MESSAGES_KEY);
             const latestTimestamp = new Date(allMessages[0].created_at).getTime();
-            if (!lastViewed || latestTimestamp > parseInt(lastViewed, 10)) {
-                setHasUnreadMessages(true);
-            }
+            if (!lastViewed || latestTimestamp > parseInt(lastViewed, 10)) { setHasUnreadMessages(true); }
         }
     };
-    const handleAppStateChange = (next: string) => {
-      if (next === 'active') {
-        setShowSafetyWarning(true);
-        checkUnreadMessages();
-      }
-    };
+    const handleAppStateChange = (next: string) => { if (next === 'active') { setShowSafetyWarning(true); checkUnreadMessages(); } };
     const sub = AppState.addEventListener('change', handleAppStateChange);
     checkUnreadMessages();
     return () => sub.remove();
@@ -230,40 +220,19 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   useEffect(() => {
     if (!profile?.company_id) return;
     const channel = supabase.channel(`broadcasts:${profile.company_id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'broadcasts', filter: `company_id=eq.${profile.company_id}`},
-        (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'broadcasts', filter: `company_id=eq.${profile.company_id}`}, (payload) => {
           setHasUnreadMessages(true);
-          Notifications.scheduleNotificationAsync({
-            content: {
-              title: t('messages.notificationTitle', 'New Fleet Message'),
-              body: (payload.new as any).content,
-              sound: 'default',
-              channelId: 'messages',
-            },
-            trigger: null,
-          });
-        }
-      ).subscribe();
+          Notifications.scheduleNotificationAsync({ content: { title: t('messages.notificationTitle', 'New Fleet Message'), body: (payload.new as any).content, sound: 'default', channelId: 'messages' }, trigger: null });
+      }).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [profile?.company_id, t]);
 
-  // Real-time listener for system messages
   useEffect(() => {
     const channel = supabase.channel('system_messages_all')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'system_messages' },
-        (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'system_messages' }, (payload) => {
           setHasUnreadMessages(true);
-          Notifications.scheduleNotificationAsync({
-            content: {
-              title: t('messages.systemNotificationTitle', 'System Announcement'),
-              body: (payload.new as any).content,
-              sound: 'default',
-              channelId: 'messages',
-            },
-            trigger: null,
-          });
-        }
-      ).subscribe();
+          Notifications.scheduleNotificationAsync({ content: { title: t('messages.systemNotificationTitle', 'System Announcement'), body: (payload.new as any).content, sound: 'default', channelId: 'messages' }, trigger: null });
+      }).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [t]);
 
@@ -285,6 +254,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     <SafeAreaView className="flex-1 bg-brand-dark" edges={['top']}>
       <View className="flex-1">
         {/* Modals */}
+        <TimeGapConfirmationModal visible={!!unconfirmedTimespan} timespan={unconfirmedTimespan} onResolve={resolveUnconfirmedTimespan} />
         {dailyReportData && <DailyComplianceReportModal visible={!!dailyReportData} onClose={() => setDailyReportData(null)} violations={dailyReportData.violations} date={dailyReportData.date}/>}
         {shiftSummaryData && <EndShiftConfirmationModal visible={!!shiftSummaryData} onClose={() => setShiftSummaryData(null)} onConfirm={shiftSummaryData.onConfirm} violations={shiftSummaryData.violations} shiftTotals={shiftSummaryData.totals}/>}
         <AddExpenseModal visible={showAddExpense} onClose={() => setShowAddExpense(false)} onSaveSuccess={refreshProfile} userId={userId}/>
@@ -326,9 +296,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
             <View className="absolute right-4 top-3 flex-row items-center">
                 <TouchableOpacity onPress={handleOpenMessages} className="p-2 relative">
                     <Bell size={24} color="white" />
-                    {hasUnreadMessages && (
-                        <View className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-brand-accent" />
-                    )}
+                    {hasUnreadMessages && ( <View className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-brand-accent" /> )}
                 </TouchableOpacity>
                 <SettingsMenu onOpenDriverSetup={() => setShowDriverSetup(true)} onOpenLanguageSelector={() => setShowLanguageSelector(true)} onOpenBusinessProfile={() => setShowBusinessProfile(true)} onOpenSubscription={() => navigation.navigate('Subscription')} />
             </View>
@@ -337,7 +305,12 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
         <ScrollView className="flex-1">
           <View className="px-4 py-8 max-w-md mx-auto w-full">
             <View className="items-center mb-6"><Text className="text-slate-400 text-base font-medium mb-2">{t('app.subtitle')}</Text>{driverName && <Text className="text-lg font-semibold text-compliance-info">{driverName}</Text>}</View>
-            <View className="bg-brand-card rounded-lg p-4 mb-4 border border-brand-border">{previousShiftEnd && ( <Row label={t('dashboard.previousShiftEnd')} value={new Date(previousShiftEnd).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> )}{currentShiftStart && ( <Row label={t('dashboard.newShiftStarted')} value={new Date(currentShiftStart).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> )}{dailyRest > 0 && (<View className="mt-2 pt-2 border-t border-slate-700 flex-row justify-between"><Text className="text-slate-400">{t('dashboard.dailyRest')}</Text><Text className="text-white font-bold">{formatDuration(dailyRest)}</Text></View>)}</View>
+            <View className="bg-brand-card rounded-lg p-4 mb-4 border border-brand-border">
+                {previousShiftEnd && ( <Row label={t('dashboard.previousShiftEnd')} value={new Date(previousShiftEnd).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> )}
+                {currentShiftStart && ( <Row label={t('dashboard.newShiftStarted')} value={new Date(currentShiftStart).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> )}
+                {dailyRest > 0 && (<View className="mt-2 pt-2 border-t border-slate-700 flex-row justify-between"><Text className="text-slate-400">{t('dashboard.dailyRest')}</Text><Text className="text-white font-bold">{formatDuration(dailyRest)}</Text></View>)}
+                {payrollNumber && ( <Row label={'Payroll Number'} value={payrollNumber} /> )}
+            </View>
             <FatigueMonitor workSeconds={display.work || 0} breakSeconds={display.break || 0} dailyRestSeconds={dailyRest} drivingSeconds={display.driving || 0} workTimeRemaining={display.workTimeRemaining}/>
             <View className="bg-brand-card rounded-2xl p-4 mb-6 relative pt-10 border border-brand-border">
               {status !== 'idle' && <ActivityStatusIcon status={status} isDriving={isDriving} />}
@@ -348,12 +321,12 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                   <><View className="w-full mb-4 items-center">
                     <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">{t('dashboard.workTimeRemaining')}</Text>
                     <Text className={`text-5xl font-bold ${display.workTimeRemaining < 0 ? 'text-compliance-danger' : 'text-white'}`}>{formatTime(display.workTimeRemaining)}</Text>
-                    <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={display.workTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-compliance-success'} style={{ width: `${workPct}%` }} /></View>
+                    <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.workTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-compliance-success'}`} style={{ width: `${workPct}%` }} /></View>
                   </View>
                   <View className="w-full mb-4 items-center">
                     <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">{t('dashboard.drivingTimeRemaining')}</Text>
                     <Text className={`text-5xl font-bold ${display.drivingTimeRemaining < 0 ? 'text-compliance-danger' : 'text-white'}`}>{formatTime(display.drivingTimeRemaining)}</Text>
-                    <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={display.drivingTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-brand-accent'} style={{ width: `${drivePct}%` }} /></View>
+                    <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.drivingTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-brand-accent'}`} style={{ width: `${drivePct}%` }} /></View>
                   </View></>
                 ) : ( <TouchableOpacity onPress={handleStartWork} className="w-full py-4 rounded-xl bg-brand-accent my-4"><Text className="text-white font-bold text-xl text-center uppercase">{t('dashboard.startShift')}</Text></TouchableOpacity> )}
                 {status !== 'idle' && ( <View className="w-full"><TouchableOpacity onPress={toggleBreak} disabled={isDriving} className={`py-3 rounded-lg mb-3 items-center ${status === 'break' ? 'bg-yellow-500' : 'bg-blue-600'} ${isDriving ? 'opacity-30' : ''}`}><Text className={`font-bold text-lg uppercase ${status === 'break' ? 'text-black' : 'text-white'}`}>{status === 'break' ? t('dashboard.endBreak') : t('dashboard.startBreak')}</Text></TouchableOpacity><TouchableOpacity onPress={togglePOA} disabled={status === 'break' || isDriving} className={`py-3 rounded-lg mb-3 items-center border-2 ${status === 'poa' ? 'bg-orange-400' : 'bg-brand-accent'} ${isDriving ? 'opacity-30' : ''}`}><Text className="text-white font-bold text-lg uppercase">{status === 'poa' ? t('dashboard.resumeWork') : t('dashboard.poaButtonText')}</Text></TouchableOpacity><TouchableOpacity onPress={endWork} disabled={isDriving} className="py-4 rounded-xl bg-compliance-danger mt-4"><Text className="text-white font-bold text-xl text-center uppercase">{t('dashboard.endShift')}</Text></TouchableOpacity></View> )}

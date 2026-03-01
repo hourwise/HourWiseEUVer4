@@ -1,12 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useTranslation } from 'react-i18next';
-
-interface DayComplianceInfo {
-  date: string;
-  score: number;
-  violations: string[];
-}
+import { DayComplianceInfo } from '../hooks/useComplianceData';
 
 interface ComplianceHeatmapSummaryProps {
   onPress: () => void;
@@ -39,9 +34,7 @@ export default function ComplianceHeatmapSummary({
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
 
-    let startingDayOfWeek = firstDay.getDay(); // 0 Sun ... 6 Sat
-    if (startingDayOfWeek === 0) startingDayOfWeek = 6;
-    else startingDayOfWeek = startingDayOfWeek - 1;
+    const startingDayOfWeek = firstDay.getDay(); // 0 = Sun, 1 = Mon, ...
 
     const dayArray: Array<number | null> = Array(startingDayOfWeek).fill(null);
     for (let d = 1; d <= daysInMonth; d++) dayArray.push(d);
@@ -68,7 +61,7 @@ export default function ComplianceHeatmapSummary({
       ) : (
         <>
           <View className="flex-row mb-2">
-            {['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => (
+            {['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((d) => (
               <View key={d} className="w-[14.28%] items-center py-1">
                 <Text className="text-xs font-semibold text-slate-400">{t(`day.${d}`)}</Text>
               </View>

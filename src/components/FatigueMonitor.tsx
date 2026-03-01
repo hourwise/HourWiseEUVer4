@@ -51,14 +51,21 @@ export const FatigueMonitor: React.FC<Props> = ({ workSeconds, breakSeconds, dai
   if (restHours !== null && restHours < 11) warnings.push(t('fatigue.reducedDailyRest'));
   if (workTimeRemaining < 0) warnings.push(t('fatigue.workTimeExceeded', { time: `${Math.floor(Math.abs(workTimeRemaining)/60)}m` }));
 
-
-  const getFatigueColor = () => {
+  const getFatigueTextColor = () => {
     if (fatigueLevel >= 80) return 'text-red-400';
     if (fatigueLevel >= 60) return 'text-orange-400';
     if (fatigueLevel >= 40) return 'text-yellow-400';
     return 'text-green-400';
   };
-  const fatigueColor = getFatigueColor();
+  const fatigueTextColor = getFatigueTextColor();
+
+  const getFatigueFillColor = () => {
+    if (fatigueLevel >= 80) return '#f87171'; // red-400
+    if (fatigueLevel >= 60) return '#fb923c'; // orange-400
+    if (fatigueLevel >= 40) return '#facc15'; // yellow-400
+    return '#4ade80'; // green-400
+  };
+  const fillColor = getFatigueFillColor();
 
   return (
       <View className="bg-slate-900 rounded-xl p-4 mb-6 border-l-4 border-blue-500">
@@ -68,13 +75,13 @@ export const FatigueMonitor: React.FC<Props> = ({ workSeconds, breakSeconds, dai
                   <Text className="text-sm font-semibold text-white mb-2">{t('fatigue.title')}</Text>
                   <View>
                       <View className="flex-row items-center justify-between mb-2">
-                          <Text className={`font-semibold ${fatigueColor}`}>{fatigueText}</Text>
-                          <Text className={`text-sm ${fatigueColor}`}>{fatigueLevel}%</Text>
+                          <Text className={`font-semibold ${fatigueTextColor}`}>{fatigueText}</Text>
+                          <Text className={`text-sm ${fatigueTextColor}`}>{fatigueLevel}%</Text>
                       </View>
                       <View className="w-full bg-slate-700 rounded-full h-3 overflow-hidden">
                           <View
-                              className={`h-full ${fatigueColor.replace('text-', 'bg-')}`}
-                              style={{ width: `${fatigueLevel}%` }}
+                              className="h-full"
+                              style={{ width: `${fatigueLevel}%`, backgroundColor: fillColor }}
                           />
                       </View>
                   </View>

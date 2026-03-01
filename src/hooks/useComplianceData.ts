@@ -1,10 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase, WorkSession } from '../lib/supabase';
 
-interface DayComplianceInfo {
+export interface DayComplianceInfo {
   date: string;
   score: number;
   violations: string[];
+  totalWork: number;
+  totalBreak: number;
+  totalDrive: number;
+  totalPoa: number;
 }
 
 const toLocalDateString = (date: Date) => date.toISOString().split('T')[0];
@@ -35,7 +39,7 @@ export const useComplianceData = (userId: string, currentDate: Date) => {
 
       const { data, error } = await supabase
         .from('work_sessions')
-        .select('date, compliance_score, compliance_violations')
+        .select('*') // Select all fields to get duration data
         .eq('user_id', userId)
         .gte('date', toLocalDateString(fetchStartDate))
         .lte('date', toLocalDateString(fetchEndDate))
@@ -66,12 +70,20 @@ export const useComplianceData = (userId: string, currentDate: Date) => {
           date: session.date,
           score: Math.min(existing.score, session.compliance_score || 100),
           violations: [...new Set([...existing.violations, ...(session.compliance_violations || [])])],
+          totalWork: existing.totalWork + (session.work_duration || 0),
+          totalBreak: existing.totalBreak + (session.break_duration || 0),
+          totalDrive: existing.totalDrive + (session.drive_duration || 0),
+          totalPoa: existing.totalPoa + (session.poa_duration || 0),
         });
       } else {
         map.set(session.date, {
           date: session.date,
           score: session.compliance_score || 100,
           violations: session.compliance_violations || [],
+          totalWork: session.work_duration || 0,
+          totalBreak: session.break_duration || 0,
+          totalDrive: session.drive_duration || 0,
+          totalPoa: session.poa_duration || 0,
         });
       }
     });

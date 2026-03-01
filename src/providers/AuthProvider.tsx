@@ -5,11 +5,13 @@ import React, {
   useContext,
   useCallback,
 } from 'react';
+import { Alert } from 'react-native';
 import { supabase } from '../lib/supabase';
-import type { Session } from '@supabase/supabase-js';
+import type { Session, SignInWithPasswordCredentials, SignUpWithPasswordCredentials } from '@supabase/supabase-js';
 import type { Database } from '../lib/database.types';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
+type Invite = Database['public']['Tables']['driver_invites']['Row'];
 type PayConfiguration = Database['public']['Tables']['pay_configurations']['Row'];
 
 export type ProfileWithPay = Profile & {
@@ -20,9 +22,14 @@ interface AuthContextType {
   session: Session | null;
   profile: ProfileWithPay | null;
   loading: boolean;
-  needsSetup: boolean; // 1. Add needsSetup to the context
+  needsSetup: boolean;
+  needsLastShiftEntry: boolean;
+  transientInvite: Invite | null;
   refreshProfile: () => Promise<void>;
+  completeLastShiftEntry: () => void;
   signOut: () => Promise<void>;
+  signIn: (credentials: SignInWithPasswordCredentials) => Promise<void>;
+  signUp: (params: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,41 +38,83 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<ProfileWithPay | null>(null);
   const [needsSetup, setNeedsSetup] = useState(true);
+  const [needsLastShiftEntry, setNeedsLastShiftEntry] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [transientInvite, setTransientInvite] = useState<Invite | null>(null);
 
   const fetchProfile = useCallback(async (session: Session | null) => {
     if (!session?.user) {
-      setProfile(null);
-      setNeedsSetup(true); // No user, no setup
-      return;
+      setProfile(null); setNeedsSetup(true); setNeedsLastShiftEntry(true); return;
     }
     try {
-      // Fetch profile and pay config in parallel for efficiency
-      const [{ data: profileData, error: profileError }, { data: payConfig, error: payError }] = await Promise.all([
+      // Reverted to separate queries to avoid relationship schema cache errors
+      const [
+        { data: profileData, error: profileError },
+        { data: payConfig, error: payError },
+        { data: anySession, error: sessionError }
+      ] = await Promise.all([
           supabase.from('profiles').select('*').eq('id', session.user.id).single(),
-          supabase.from('pay_configurations').select('user_id').eq('user_id', session.user.id).single()
+          supabase.from('pay_configurations').select('*').eq('user_id', session.user.id).single(),
+          supabase.from('work_sessions').select('id').eq('user_id', session.user.id).limit(1).single(),
       ]);
 
       if (profileError && profileError.code !== 'PGRST116') throw profileError;
       if (payError && payError.code !== 'PGRST116') throw payError;
+      if (sessionError && sessionError.code !== 'PGRST116') throw sessionError;
 
-      // Determine if setup is needed. It's needed if there is no full name OR no pay config.
-      const setupComplete = !!(profileData?.full_name && payConfig);
+      const setupComplete = !!(profileData?.full_name);
       setNeedsSetup(!setupComplete);
+      setNeedsLastShiftEntry(!anySession);
 
-      // We don't need the full pay config here, just the profile.
-      // Other parts of the app can fetch it if/when they need it.
-      setProfile(profileData ? { ...profileData, pay_configurations: null } : null);
+      setProfile(profileData ? { ...profileData, pay_configurations: payConfig || null } : null);
 
     } catch (error: any) {
       console.error("Error fetching profile/setup status:", error.message);
-      setProfile(null);
-      setNeedsSetup(true);
+      setProfile(null); setNeedsSetup(true); setNeedsLastShiftEntry(true);
     }
   }, []);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const completeLastShiftEntry = () => setNeedsLastShiftEntry(false);
+  const signOut = async () => { await supabase.auth.signOut(); };
+
+  const signIn = async (credentials: SignInWithPasswordCredentials) => {
+    const { error } = await supabase.auth.signInWithPassword(credentials);
+    if (error) throw error;
+  };
+
+  const signUp = async ({ email, password, fullName, accountType, invite }: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; }) => {
+    const { data, error: authError } = await supabase.auth.signUp({ email, password });
+    if (authError) throw authError;
+    if (!data.user) throw new Error('Sign up failed.');
+
+    if (accountType === 'fleet' && invite) {
+      setTransientInvite(invite);
+      const payConfigSnapshot = invite.pay_config_snapshot as any;
+
+      const { error: profileError } = await supabase.from('profiles').insert({
+          id: data.user.id, user_id: data.user.id, email: data.user.email, full_name: invite.full_name,
+          account_type: 'fleet', company_id: invite.company_id, role: 'driver',
+          payroll_number: payConfigSnapshot?.payroll_number,
+      });
+      if (profileError) throw profileError;
+
+      if (payConfigSnapshot) {
+        const { error: payConfigError } = await supabase.from('pay_configurations').insert({ user_id: data.user.id, ...payConfigSnapshot });
+        if (payConfigError) console.warn("Pay config insertion failed:", payConfigError.message);
+      }
+
+      const { error: acceptError } = await supabase.rpc('accept_driver_invite', { invite_id: invite.id, user_id: data.user.id });
+      if (acceptError) console.warn("Accept invite RPC failed:", acceptError.message);
+
+    } else {
+      const { error: profileError } = await supabase.from('profiles').insert({
+          id: data.user.id, user_id: data.user.id, email: data.user.email,
+          full_name: fullName, account_type: 'solo', role: 'driver'
+      });
+      if (profileError) throw profileError;
+    }
+
+    if (!data.session && data.user) Alert.alert("Check Your Email", "A confirmation link has been sent.");
   };
 
   useEffect(() => {
@@ -73,10 +122,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(true);
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       setSession(currentSession);
-      if (currentSession) {
-        await fetchProfile(currentSession);
-      }
-      setLoading(false); // Only set loading false after the initial fetch is done
+      if (currentSession) await fetchProfile(currentSession);
+      setLoading(false);
 
       const { data: authListener } = supabase.auth.onAuthStateChange(
         async (_event, newSession) => {
@@ -85,9 +132,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (newSession) {
             await fetchProfile(newSession);
           } else {
-            // Clear state on sign out
-            setProfile(null);
-            setNeedsSetup(true);
+            setProfile(null); setNeedsSetup(true); setNeedsLastShiftEntry(true);
           }
           setLoading(false);
         }
@@ -106,11 +151,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [fetchProfile]);
 
-  // Combine initial auth loading with profile loading
   const isLoading = loading || (session && profile === undefined);
 
   return (
-    <AuthContext.Provider value={{ session, profile, loading: isLoading, needsSetup, refreshProfile, signOut }}>
+    <AuthContext.Provider value={{ session, profile, loading: isLoading, needsSetup, needsLastShiftEntry, transientInvite, refreshProfile, completeLastShiftEntry, signOut, signIn, signUp }}>
       {children}
     </AuthContext.Provider>
   );

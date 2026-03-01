@@ -1,14 +1,15 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, SafeAreaView, StatusBar } from 'react-native';
-import { Check, Compass, Edit3, UserCheck } from 'react-native-feather';
+import { Check, Compass, Edit3, UserCheck, Calendar } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useAuth } from '../providers/AuthProvider'; // Import useAuth
 
 // Define the type for the navigation stack parameters
 type SetupStackParamList = {
   FirstTimeSetup: undefined;
-  DriverSetup: undefined; // Add other screens in the stack if any
+  DriverSetup: { invite?: any }; // Allow passing invite data
 };
 
 // Define the navigation prop type for this screen
@@ -25,6 +26,12 @@ const Step: React.FC<{ icon: React.ReactNode; text: string }> = ({ icon, text })
 function FirstTimeSetupGuide() {
   const { t } = useTranslation();
   const navigation = useNavigation<FirstTimeSetupNavigationProp>();
+  const { transientInvite } = useAuth(); // Get the temporary invite data
+
+  const handleContinue = () => {
+    // Pass the invite object as a parameter when navigating
+    navigation.navigate('DriverSetup', { invite: transientInvite });
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A' }}>
@@ -35,13 +42,14 @@ function FirstTimeSetupGuide() {
           <Text style={{ color: '#94A3B8', fontSize: 18, marginBottom: 24 }}>{t('firstTimeSetup.subtitle', "Just a few steps to personalize your experience.")}</Text>
 
           <View>
-            <Step icon={<Compass color="#38bdf8" size={24} />} text={t('firstTimeSetup.step1', "First, we'll need some permissions to track your work accurately.")} />
-            <Step icon={<UserCheck color="#38bdf8" size={24} />} text={t('firstTimeSetup.step2', "Next, you'll set up your driver profile and pay details.")} />
-            <Step icon={<Edit3 color="#38bdf8" size={24} />} text={t('firstTimeSetup.step3', "Finally, you can start tracking your shifts and earnings.")} />
+            <Step icon={<UserCheck color="#38bdf8" size={24} />} text={t('firstTimeSetup.step1_new', "First, you'll set up your driver profile and pay details.")} />
+            <Step icon={<Calendar color="#38bdf8" size={24} />} text={t('firstTimeSetup.step2_new', "Next, you'll add your last completed shift to ensure your daily rest is calculated correctly.")} />
+            <Step icon={<Compass color="#38bdf8" size={24} />} text={t('firstTimeSetup.step3_new', "Then, we'll ask for the necessary permissions to track your work accurately.")} />
+            <Step icon={<Edit3 color="#38bdf8" size={24} />} text={t('firstTimeSetup.step4_new', "Finally, you can start tracking your shifts and earnings.")} />
           </View>
 
           <TouchableOpacity
-            onPress={() => navigation.navigate('DriverSetup')}
+            onPress={handleContinue}
             style={{ width: '100%', marginTop: 24, paddingVertical: 12, backgroundColor: '#2563EB', borderRadius: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}
           >
             <Check color="white" size={20} />

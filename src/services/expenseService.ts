@@ -8,7 +8,7 @@ export interface Expense {
   date?: string;
   category?: string;
   notes?: string;
-  receipt_url?: string;
+  image_url?: string; // Corrected from receipt_url
   raw_ocr_text?: string;
 }
 

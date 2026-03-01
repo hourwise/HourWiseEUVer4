@@ -1,25 +1,15 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Alert,
-  Image,
-} from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Alert, Image } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { verifyInviteCode, acceptInvite } from '../lib/inviteService';
+import { verifyInviteCode } from '../lib/inviteService';
 import type { Database } from '../lib/database.types';
+import { useAuth } from '../providers/AuthProvider'; // Import useAuth
 
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
 type AccountType = 'solo' | 'fleet';
 
 export default function Auth() {
-  // CORRECTED: Default to 'signIn' for returning users.
+  const { signUp, signIn } = useAuth(); // Get new functions from context
   const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
   const [accountType, setAccountType] = useState<AccountType>('solo');
 
@@ -53,41 +43,26 @@ export default function Auth() {
     if (accountType === 'solo' && !fullName) return Alert.alert("Error", "Please enter your full name.");
 
     setLoading(true);
-
     try {
-        const { data, error: authError } = await supabase.auth.signUp({ email, password });
-
-        if (authError) throw new Error(authError.message);
-        if (!data.user) throw new Error('Could not create user account. Please try again.');
-
-        const { error: profileError } = await supabase.from('profiles').insert({
-            id: data.user.id, user_id: data.user.id, email: data.user.email,
-            full_name: fullName, account_type: accountType,
-            company_id: verifiedInvite?.company_id || null, role: 'driver'
-        });
-
-        if (profileError) console.warn("Best-effort profile creation failed on signup:", profileError.message);
-        if (accountType === 'fleet' && verifiedInvite) await acceptInvite(verifiedInvite.id, data.user.id);
-        if (!data.session && data.user) Alert.alert("Check Your Email", "A confirmation link has been sent.");
-
+      await signUp({ email, password, fullName, accountType, invite: verifiedInvite });
+      // The auth provider will handle the "Check your email" alert if necessary
     } catch (error: any) {
-        Alert.alert('Sign-Up Error', error.message);
+      Alert.alert('Sign-Up Error', error.message);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
-  async function handleLogin() {
+  const handleLogin = async () => {
     setLoading(true);
     try {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw new Error(error.message);
+      await signIn({ email, password });
     } catch (error: any) {
-        Alert.alert("Login Failed", error.message);
+      Alert.alert("Login Failed", error.message);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
-   }
+  };
 
   const renderSignUpForm = () => (
     <>
@@ -100,7 +75,7 @@ export default function Auth() {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-      <View style={{ alignItems: 'center', marginBottom: 32 }}><Image source={require('../../assets/favicon.png')} style={styles.logo} /><Text style={styles.appName}>HourWise EU</Text><Text style={styles.tagline}>EU Compliance & Work Time Tracking Made Simple</Text></View>
+      <View style={{ alignItems: 'center', marginBottom: 32 }}><Image source={require('../../assets/splash-icon.png')} style={styles.logo} /><Text style={styles.appName}>HourWise EU</Text><Text style={styles.tagline}>EU Compliance & Work Time Tracking Made Simple</Text></View>
       <View style={styles.card}>
         <Text style={styles.title}>{mode === 'signIn' ? 'Sign In' : 'Create Account'}</Text>
         {mode === 'signUp' && renderSignUpForm()}

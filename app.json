@@ -56,13 +56,14 @@
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/splash-icon.png"
     },
     "plugins": [
       [
         "expo-image-picker",
         {
-          "cameraPermission": "The app needs access to your camera to scan receipts."
+          "cameraPermission": "The app needs access to your camera to scan receipts.",
+          "photosPermission": "The app needs access to your photo library to allow you to select receipt images."
         }
       ],
       [

@@ -5,6 +5,7 @@ import i18n, { i18nConfig } from './lib/i18n';
 
 import { AuthProvider } from './providers/AuthProvider';
 import { SubscriptionProvider } from './providers/SubscriptionProvider';
+import { PermissionsProvider } from './providers/PermissionsProvider';
 import AppNavigator from './navigation/AppNavigator';
 
 // Define the background location task
@@ -16,9 +17,6 @@ TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
     return;
   }
   if (data) {
-    // You can process location updates here if needed, for example,
-    // by saving the latest speed to AsyncStorage for the useWorkTimer hook
-    // to use when the app resumes.
     const { locations } = data as any;
     console.log('Received background location update:', locations);
   }
@@ -69,7 +67,9 @@ export default function App() {
   return (
     <AuthProvider>
       <SubscriptionProvider>
-        <AppNavigator />
+        <PermissionsProvider>
+          <AppNavigator />
+        </PermissionsProvider>
       </SubscriptionProvider>
     </AuthProvider>
   );
