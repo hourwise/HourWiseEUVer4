@@ -31,7 +31,7 @@ const UnitSelector = ({ value, options, onChange, disabled }: { value: string, o
     return (
         <TouchableOpacity
             style={disabled ? [styles.unitSelector, styles.disabled] : styles.unitSelector}
-            onPress={() => !disabled && onChange(options[nextIndex])}
+            onPress={disabled ? undefined : () => onChange(options[nextIndex])}
             disabled={disabled}
         >
             <Text style={styles.unitSelectorText}>{value}</Text>
@@ -41,10 +41,12 @@ const UnitSelector = ({ value, options, onChange, disabled }: { value: string, o
 
 const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) => {
     const { t } = useTranslation();
-    const { profile, refreshProfile, loading: authLoading } = useAuth();
+    const { profile, refreshProfile, isFleetDriver: isFleetDriverFromAuth, loading: authLoading } = useAuth();
     const [isSaving, setIsSaving] = useState(false);
 
-    const isFleetDriver = !!(route?.params?.invite || profile?.company_id);
+    // The source of truth is now the AuthProvider, but we can have a local override
+    // for the very first moment of a fleet sign-up before the profile is re-fetched.
+    const isFleetDriver = !!route?.params?.invite || isFleetDriverFromAuth;
 
     const [fullName, setFullName] = useState('');
     const [payrollNumber, setPayrollNumber] = useState('');
@@ -62,14 +64,18 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
             const payConfig = invite.pay_config_snapshot as any;
             setFullName(invite.full_name || '');
             setPayrollNumber(payConfig?.payroll_number || '');
-            const mapTiers = (tiers: any) => (tiers && Array.isArray(tiers) && tiers.length > 0) ? tiers.map(t => ({ ...t, id: Math.random().toString(36).substring(7) })) : [];
             setHourlyRate(payConfig.hourly_rate?.toString() || '');
             setUnpaidBreakMinutes(payConfig.unpaid_break_minutes?.toString() || '');
             setOvertimeThreshold(payConfig.overtime_threshold_hours?.toString() || '');
             setOvertimeThresholdUnit(payConfig.overtime_threshold_unit as OvertimeUnit || 'week');
             setOvertimeMultiplier(payConfig.overtime_rate_multiplier?.toString() || '1.5');
-            setAdditionalTiers(mapTiers(payConfig.additional_overtime_tiers));
-            setAllowanceTiers(mapTiers(payConfig.allowance_tiers));
+
+            if (payConfig.additional_overtime_tiers) {
+                setAdditionalTiers(payConfig.additional_overtime_tiers.map((t: any) => ({ ...t, id: Math.random().toString(36).substring(7) })));
+            }
+            if (payConfig.allowance_tiers) {
+                setAllowanceTiers(payConfig.allowance_tiers.map((t: any) => ({ ...t, id: Math.random().toString(36).substring(7) })));
+            }
             return;
         }
 
@@ -78,19 +84,25 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
             setPayrollNumber(profile.payroll_number || '');
             if (profile.pay_configurations) {
                 const pc = profile.pay_configurations as any;
-                const mapTiers = (tiers: any) => (tiers && Array.isArray(tiers) && tiers.length > 0) ? tiers.map(t => ({ ...t, id: Math.random().toString(36).substring(7) })) : [];
                 setHourlyRate(pc.hourly_rate?.toString() || '');
                 setUnpaidBreakMinutes(pc.unpaid_break_minutes?.toString() || '');
                 setOvertimeThreshold(pc.overtime_threshold_hours?.toString() || '');
                 setOvertimeThresholdUnit(pc.overtime_threshold_unit as OvertimeUnit || 'week');
                 setOvertimeMultiplier(pc.overtime_rate_multiplier?.toString() || '1.5');
-                setAdditionalTiers(mapTiers(pc.additional_overtime_tiers));
-                setAllowanceTiers(mapTiers(pc.allowance_tiers));
+
+                if (pc.additional_overtime_tiers) {
+                    setAdditionalTiers(pc.additional_overtime_tiers.map((t: any) => ({ ...t, id: Math.random().toString(36).substring(7) })));
+                }
+                if (pc.allowance_tiers) {
+                    setAllowanceTiers(pc.allowance_tiers.map((t: any) => ({ ...t, id: Math.random().toString(36).substring(7) })));
+                }
             }
         }
     }, [profile, route?.params?.invite]);
 
-    const updateTier = (setter: React.Dispatch<React.SetStateAction<any[]>>, id: string, field: string, value: string) => setter(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
+    const updateTier = (setter: React.Dispatch<React.SetStateAction<any[]>>, id: string, field: string, value: string) => {
+        setter(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
+    };
 
     const handleSave = async () => {
         if (!session?.user) return Alert.alert("Error", "You are not logged in.");
@@ -124,7 +136,11 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
                     additional_overtime_tiers: additionalTiers.filter(t => t.threshold && t.rate).map(t => ({ threshold: parseFloat(t.threshold), rate: parseFloat(t.rate), unit: t.unit })),
                     allowance_tiers: allowanceTiers.filter(t => t.amount).map(t => ({ amount: parseFloat(t.amount), unit: t.unit })),
                 };
-                const { error: payConfigError } = await supabase.from('pay_configurations').upsert(payConfigData, { onConflict: 'user_id' });
+
+                const { error: payConfigError } = await supabase
+                    .from('pay_configurations')
+                    .upsert(payConfigData, { onConflict: 'user_id' });
+
                 if (payConfigError) throw payConfigError;
             }
 
@@ -138,6 +154,8 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
         }
     };
 
+    const showLoading = authLoading && !route?.params?.invite;
+
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
@@ -149,7 +167,7 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
                 ) : null}
             </View>
             <View style={{ flex: 1 }}>
-                {authLoading && !route?.params?.invite ? (
+                {showLoading ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                         <ActivityIndicator size="large" color="#FFFFFF" />
                     </View>
@@ -166,7 +184,9 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
                                 editable={!isFleetDriver}
                             />
                         </View>
+
                         <Text style={styles.subtitle}>{t('payConfiguration', 'Pay Configuration')}</Text>
+
                         <View style={styles.inlineInputContainer}>
                             <View style={{flex: 1}}>
                                 <Text style={styles.label}>{t('driverSetup.hourlyRate', 'Hourly Rate (£)')}</Text>
@@ -193,6 +213,7 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
                                 />
                             </View>
                         </View>
+
                         <View style={styles.section}>
                             <Text style={styles.sectionTitle}>{t('driverSetup.overtime', 'Overtime')}</Text>
                             <View style={styles.inlineInputContainer}>
@@ -226,6 +247,7 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
                                 </View>
                             </View>
                         </View>
+
                         <View style={styles.section}>
                             <Text style={styles.sectionTitle}>{t('driverSetup.shiftAllowances', 'Allowances')}</Text>
                             {allowanceTiers.map((tier) => (
@@ -258,6 +280,7 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
                                 </TouchableOpacity>
                             ) : null}
                         </View>
+
                         <View style={styles.section}>
                             <Text style={styles.sectionTitle}>{t('driverSetup.additionalOvertime', 'Additional Overtime Tiers')}</Text>
                             {additionalTiers.map((tier) => (

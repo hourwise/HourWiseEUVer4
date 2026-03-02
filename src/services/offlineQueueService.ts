@@ -10,7 +10,7 @@ export interface OfflineAction {
     workMinutes: number;
     poaMinutes: number;
     breakMinutes: number;
-    otherData: { driving: number };
+    otherData: { drivingMinutes: number };
   };
   timestamp: number; // To know when the action was queued
 }

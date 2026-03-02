@@ -25,6 +25,7 @@ interface AuthContextType {
   needsSetup: boolean;
   needsLastShiftEntry: boolean;
   transientInvite: Invite | null;
+  isFleetDriver: boolean; // <-- Add new flag
   refreshProfile: () => Promise<void>;
   completeLastShiftEntry: () => void;
   signOut: () => Promise<void>;
@@ -41,13 +42,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [needsLastShiftEntry, setNeedsLastShiftEntry] = useState(true);
   const [loading, setLoading] = useState(true);
   const [transientInvite, setTransientInvite] = useState<Invite | null>(null);
+  const isFleetDriver = !!profile?.company_id;
 
   const fetchProfile = useCallback(async (session: Session | null) => {
     if (!session?.user) {
       setProfile(null); setNeedsSetup(true); setNeedsLastShiftEntry(true); return;
     }
     try {
-      // Reverted to separate queries to avoid relationship schema cache errors
       const [
         { data: profileData, error: profileError },
         { data: payConfig, error: payError },
@@ -154,7 +155,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const isLoading = loading || (session && profile === undefined);
 
   return (
-    <AuthContext.Provider value={{ session, profile, loading: isLoading, needsSetup, needsLastShiftEntry, transientInvite, refreshProfile, completeLastShiftEntry, signOut, signIn, signUp }}>
+    <AuthContext.Provider value={{ session, profile, loading: isLoading, needsSetup, needsLastShiftEntry, transientInvite, isFleetDriver, refreshProfile, completeLastShiftEntry, signOut, signIn, signUp }}>
       {children}
     </AuthContext.Provider>
   );

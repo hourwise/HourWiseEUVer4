@@ -60,3 +60,4 @@ credentials.json
 /ios
 # /android <- Removed this line
 
+/credentials/
