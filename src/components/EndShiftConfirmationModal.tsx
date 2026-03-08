@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView } from 'react-native';
-import { AlertTriangle, CheckCircle, X } from 'react-native-feather';
+import { AlertTriangle, CheckCircle } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 import { getViolationInfo } from '../lib/compliance';
 
@@ -64,6 +64,7 @@ const EndShiftConfirmationModal = ({
                   return (
                     <View key={index} className="bg-slate-700 rounded-lg p-3 mb-2">
                       <Text className="text-red-400 font-semibold">{details.title}</Text>
+                      <Text className="text-slate-300 text-xs mt-1">{details.tip}</Text>
                     </View>
                   );
                 })}

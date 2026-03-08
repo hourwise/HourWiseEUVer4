@@ -55,11 +55,14 @@ export type WorkSession = {
   start_time: string; // ISO 8601
   end_time: string | null; // ISO 8601 or null
   total_work_minutes: number;
-  break_15_count: number;
-  break_30_count: number;
-  break_45_count: number;
   total_break_minutes: number;
   total_poa_minutes: number;
+  other_data?: {
+    driving?: number;
+    [key: string]: any;
+  };
+  compliance_score?: number;
+  compliance_violations?: string[];
   timezone: string;
   created_at: string;
 };

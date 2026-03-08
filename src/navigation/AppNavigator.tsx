@@ -66,10 +66,17 @@ export default function AppNavigator() {
   const { isSubscribed, isLoading: subscriptionLoading } = useSubscriptionData();
   const { areAllGranted } = usePermissions();
 
-  // EXPLICIT LOGGING FOR DEBUGGING
-  // console.log("NAVIGATOR STATE:", { authLoading, subscriptionLoading, session: !!session, needsSetup, needsLastShiftEntry, areAllGranted });
+  console.log("NAVIGATOR STATE:", {
+    authLoading,
+    subscriptionLoading,
+    session: !!session,
+    needsSetup,
+    needsLastShiftEntry,
+    areAllGranted,
+    isSubscribed,
+  });
 
-  if (authLoading || subscriptionLoading || (session && areAllGranted === null)) {
+  if (authLoading || subscriptionLoading) {
     return <LoadingScreen />;
   }
 
@@ -82,7 +89,7 @@ export default function AppNavigator() {
           <Stack.Screen name="Setup" component={SetupStack} />
         ) : needsLastShiftEntry ? (
           <Stack.Screen name="OnboardingCalendar" component={OnboardingCalendar} />
-        ) : !areAllGranted ? (
+        ) : areAllGranted !== true ? (
           <Stack.Screen name="Permissions" component={PermissionsScreen} />
         ) : !isSubscribed ? (
           <Stack.Screen name="Paywall" component={PaywallScreen} />

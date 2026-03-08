@@ -4,6 +4,7 @@ import React, {
   createContext,
   useContext,
   useCallback,
+  useRef,
 } from 'react';
 import { Alert } from 'react-native';
 import { supabase } from '../lib/supabase';
@@ -25,7 +26,7 @@ interface AuthContextType {
   needsSetup: boolean;
   needsLastShiftEntry: boolean;
   transientInvite: Invite | null;
-  isFleetDriver: boolean; // <-- Add new flag
+  isFleetDriver: boolean;
   refreshProfile: () => Promise<void>;
   completeLastShiftEntry: () => void;
   signOut: () => Promise<void>;
@@ -35,29 +36,49 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const withTimeout = async <T,>(p: Promise<T>, ms = 8000): Promise<T> => {
+  return await Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
+};
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<ProfileWithPay | null>(null);
-  const [needsSetup, setNeedsSetup] = useState(true);
-  const [needsLastShiftEntry, setNeedsLastShiftEntry] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [needsLastShiftEntry, setNeedsLastShiftEntry] = useState(false);
   const [loading, setLoading] = useState(true);
   const [transientInvite, setTransientInvite] = useState<Invite | null>(null);
+
+  // Use a ref to track profile presence without triggering dependency loops
+  const hasProfileRef = useRef(false);
   const isFleetDriver = !!profile?.company_id;
 
-  const fetchProfile = useCallback(async (session: Session | null) => {
+  const fetchProfile = useCallback(async (session: Session | null, isBackground = false) => {
     if (!session?.user) {
-      setProfile(null); setNeedsSetup(true); setNeedsLastShiftEntry(true); return;
+      setProfile(null);
+      hasProfileRef.current = false;
+      return;
     }
+
+    // Only show loading if we don't have a profile yet and it's not a background refresh
+    const shouldShowLoading = !hasProfileRef.current && !isBackground;
+    if (shouldShowLoading) setLoading(true);
+
     try {
       const [
         { data: profileData, error: profileError },
         { data: payConfig, error: payError },
         { data: anySession, error: sessionError }
-      ] = await Promise.all([
+      ] = await withTimeout(
+        Promise.all([
           supabase.from('profiles').select('*').eq('id', session.user.id).single(),
           supabase.from('pay_configurations').select('*').eq('user_id', session.user.id).single(),
           supabase.from('work_sessions').select('id').eq('user_id', session.user.id).limit(1).single(),
-      ]);
+        ]),
+        8000
+      );
 
       if (profileError && profileError.code !== 'PGRST116') throw profileError;
       if (payError && payError.code !== 'PGRST116') throw payError;
@@ -67,13 +88,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setNeedsSetup(!setupComplete);
       setNeedsLastShiftEntry(!anySession);
 
-      setProfile(profileData ? { ...profileData, pay_configurations: payConfig || null } : null);
+      const newProfile = profileData ? { ...profileData, pay_configurations: payConfig || null } : null;
+      setProfile(newProfile);
+      hasProfileRef.current = !!newProfile;
 
     } catch (error: any) {
-      console.error("Error fetching profile/setup status:", error.message);
-      setProfile(null); setNeedsSetup(true); setNeedsLastShiftEntry(true);
+      console.warn("fetchProfile failed or timed out:", error.message || error);
+    } finally {
+      if (shouldShowLoading) setLoading(false);
     }
-  }, []);
+  }, []); // Empty deps to keep this function stable
 
   const completeLastShiftEntry = () => setNeedsLastShiftEntry(false);
   const signOut = async () => { await supabase.auth.signOut(); };
@@ -121,41 +145,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      setSession(currentSession);
-      if (currentSession) await fetchProfile(currentSession);
-      setLoading(false);
+      try {
+        const { data: { session: currentSession } } = await withTimeout(supabase.auth.getSession(), 5000);
+        setSession(currentSession);
+        if (currentSession) await fetchProfile(currentSession);
+      } catch (e) {
+        console.warn("Auth init timed out", e);
+      } finally {
+        setLoading(false);
+      }
 
       const { data: authListener } = supabase.auth.onAuthStateChange(
         async (_event, newSession) => {
           setSession(newSession);
-          setLoading(true);
           if (newSession) {
-            await fetchProfile(newSession);
+            // Background fetch for existing users
+            await fetchProfile(newSession, true);
           } else {
-            setProfile(null); setNeedsSetup(true); setNeedsLastShiftEntry(true);
+            setProfile(null);
+            hasProfileRef.current = false;
+            setNeedsSetup(true);
+            setNeedsLastShiftEntry(true);
           }
-          setLoading(false);
         }
       );
       return () => authListener.subscription.unsubscribe();
     };
     init();
-  }, [fetchProfile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
 
   const refreshProfile = useCallback(async () => {
     const { data: { session: currentSession } } = await supabase.auth.getSession();
     if (currentSession) {
-        setLoading(true);
-        await fetchProfile(currentSession);
-        setLoading(false);
+        await fetchProfile(currentSession, true);
     }
   }, [fetchProfile]);
 
-  const isLoading = loading || (session && profile === undefined);
-
   return (
-    <AuthContext.Provider value={{ session, profile, loading: isLoading, needsSetup, needsLastShiftEntry, transientInvite, isFleetDriver, refreshProfile, completeLastShiftEntry, signOut, signIn, signUp }}>
+    <AuthContext.Provider value={{ session, profile, loading, needsSetup, needsLastShiftEntry, transientInvite, isFleetDriver, refreshProfile, completeLastShiftEntry, signOut, signIn, signUp }}>
       {children}
     </AuthContext.Provider>
   );

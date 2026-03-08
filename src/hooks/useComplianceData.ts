@@ -39,7 +39,7 @@ export const useComplianceData = (userId: string, currentDate: Date) => {
 
       const { data, error } = await supabase
         .from('work_sessions')
-        .select('*') // Select all fields to get duration data
+        .select('*')
         .eq('user_id', userId)
         .gte('date', toLocalDateString(fetchStartDate))
         .lte('date', toLocalDateString(fetchEndDate))
@@ -65,25 +65,31 @@ export const useComplianceData = (userId: string, currentDate: Date) => {
     allSessions.forEach((session) => {
       const existing = map.get(session.date);
 
+      // Convert database minutes to seconds for the UI (Heatmap formatDuration expects seconds)
+      const workSec = (session.total_work_minutes || 0) * 60;
+      const breakSec = (session.total_break_minutes || 0) * 60;
+      const poaSec = (session.total_poa_minutes || 0) * 60;
+      const driveSec = (session.other_data?.driving || 0) * 60;
+
       if (existing) {
         map.set(session.date, {
           date: session.date,
-          score: Math.min(existing.score, session.compliance_score || 100),
+          score: Math.min(existing.score, session.compliance_score ?? 100),
           violations: [...new Set([...existing.violations, ...(session.compliance_violations || [])])],
-          totalWork: existing.totalWork + (session.work_duration || 0),
-          totalBreak: existing.totalBreak + (session.break_duration || 0),
-          totalDrive: existing.totalDrive + (session.drive_duration || 0),
-          totalPoa: existing.totalPoa + (session.poa_duration || 0),
+          totalWork: existing.totalWork + workSec,
+          totalBreak: existing.totalBreak + breakSec,
+          totalDrive: existing.totalDrive + driveSec,
+          totalPoa: existing.totalPoa + poaSec,
         });
       } else {
         map.set(session.date, {
           date: session.date,
-          score: session.compliance_score || 100,
+          score: session.compliance_score ?? 100,
           violations: session.compliance_violations || [],
-          totalWork: session.work_duration || 0,
-          totalBreak: session.break_duration || 0,
-          totalDrive: session.drive_duration || 0,
-          totalPoa: session.poa_duration || 0,
+          totalWork: workSec,
+          totalBreak: breakSec,
+          totalDrive: driveSec,
+          totalPoa: poaSec,
         });
       }
     });

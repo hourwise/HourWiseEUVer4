@@ -47,7 +47,11 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION"
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.VIBRATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_FULL_SCREEN_INTENT"
       ],
       "foregroundService": {
         "location": {
@@ -84,7 +88,18 @@
       ],
       "expo-localization",
       "expo-location",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/adaptive-icon.png",
+          "color": "#60a5fa",
+          "sounds": [
+            "./assets/sounds/sound_15_min_warning.mp3",
+            "./assets/sounds/sound_30_min_warning.mp3",
+            "./assets/sounds/sound_5_min_critical.mp3"
+          ]
+        }
+      ],
       [
         "expo-local-authentication",
         {

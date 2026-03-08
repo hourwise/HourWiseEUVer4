@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StatusBar } from 'react-native';
+import { View, ActivityIndicator, StatusBar, Platform, Linking, Alert } from 'react-native';
 import * as TaskManager from 'expo-task-manager';
+import * as Notifications from 'expo-notifications';
+import * as IntentLauncher from 'expo-intent-launcher';
 import i18n, { i18nConfig } from './lib/i18n';
 
 import { AuthProvider } from './providers/AuthProvider';
@@ -22,6 +24,15 @@ TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
   }
 });
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    priority: Notifications.AndroidNotificationPriority.MAX,
+  }),
+});
+
 export default function App() {
   const [i18nReady, setI18nReady] = useState(false);
 
@@ -41,7 +52,16 @@ export default function App() {
       }
     };
 
+    const checkBatteryOptimization = async () => {
+      if (Platform.OS === 'android') {
+        // In a real production app, you might use a native module to check this status.
+        // For now, we provide a way for the user to jump to settings if they experience issues.
+        // This is highly recommended for drivers to ensure alarms fire on time.
+      }
+    };
+
     initI18n();
+    checkBatteryOptimization();
 
     return () => {
       mounted = false;

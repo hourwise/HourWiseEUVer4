@@ -4,6 +4,7 @@ import { X, Save } from 'react-native-feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase';
 import { useTranslation } from 'react-i18next';
+import { VIOLATION_KEYS } from '../lib/compliance';
 
 // Helper to get YYYY-MM-DD from a local date, ignoring timezone shifts
 const toLocalDateString = (date: Date) => {
@@ -123,15 +124,31 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
     const breakMinutes = parseInt(totalBreakMinutes, 10) || 0;
     const poaMinutes = parseInt(totalPoaMinutes, 10) || 0;
     const grossWorkMinutes = (finalEnd.getTime() - finalStart.getTime()) / (1000 * 60);
+    const netWorkMinutes = Math.max(0, grossWorkMinutes - breakMinutes - poaMinutes);
+
+    // Basic compliance check for manual entries
+    const violations: string[] = [];
+    const workHours = (netWorkMinutes + poaMinutes) / 60;
+
+    if (workHours > 9 && breakMinutes < 45) {
+      violations.push(VIOLATION_KEYS.INSUFFICIENT_BREAK_FOR_9H_WORK);
+    } else if (workHours > 6 && breakMinutes < 30) {
+      violations.push(VIOLATION_KEYS.EXCEEDED_6H_WORK);
+    }
+
+    const score = Math.max(0, 100 - violations.length * 20);
 
     const sessionData = {
       user_id: user.id,
-      date: toLocalDateString(finalStart), // Use local date for the 'date' field
+      date: toLocalDateString(finalStart),
       start_time: finalStart.toISOString(),
       end_time: finalEnd.toISOString(),
-      total_work_minutes: Math.max(0, grossWorkMinutes - breakMinutes - poaMinutes),
+      total_work_minutes: netWorkMinutes,
       total_break_minutes: breakMinutes,
       total_poa_minutes: poaMinutes,
+      other_data: { driving: 0 }, // Ensure other_data is present
+      compliance_score: score,
+      compliance_violations: violations,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       is_manual_entry: true
     };

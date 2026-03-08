@@ -19,23 +19,32 @@ const DailyComplianceReportModal = ({
 }: DailyComplianceReportModalProps) => {
   const { t } = useTranslation();
 
-  const formattedDate = new Date(date).toLocaleDateString(t('locale'), {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  // Safely parse YYYY-MM-DD to avoid timezone shifting
+  const getFormattedDate = () => {
+    try {
+      const [year, month, day] = date.split('-').map(Number);
+      const d = new Date(year, month - 1, day);
+      return d.toLocaleDateString(t('locale'), {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+    } catch (e) {
+      return date;
+    }
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View className="flex-1 justify-center items-center bg-black/70 p-4">
-        <View className="bg-slate-800 rounded-2xl w-full max-w-sm p-6 border border-slate-700">
+        <View className="bg-slate-800 rounded-2xl w-full max-sm p-6 border border-slate-700">
           <TouchableOpacity onPress={onClose} className="absolute top-4 right-4">
             <X size={24} color="#94a3b8" />
           </TouchableOpacity>
 
           <Text className="text-white text-2xl font-bold mb-2">{t('dailyReport.title')}</Text>
-          <Text className="text-slate-400 text-sm mb-6">{formattedDate}</Text>
+          <Text className="text-slate-400 text-sm mb-6">{getFormattedDate()}</Text>
 
           {violations.length > 0 ? (
             <>

@@ -20,36 +20,50 @@ export const FatigueMonitor: React.FC<Props> = ({ workSeconds, breakSeconds, dai
   const drivingHours = drivingSeconds / 3600;
 
   let fatigueLevel = 0;
-  let fatigueText = t('fatigue.fullyAlert');
+  let fatigueText = t('fatigue.freshAndFocused');
   let warnings: string[] = [];
 
-  // Logic based on your en.json structure
+  // Progression-based fatigue calculation (Smoother scaling)
   if (workHours >= 13) {
     fatigueLevel = 100;
     fatigueText = t('fatigue.critical');
     warnings.push(t('fatigue.approaching13h'));
-  } else if (workHours > 10) {
-    fatigueLevel = 80;
+  } else if (workHours >= 11) {
+    // Scale 80% to 100% between 11h and 13h
+    fatigueLevel = 80 + ((workHours - 11) / 2) * 20;
     fatigueText = t('fatigue.high');
     warnings.push(t('fatigue.over10h'));
-  } else if (workHours > 9) {
-    fatigueLevel = 60;
+  } else if (workHours >= 9) {
+    // Scale 60% to 80% between 9h and 11h
+    fatigueLevel = 60 + ((workHours - 9) / 2) * 20;
     fatigueText = t('fatigue.moderate');
     if (breakMinutes < 45) warnings.push(t('fatigue.need45minBreak'));
-  } else if (workHours > 6) {
-    fatigueLevel = 40;
+  } else if (workHours >= 6) {
+    // Scale 40% to 60% between 6h and 9h
+    fatigueLevel = 40 + ((workHours - 6) / 3) * 20;
     fatigueText = t('fatigue.mild');
     if (breakMinutes < 30) warnings.push(t('fatigue.need30minBreak'));
   } else {
-    fatigueLevel = Math.floor(workHours * 10);
+    // Scale 0% to 40% between 0h and 6h
+    fatigueLevel = (workHours / 6) * 40;
     fatigueText = t('fatigue.freshAndFocused');
   }
 
+  // Cap at 100, Floor at 0
+  fatigueLevel = Math.max(0, Math.min(100, Math.round(fatigueLevel)));
+
+  // Global override for critical status
+  if (fatigueLevel >= 90) fatigueText = t('fatigue.critical');
+
+  // Logic-based warnings
   if (drivingHours >= 10) warnings.push(t('fatigue.drivingExceeded10h'));
-  if (drivingHours > 9) warnings.push(t('fatigue.drivingOver9h'));
+  if (drivingHours > 9 && drivingHours < 10) warnings.push(t('fatigue.drivingOver9h'));
   if (restHours !== null && restHours < 9) warnings.push(t('fatigue.dailyRestBelow9h'));
-  if (restHours !== null && restHours < 11) warnings.push(t('fatigue.reducedDailyRest'));
-  if (workTimeRemaining < 0) warnings.push(t('fatigue.workTimeExceeded', { time: `${Math.floor(Math.abs(workTimeRemaining)/60)}m` }));
+  if (restHours !== null && restHours >= 9 && restHours < 11) warnings.push(t('fatigue.reducedDailyRest'));
+  if (workTimeRemaining < 0) {
+    const overMins = Math.floor(Math.abs(workTimeRemaining) / 60);
+    warnings.push(t('fatigue.workTimeExceeded', { time: `${overMins}m` }));
+  }
 
   const getFatigueTextColor = () => {
     if (fatigueLevel >= 80) return 'text-red-400';
@@ -57,7 +71,6 @@ export const FatigueMonitor: React.FC<Props> = ({ workSeconds, breakSeconds, dai
     if (fatigueLevel >= 40) return 'text-yellow-400';
     return 'text-green-400';
   };
-  const fatigueTextColor = getFatigueTextColor();
 
   const getFatigueFillColor = () => {
     if (fatigueLevel >= 80) return '#f87171'; // red-400
@@ -65,7 +78,6 @@ export const FatigueMonitor: React.FC<Props> = ({ workSeconds, breakSeconds, dai
     if (fatigueLevel >= 40) return '#facc15'; // yellow-400
     return '#4ade80'; // green-400
   };
-  const fillColor = getFatigueFillColor();
 
   return (
       <View className="bg-slate-900 rounded-xl p-4 mb-6 border-l-4 border-blue-500">
@@ -75,19 +87,19 @@ export const FatigueMonitor: React.FC<Props> = ({ workSeconds, breakSeconds, dai
                   <Text className="text-sm font-semibold text-white mb-2">{t('fatigue.title')}</Text>
                   <View>
                       <View className="flex-row items-center justify-between mb-2">
-                          <Text className={`font-semibold ${fatigueTextColor}`}>{fatigueText}</Text>
-                          <Text className={`text-sm ${fatigueTextColor}`}>{fatigueLevel}%</Text>
+                          <Text className={`font-semibold ${getFatigueTextColor()}`}>{fatigueText}</Text>
+                          <Text className={`text-sm ${getFatigueTextColor()}`}>{fatigueLevel}%</Text>
                       </View>
                       <View className="w-full bg-slate-700 rounded-full h-3 overflow-hidden">
                           <View
                               className="h-full"
-                              style={{ width: `${fatigueLevel}%`, backgroundColor: fillColor }}
+                              style={{ width: `${fatigueLevel}%`, backgroundColor: getFatigueFillColor() }}
                           />
                       </View>
                   </View>
                   {warnings.length > 0 && (
                       <View className="mt-4 space-y-2 border-t border-slate-700 pt-3">
-                          {warnings.map((warning, idx) => (
+                          {[...new Set(warnings)].map((warning, idx) => (
                               <View key={idx} className="flex-row items-start gap-2">
                                   <AlertCircle size={14} color="#facc15" className="mt-0.5"/>
                                   <Text className="text-xs text-yellow-400 flex-1">{warning}</Text>

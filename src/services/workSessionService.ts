@@ -25,7 +25,17 @@ export const workSessionService = {
       .single();
   },
 
-  endSession: async (sessionId: string, workMins: number, poaMins: number, breakMins: number, drivingMins: number, latitude?: number, longitude?: number) => {
+  endSession: async (
+    sessionId: string,
+    workMins: number,
+    poaMins: number,
+    breakMins: number,
+    drivingMins: number,
+    latitude?: number,
+    longitude?: number,
+    complianceScore?: number,
+    complianceViolations?: string[]
+  ) => {
     return await supabase
       .from('work_sessions')
       .update({
@@ -36,6 +46,8 @@ export const workSessionService = {
         other_data: { driving: drivingMins },
         end_lat: latitude,
         end_lng: longitude,
+        compliance_score: complianceScore,
+        compliance_violations: complianceViolations
       })
       .eq('id', sessionId);
   },

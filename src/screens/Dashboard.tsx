@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   ScrollView,
@@ -53,24 +53,14 @@ import { FatigueMonitor } from '../components/FatigueMonitor';
 import DailyComplianceReportModal from '../components/DailyComplianceReportModal';
 import EndShiftConfirmationModal from '../components/EndShiftConfirmationModal';
 import AddExpenseModal from '../components/AddExpenseModal';
-// TimeGapConfirmationModal is no longer needed
 
 // --- Hooks & Services ---
 import { useWorkTimer } from '../hooks/useWorkTimer';
 import { useShiftInfo } from '../hooks/useShiftInfo';
 import { useComplianceData } from '../hooks/useComplianceData';
-import { usePermissions } from '../providers/PermissionsProvider';
 
 const toLocalDateString = (date: Date) => date.toISOString().split('T')[0];
 const LAST_VIEWED_MESSAGES_KEY = 'lastViewedMessagesTimestamp';
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
 
 // --- HELPER FUNCTIONS ---
 const formatDuration = (totalSeconds: number) => {
@@ -151,7 +141,6 @@ const ActivityStatusIcon = ({ status, isDriving }: { status: string; isDriving: 
 export function Dashboard({ session, navigation }: { session: Session; navigation: any }) {
   const { t, i18n, ready } = useTranslation();
   const { profile, refreshProfile } = useAuth();
-  usePermissions();
 
   if (!session?.user?.id) { return <View className="flex-1 bg-brand-dark justify-center items-center"><ActivityIndicator size="large" color="#F59E0B" /></View>; }
   const userId = session.user.id;
@@ -180,22 +169,64 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [dailyReportData, setDailyReportData] = useState<{ violations: string[]; date: string } | null>(null);
 
-  useEffect(() => {
-    const checkUnreadMessages = async () => {
-        const [broadcasts, systemMessages] = await Promise.all([ getLatestBroadcasts(), getSystemMessages() ]);
-        const allMessages = [...broadcasts, ...systemMessages];
-        if (allMessages.length > 0) {
-            allMessages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-            const lastViewed = await AsyncStorage.getItem(LAST_VIEWED_MESSAGES_KEY);
-            const latestTimestamp = new Date(allMessages[0].created_at).getTime();
-            if (!lastViewed || latestTimestamp > parseInt(lastViewed, 10)) { setHasUnreadMessages(true); }
-        }
-    };
-    const handleAppStateChange = (next: string) => { if (next === 'active') { setShowSafetyWarning(true); checkUnreadMessages(); } };
-    const sub = AppState.addEventListener('change', handleAppStateChange);
-    checkUnreadMessages();
-    return () => sub.remove();
+  const unreadCheckInFlight = useRef(false);
+
+  const withTimeout = async <T,>(p: Promise<T>, ms = 8000): Promise<T> => {
+    return await Promise.race([
+      p,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+    ]);
+  };
+
+  const checkUnreadMessages = useCallback(async () => {
+    if (unreadCheckInFlight.current) return;
+    unreadCheckInFlight.current = true;
+
+    try {
+      // Fire-and-forget logic: wrap the whole fetching in a timeout
+      const [broadcasts, systemMessages] = await withTimeout(
+        Promise.all([getLatestBroadcasts(), getSystemMessages()]),
+        8000
+      );
+
+      const allMessages = [...broadcasts, ...systemMessages];
+      if (allMessages.length === 0) return;
+
+      allMessages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const lastViewed = await AsyncStorage.getItem(LAST_VIEWED_MESSAGES_KEY);
+
+      const latestTimestamp = new Date(allMessages[0].created_at).getTime();
+      if (!lastViewed || latestTimestamp > parseInt(lastViewed, 10)) {
+        setHasUnreadMessages(true);
+      }
+    } catch (e) {
+      // Silent fail - logging only
+      console.log('Unread check skipped:', e instanceof Error ? e.message : 'timeout');
+    } finally {
+      unreadCheckInFlight.current = false;
+    }
   }, []);
+
+  useEffect(() => {
+    const handleAppStateChange = (next: string) => {
+      if (next === 'active') {
+        setShowSafetyWarning(true);
+        // Fire-and-forget with a larger delay to let the OS stabilize network
+        setTimeout(() => {
+          checkUnreadMessages().catch(() => {});
+        }, 2000);
+      }
+    };
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+
+    // Initial check on mount
+    setTimeout(() => {
+      checkUnreadMessages().catch(() => {});
+    }, 1000);
+
+    return () => sub.remove();
+  }, [checkUnreadMessages]);
 
   useEffect(() => {
     if (!userId) return;
@@ -217,22 +248,71 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
 
   useEffect(() => {
     if (!profile?.company_id) return;
-    const channel = supabase.channel(`broadcasts:${profile.company_id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'broadcasts', filter: `company_id=eq.${profile.company_id}`}, (payload) => {
+    const channel = supabase
+      .channel(`broadcasts:${profile.company_id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'broadcasts', filter: `company_id=eq.${profile.company_id}` },
+        (payload) => {
           setHasUnreadMessages(true);
-          Notifications.scheduleNotificationAsync({ content: { title: t('messages.notificationTitle', 'New Fleet Message'), body: (payload.new as any).content, sound: 'default', channelId: 'messages' }, trigger: null });
-      }).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [profile?.company_id, t]);
+          Notifications.scheduleNotificationAsync({
+            content: {
+              title: t('messages.notificationTitle', 'New Fleet Message'),
+              body: (payload.new as any).content,
+              sound: 'default',
+              channelId: 'messages',
+            },
+            trigger: null,
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.company_id]);
 
   useEffect(() => {
-    const channel = supabase.channel('system_messages_all')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'system_messages' }, (payload) => {
+    const channel = supabase
+      .channel('system_messages_all')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'system_messages' },
+        (payload) => {
           setHasUnreadMessages(true);
-          Notifications.scheduleNotificationAsync({ content: { title: t('messages.systemNotificationTitle', 'System Announcement'), body: (payload.new as any).content, sound: 'default', channelId: 'messages' }, trigger: null });
-      }).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [t]);
+          Notifications.scheduleNotificationAsync({
+            content: {
+              title: t('messages.systemNotificationTitle', 'System Announcement'),
+              body: (payload.new as any).content,
+              sound: 'default',
+              channelId: 'messages',
+            },
+            trigger: null,
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Today's cumulative totals for fatigue monitor
+  const dailyCumulativeTotals = useMemo(() => {
+    const todayStr = toLocalDateString(new Date());
+    const historicalToday = complianceMap.get(todayStr);
+
+    return {
+      work: (historicalToday?.totalWork || 0) + (display.work || 0),
+      break: (historicalToday?.totalBreak || 0) + (display.break || 0),
+      driving: (historicalToday?.totalDrive || 0) + (display.driving || 0),
+      poa: (historicalToday?.totalPoa || 0) + (display.poa || 0),
+    };
+  }, [complianceMap, display]);
 
   if (!userId || !ready) { return <View className="flex-1 bg-brand-dark justify-center items-center"><ActivityIndicator size="large" color="#F59E0B" /></View>; }
 
@@ -307,7 +387,13 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                 {dailyRest > 0 ? (<View className="mt-2 pt-2 border-t border-slate-700 flex-row justify-between"><Text className="text-slate-400">{t('dashboard.dailyRest')}</Text><Text className="text-white font-bold">{formatDuration(dailyRest)}</Text></View>) : null}
                 {payrollNumber ? ( <Row label={'Payroll Number'} value={payrollNumber} /> ) : null}
             </View>
-            <FatigueMonitor workSeconds={display.work || 0} breakSeconds={display.break || 0} dailyRestSeconds={dailyRest} drivingSeconds={display.driving || 0} workTimeRemaining={display.workTimeRemaining}/>
+            <FatigueMonitor
+              workSeconds={dailyCumulativeTotals.work}
+              breakSeconds={dailyCumulativeTotals.break}
+              dailyRestSeconds={dailyRest}
+              drivingSeconds={dailyCumulativeTotals.driving}
+              workTimeRemaining={display.workTimeRemaining}
+            />
             <View className="bg-brand-card rounded-2xl p-4 mb-6 relative pt-10 border border-brand-border">
               {status !== 'idle' ? <ActivityStatusIcon status={status} isDriving={isDriving} /> : null}
               <DigitalClock />
@@ -330,7 +416,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
               {status !== 'idle' ? <ShiftInfoBar display={display} /> : null}
             </View>
             <ComplianceHeatmapSummary onPress={() => setShowCompliance(true)} complianceMap={complianceMap} isLoading={isComplianceLoading} currentDate={currentComplianceDate} />
-          </View>
+                    </View>
         </ScrollView>
       </View>
     </SafeAreaView>

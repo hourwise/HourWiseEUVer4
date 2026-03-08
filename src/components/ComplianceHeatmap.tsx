@@ -53,20 +53,31 @@ function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, set
   const { monthScore, weekScore } = useMemo(() => {
     let totalMonthScore = 0, monthSessionCount = 0, totalWeekScore = 0, weekSessionCount = 0;
     const today = new Date();
+
+    // Get start of current week
     const weekStart = new Date(today);
     weekStart.setDate(today.getDate() - today.getDay());
-    const weekStartStr = toLocalDateString(weekStart);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
 
     complianceMap.forEach((result, dateStr) => {
-      if (new Date(dateStr).getMonth() === currentDate.getMonth()) {
+      const sessionDate = new Date(dateStr);
+
+      // Month score check (must match month AND year)
+      if (sessionDate.getMonth() === currentMonth && sessionDate.getFullYear() === currentYear) {
         totalMonthScore += result.score;
         monthSessionCount++;
       }
-      if (dateStr >= weekStartStr) {
+
+      // Week score check (session date >= start of this week)
+      if (sessionDate.getTime() >= weekStart.getTime()) {
         totalWeekScore += result.score;
         weekSessionCount++;
       }
     });
+
     return {
       monthScore: monthSessionCount > 0 ? Math.round(totalMonthScore / monthSessionCount) : 100,
       weekScore: weekSessionCount > 0 ? Math.round(totalWeekScore / weekSessionCount) : 100
