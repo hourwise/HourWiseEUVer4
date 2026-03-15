@@ -112,15 +112,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (authError) throw authError;
     if (!data.user) throw new Error('Sign up failed.');
 
+    let finalProfile: ProfileWithPay | null = null;
+
     if (accountType === 'fleet' && invite) {
       setTransientInvite(invite);
       const payConfigSnapshot = invite.pay_config_snapshot as any;
 
-      const { error: profileError } = await supabase.from('profiles').insert({
+      const profilePayload = {
           id: data.user.id, user_id: data.user.id, email: data.user.email, full_name: invite.full_name,
           account_type: 'fleet', company_id: invite.company_id, role: 'driver',
           payroll_number: payConfigSnapshot?.payroll_number,
-      });
+      };
+
+      const { error: profileError } = await supabase.from('profiles').insert(profilePayload);
       if (profileError) throw profileError;
 
       if (payConfigSnapshot) {
@@ -131,12 +135,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const { error: acceptError } = await supabase.rpc('accept_driver_invite', { invite_id: invite.id, user_id: data.user.id });
       if (acceptError) console.warn("Accept invite RPC failed:", acceptError.message);
 
+      finalProfile = { ...profilePayload, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), pay_configurations: payConfigSnapshot || null } as any;
+
     } else {
-      const { error: profileError } = await supabase.from('profiles').insert({
+      const profilePayload = {
           id: data.user.id, user_id: data.user.id, email: data.user.email,
           full_name: fullName, account_type: 'solo', role: 'driver'
-      });
+      };
+      const { error: profileError } = await supabase.from('profiles').insert(profilePayload);
       if (profileError) throw profileError;
+
+      finalProfile = { ...profilePayload, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), pay_configurations: null } as any;
+    }
+
+    // Proactively update state to prevent race conditions on redirect
+    if (finalProfile) {
+        setProfile(finalProfile);
+        hasProfileRef.current = true;
+        setNeedsSetup(false);
+        setNeedsLastShiftEntry(true);
     }
 
     if (!data.session && data.user) Alert.alert("Check Your Email", "A confirmation link has been sent.");

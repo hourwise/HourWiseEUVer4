@@ -677,5 +677,5 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const toggleBreak = useCallback(() => updateTotalsAndSwitchStatus(statusRef.current === 'break' ? 'working' : 'break'), [updateTotalsAndSwitchStatus]);
   const togglePOA = useCallback(() => updateTotalsAndSwitchStatus(statusRef.current === 'poa' ? 'working' : 'poa'), [updateTotalsAndSwitchStatus]);
 
-  return { status, timerMode, isDriving, displaySeconds: display, shiftSummaryData, setShiftSummaryData, startWork, endWork, togglePOA, toggleBreak };
+  return { status, sessionId, timerMode, isDriving, displaySeconds: display, shiftSummaryData, setShiftSummaryData, startWork, endWork, togglePOA, toggleBreak };
 };

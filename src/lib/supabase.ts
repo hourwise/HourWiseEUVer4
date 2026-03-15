@@ -1,3 +1,4 @@
+import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -19,10 +20,13 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-export const getLatestBroadcasts = async () => {
+export const getLatestBroadcasts = async (companyId?: string | null) => {
+  if (!companyId) return [];
+
   const { data, error } = await supabase
     .from('broadcasts')
-    .select('id, content, created_at')
+    .select('id, content, created_at, company_id')
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
     .limit(20);
 
@@ -30,7 +34,7 @@ export const getLatestBroadcasts = async () => {
     console.error('Error fetching broadcasts:', error);
     return [];
   }
-  return data;
+  return data ?? [];
 };
 
 export const getSystemMessages = async () => {
@@ -38,13 +42,13 @@ export const getSystemMessages = async () => {
     .from('system_messages')
     .select('id, content, created_at')
     .order('created_at', { ascending: false })
-    .limit(10);
+    .limit(20);
 
   if (error) {
     console.error('Error fetching system messages:', error);
     return [];
   }
-  return data;
+  return data ?? [];
 };
 
 

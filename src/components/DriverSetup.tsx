@@ -44,8 +44,6 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
     const { profile, refreshProfile, isFleetDriver: isFleetDriverFromAuth, loading: authLoading } = useAuth();
     const [isSaving, setIsSaving] = useState(false);
 
-    // The source of truth is now the AuthProvider, but we can have a local override
-    // for the very first moment of a fleet sign-up before the profile is re-fetched.
     const isFleetDriver = !!route?.params?.invite || isFleetDriverFromAuth;
 
     const [fullName, setFullName] = useState('');
@@ -70,11 +68,20 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
             setOvertimeThresholdUnit(payConfig.overtime_threshold_unit as OvertimeUnit || 'week');
             setOvertimeMultiplier(payConfig.overtime_rate_multiplier?.toString() || '1.5');
 
-            if (payConfig.additional_overtime_tiers) {
-                setAdditionalTiers(payConfig.additional_overtime_tiers.map((t: any) => ({ ...t, id: Math.random().toString(36).substring(7) })));
+            if (Array.isArray(payConfig.additional_overtime_tiers)) {
+                setAdditionalTiers(payConfig.additional_overtime_tiers.map((t: any) => ({
+                    id: Math.random().toString(36).substring(7),
+                    threshold: t.threshold?.toString() || '',
+                    rate: t.rate?.toString() || '',
+                    unit: (t.unit as OvertimeUnit) || 'week'
+                })));
             }
-            if (payConfig.allowance_tiers) {
-                setAllowanceTiers(payConfig.allowance_tiers.map((t: any) => ({ ...t, id: Math.random().toString(36).substring(7) })));
+            if (Array.isArray(payConfig.allowance_tiers)) {
+                setAllowanceTiers(payConfig.allowance_tiers.map((t: any) => ({
+                    id: Math.random().toString(36).substring(7),
+                    amount: t.amount?.toString() || '',
+                    unit: (t.unit as AllowanceUnit) || 'shift'
+                })));
             }
             return;
         }
@@ -90,11 +97,20 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
                 setOvertimeThresholdUnit(pc.overtime_threshold_unit as OvertimeUnit || 'week');
                 setOvertimeMultiplier(pc.overtime_rate_multiplier?.toString() || '1.5');
 
-                if (pc.additional_overtime_tiers) {
-                    setAdditionalTiers(pc.additional_overtime_tiers.map((t: any) => ({ ...t, id: Math.random().toString(36).substring(7) })));
+                if (Array.isArray(pc.additional_overtime_tiers)) {
+                    setAdditionalTiers(pc.additional_overtime_tiers.map((t: any) => ({
+                        id: Math.random().toString(36).substring(7),
+                        threshold: t.threshold?.toString() || '',
+                        rate: t.rate?.toString() || '',
+                        unit: (t.unit as OvertimeUnit) || 'week'
+                    })));
                 }
-                if (pc.allowance_tiers) {
-                    setAllowanceTiers(pc.allowance_tiers.map((t: any) => ({ ...t, id: Math.random().toString(36).substring(7) })));
+                if (Array.isArray(pc.allowance_tiers)) {
+                    setAllowanceTiers(pc.allowance_tiers.map((t: any) => ({
+                        id: Math.random().toString(36).substring(7),
+                        amount: t.amount?.toString() || '',
+                        unit: (t.unit as AllowanceUnit) || 'shift'
+                    })));
                 }
             }
         }

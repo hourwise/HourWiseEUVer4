@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   AppState,
   Platform,
+  Alert,
 } from 'react-native';
 import {
   Menu,
@@ -24,6 +25,7 @@ import {
   Globe,
   Bell,
   DollarSign,
+  CheckCircle,
 } from 'react-native-feather';
 import { Session } from '@supabase/supabase-js';
 import { useTranslation } from 'react-i18next';
@@ -53,6 +55,7 @@ import { FatigueMonitor } from '../components/FatigueMonitor';
 import DailyComplianceReportModal from '../components/DailyComplianceReportModal';
 import EndShiftConfirmationModal from '../components/EndShiftConfirmationModal';
 import AddExpenseModal from '../components/AddExpenseModal';
+import VehicleChecklistModal from '../components/VehicleChecklistModal';
 
 // --- Hooks & Services ---
 import { useWorkTimer } from '../hooks/useWorkTimer';
@@ -60,7 +63,6 @@ import { useShiftInfo } from '../hooks/useShiftInfo';
 import { useComplianceData } from '../hooks/useComplianceData';
 
 const toLocalDateString = (date: Date) => date.toISOString().split('T')[0];
-const LAST_VIEWED_MESSAGES_KEY = 'lastViewedMessagesTimestamp';
 
 // --- HELPER FUNCTIONS ---
 const formatDuration = (totalSeconds: number) => {
@@ -138,6 +140,13 @@ const ActivityStatusIcon = ({ status, isDriving }: { status: string; isDriving: 
   );
 };
 
+const withTimeout = async <T,>(p: Promise<T>, ms = 8000): Promise<T> => {
+  return await Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
+};
+
 export function Dashboard({ session, navigation }: { session: Session; navigation: any }) {
   const { t, i18n, ready } = useTranslation();
   const { profile, refreshProfile } = useAuth();
@@ -145,7 +154,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   if (!session?.user?.id) { return <View className="flex-1 bg-brand-dark justify-center items-center"><ActivityIndicator size="large" color="#F59E0B" /></View>; }
   const userId = session.user.id;
 
-  const { status, timerMode, displaySeconds, startWork, endWork, togglePOA, toggleBreak, isDriving, shiftSummaryData, setShiftSummaryData } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const { status, sessionId, timerMode, displaySeconds, startWork, endWork, togglePOA, toggleBreak, isDriving, shiftSummaryData, setShiftSummaryData } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
   const display = displaySeconds || { workTimeRemaining: 0, drivingTimeRemaining: 0, breakDuration: 0, work: 0, poa: 0, break: 0, driving: 0 };
   const driverName = profile?.full_name;
   const payrollNumber = profile?.payroll_number;
@@ -167,66 +176,74 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const [showSafetyWarning, setShowSafetyWarning] = useState(true);
   const [showBusinessProfile, setShowBusinessProfile] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
+  const [showVehicleCheck, setShowVehicleCheck] = useState(false);
+  const [vehicleCheckCompletedToday, setVehicleCheckCompletedToday] = useState(false);
   const [dailyReportData, setDailyReportData] = useState<{ violations: string[]; date: string } | null>(null);
 
   const unreadCheckInFlight = useRef(false);
 
-  const withTimeout = async <T,>(p: Promise<T>, ms = 8000): Promise<T> => {
-    return await Promise.race([
-      p,
-      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
-    ]);
-  };
-
   const checkUnreadMessages = useCallback(async () => {
-    if (unreadCheckInFlight.current) return;
+    if (unreadCheckInFlight.current || !userId) return;
     unreadCheckInFlight.current = true;
 
     try {
-      // Fire-and-forget logic: wrap the whole fetching in a timeout
-      const [broadcasts, systemMessages] = await withTimeout(
-        Promise.all([getLatestBroadcasts(), getSystemMessages()]),
+      // 1. Fetch messages and read statuses
+      const [broadcasts, systemMessages, readRes] = await withTimeout(
+        Promise.all([
+          getLatestBroadcasts(profile?.company_id),
+          getSystemMessages(),
+          supabase.from('message_reads').select('message_id').eq('user_id', userId)
+        ]),
         8000
       );
 
       const allMessages = [...broadcasts, ...systemMessages];
-      if (allMessages.length === 0) return;
-
-      allMessages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      const lastViewed = await AsyncStorage.getItem(LAST_VIEWED_MESSAGES_KEY);
-
-      const latestTimestamp = new Date(allMessages[0].created_at).getTime();
-      if (!lastViewed || latestTimestamp > parseInt(lastViewed, 10)) {
-        setHasUnreadMessages(true);
+      if (allMessages.length === 0) {
+        setHasUnreadMessages(false);
+        return;
       }
+
+      const readIds = new Set((readRes.data || []).map(r => r.message_id));
+      const hasUnread = allMessages.some(m => !readIds.has(m.id));
+
+      setHasUnreadMessages(hasUnread);
     } catch (e) {
-      // Silent fail - logging only
       console.log('Unread check skipped:', e instanceof Error ? e.message : 'timeout');
     } finally {
       unreadCheckInFlight.current = false;
     }
-  }, []);
+  }, [userId, profile?.company_id]);
+
+  const checkVehicleCheckToday = useCallback(async () => {
+    if (!userId) return;
+    const today = toLocalDateString(new Date());
+    const { data } = await supabase
+      .from('vehicle_checks')
+      .select('id')
+      .eq('driver_id', userId)
+      .gte('created_at', today)
+      .limit(1);
+
+    setVehicleCheckCompletedToday(data && data.length > 0);
+  }, [userId]);
 
   useEffect(() => {
     const handleAppStateChange = (next: string) => {
       if (next === 'active') {
         setShowSafetyWarning(true);
-        // Fire-and-forget with a larger delay to let the OS stabilize network
         setTimeout(() => {
           checkUnreadMessages().catch(() => {});
-        }, 2000);
+          checkVehicleCheckToday().catch(() => {});
+        }, 300);
       }
     };
 
     const sub = AppState.addEventListener('change', handleAppStateChange);
-
-    // Initial check on mount
-    setTimeout(() => {
-      checkUnreadMessages().catch(() => {});
-    }, 1000);
+    checkUnreadMessages();
+    checkVehicleCheckToday();
 
     return () => sub.remove();
-  }, [checkUnreadMessages]);
+  }, [checkUnreadMessages, checkVehicleCheckToday]);
 
   useEffect(() => {
     if (!userId) return;
@@ -268,11 +285,8 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
       )
       .subscribe();
 
-    return () => {
-      channel.unsubscribe();
-      supabase.removeChannel(channel);
-    };
-  }, [profile?.company_id]);
+    return () => { channel.unsubscribe(); };
+  }, [profile?.company_id, t]);
 
   useEffect(() => {
     const channel = supabase
@@ -280,25 +294,14 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'system_messages' },
-        (payload) => {
+        () => {
           setHasUnreadMessages(true);
-          Notifications.scheduleNotificationAsync({
-            content: {
-              title: t('messages.systemNotificationTitle', 'System Announcement'),
-              body: (payload.new as any).content,
-              sound: 'default',
-              channelId: 'messages',
-            },
-            trigger: null,
-          });
+          // (Local notification logic could go here if needed)
         }
       )
       .subscribe();
 
-    return () => {
-      channel.unsubscribe();
-      supabase.removeChannel(channel);
-    };
+    return () => { channel.unsubscribe(); };
   }, []);
 
   // Today's cumulative totals for fatigue monitor
@@ -316,17 +319,22 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
 
   if (!userId || !ready) { return <View className="flex-1 bg-brand-dark justify-center items-center"><ActivityIndicator size="large" color="#F59E0B" /></View>; }
 
-  const handleStartWork = async () => { await startWork(); refreshShiftInfo(); await refreshProfile(); };
+  const handleStartWork = async () => {
+    await startWork();
+    refreshShiftInfo();
+    await refreshProfile();
+  };
   const workLimit = timerMode === '6h' ? 6 * 3600 : 9 * 3600;
   const driveLimit = 4.5 * 3600;
   const workPct = Math.min(100, ((workLimit - (display.workTimeRemaining || 0)) / workLimit) * 100);
   const drivePct = Math.min(100, ((driveLimit - (display.drivingTimeRemaining || 0)) / driveLimit) * 100);
 
-  const handleOpenMessages = async () => {
+  const handleOpenMessages = () => {
     navigation.navigate('Messages');
-    await AsyncStorage.setItem(LAST_VIEWED_MESSAGES_KEY, Date.now().toString());
     setHasUnreadMessages(false);
   };
+
+  const isFleet = profile?.account_type === 'fleet';
 
   return (
     <SafeAreaView className="flex-1 bg-brand-dark" edges={['top']}>
@@ -345,6 +353,14 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
         <LanguageSelector visible={showLanguageSelector} onClose={() => setShowLanguageSelector(false)} onSelectLanguage={(l) => i18n.changeLanguage(l)} currentLanguage={i18n.language}/>
         <Modal visible={showCompliance} transparent animationType="slide"><ComplianceHeatmap onClose={() => setShowCompliance(false)} complianceMap={complianceMap} isLoading={isComplianceLoading} currentDate={currentComplianceDate} setCurrentDate={setCurrentComplianceDate}/></Modal>
         <Modal visible={showWorkHistory} animationType="slide"><CalendarView timezone={Intl.DateTimeFormat().resolvedOptions().timeZone} userId={userId} onClose={() => setShowWorkHistory(false)} onDataChanged={refreshProfile}/></Modal>
+        <VehicleChecklistModal
+            visible={showVehicleCheck}
+            onClose={() => setShowVehicleCheck(false)}
+            userId={userId}
+            profile={profile}
+            sessionId={sessionId}
+            onSuccess={() => setVehicleCheckCompletedToday(true)}
+        />
         <Modal visible={showMenu} transparent animationType="fade">
           <TouchableOpacity className="flex-1" onPress={() => setShowMenu(false)}>
             <View className="absolute top-20 left-4 bg-slate-800 rounded-lg shadow-xl py-2 w-60 border border-slate-700">
@@ -380,7 +396,21 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
 
         <ScrollView className="flex-1">
           <View className="px-4 py-8 max-w-md mx-auto w-full">
-            <View className="items-center mb-6"><Text className="text-slate-400 text-base font-medium mb-2">{t('app.subtitle')}</Text>{driverName && <Text className="text-lg font-semibold text-compliance-info">{driverName}</Text>}</View>
+            <View className="items-center mb-6">
+                <Text className="text-slate-400 text-base font-medium mb-2">{t('app.subtitle')}</Text>
+                <View className="flex-row items-center gap-2">
+                    {driverName && <Text className="text-lg font-semibold text-compliance-info">{driverName}</Text>}
+                    <TouchableOpacity
+                        onPress={() => setShowVehicleCheck(true)}
+                        className={`px-3 py-1.5 rounded-full flex-row items-center gap-1.5 ${vehicleCheckCompletedToday ? 'bg-green-600/20 border border-green-500/50' : isFleet ? 'bg-red-600 border border-red-500' : 'bg-slate-700/50 border border-slate-600'}`}
+                    >
+                        {vehicleCheckCompletedToday ? <CheckCircle size={14} color="#22c55e" /> : <AlertTriangle size={14} color={isFleet ? "white" : "#94a3b8"} />}
+                        <Text style={{ fontSize: 12, fontWeight: 'bold', color: vehicleCheckCompletedToday ? '#22c55e' : 'white' }}>
+                            {vehicleCheckCompletedToday ? 'Check OK' : 'Check Vehicle'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
             <View className="bg-brand-card rounded-lg p-4 mb-4 border border-brand-border">
                 {previousShiftEnd ? ( <Row label={t('dashboard.previousShiftEnd')} value={new Date(previousShiftEnd).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> ) : null}
                 {currentShiftStart ? ( <Row label={t('dashboard.newShiftStarted')} value={new Date(currentShiftStart).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> ) : null}
@@ -422,4 +452,5 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     </SafeAreaView>
   );
 }
+
 export default Dashboard;

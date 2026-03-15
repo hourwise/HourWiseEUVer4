@@ -36,6 +36,7 @@
       },
       "package": "com.PCGsoft.hourwise.eu",
       "versionCode": 26,
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -92,12 +93,7 @@
         "expo-notifications",
         {
           "icon": "./assets/adaptive-icon.png",
-          "color": "#60a5fa",
-          "sounds": [
-            "./assets/sounds/sound_15_min_warning.mp3",
-            "./assets/sounds/sound_30_min_warning.mp3",
-            "./assets/sounds/sound_5_min_critical.mp3"
-          ]
+          "color": "#60a5fa"
         }
       ],
       [

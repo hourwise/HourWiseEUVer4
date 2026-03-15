@@ -21,22 +21,25 @@ export const reportService = {
     const end = format(endDate, 'yyyy-MM-dd');
 
     // Fetch all data in parallel
-    const [sessionsRes, payConfigRes, businessProfileRes] = await Promise.all([
+    const [sessionsRes, payConfigRes, businessProfileRes, vehicleChecksRes] = await Promise.all([
       supabase.from('work_sessions').select('*').eq('user_id', userId).gte('date', start).lte('date', end),
       supabase.from('pay_configurations').select('*').eq('user_id', userId).single(),
-      supabase.from('business_profiles').select('*').eq('user_id', userId).single()
+      supabase.from('business_profiles').select('*').eq('user_id', userId).single(),
+      supabase.from('vehicle_checks')
+        .select('*, profiles(full_name)')
+        .eq('driver_id', userId)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: true })
     ]);
 
     if (sessionsRes.error) throw new Error(sessionsRes.error.message);
-    // It's okay if pay config or business profile are missing, so we don't throw for them.
+    if (vehicleChecksRes.error) console.warn("Failed to fetch vehicle checks:", vehicleChecksRes.error.message);
 
     const sessions = sessionsRes.data || [];
     const payConfig = payConfigRes.data;
     const businessProfile = businessProfileRes.data;
-
-    if (sessions.length === 0) {
-      throw new Error("No data found for this period.");
-    }
+    const vehicleChecks = vehicleChecksRes.data || [];
 
     const payDetailsMap = payConfig ? calculatePayFromRaw(sessions, payConfig) : new Map();
     const totalPay = Array.from(payDetailsMap.values()).reduce((sum, day) => sum + day.totalPay, 0);
@@ -46,7 +49,8 @@ export const reportService = {
       payConfig,
       businessProfile,
       payDetailsMap,
-      totalPay
+      totalPay,
+      vehicleChecks
     };
   }
 };
