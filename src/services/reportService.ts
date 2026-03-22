@@ -8,8 +8,18 @@ export interface BusinessProfile {
   email?: string;
   phone?: string;
   tax_id?: string;
+  vat_number?: string;
+  payment_terms?: string;
+  invoice_counter?: number;
   logo_url?: string;
   [key: string]: any;
+}
+
+export interface Client {
+  id: string;
+  name: string;
+  address: string;
+  email: string;
 }
 
 export const reportService = {
@@ -21,7 +31,7 @@ export const reportService = {
     const end = format(endDate, 'yyyy-MM-dd');
 
     // Fetch all data in parallel
-    const [sessionsRes, payConfigRes, businessProfileRes, vehicleChecksRes] = await Promise.all([
+    const [sessionsRes, payConfigRes, businessProfileRes, vehicleChecksRes, expensesRes, clientsRes] = await Promise.all([
       supabase.from('work_sessions').select('*').eq('user_id', userId).gte('date', start).lte('date', end),
       supabase.from('pay_configurations').select('*').eq('user_id', userId).single(),
       supabase.from('business_profiles').select('*').eq('user_id', userId).single(),
@@ -30,16 +40,17 @@ export const reportService = {
         .eq('driver_id', userId)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: true }),
+      supabase.from('expenses').select('*').eq('user_id', userId).gte('date', start).lte('date', end),
+      supabase.from('clients').select('*').eq('user_id', userId).order('name')
     ]);
-
-    if (sessionsRes.error) throw new Error(sessionsRes.error.message);
-    if (vehicleChecksRes.error) console.warn("Failed to fetch vehicle checks:", vehicleChecksRes.error.message);
 
     const sessions = sessionsRes.data || [];
     const payConfig = payConfigRes.data;
     const businessProfile = businessProfileRes.data;
     const vehicleChecks = vehicleChecksRes.data || [];
+    const expenses = expensesRes.data || [];
+    const clients = clientsRes.data || [];
 
     const payDetailsMap = payConfig ? calculatePayFromRaw(sessions, payConfig) : new Map();
     const totalPay = Array.from(payDetailsMap.values()).reduce((sum, day) => sum + day.totalPay, 0);
@@ -50,7 +61,16 @@ export const reportService = {
       businessProfile,
       payDetailsMap,
       totalPay,
-      vehicleChecks
+      vehicleChecks,
+      expenses,
+      clients
     };
+  },
+
+  incrementInvoiceCounter: async (userId: string, currentCounter: number) => {
+    await supabase
+      .from('business_profiles')
+      .update({ invoice_counter: (currentCounter || 1) + 1 })
+      .eq('user_id', userId);
   }
 };

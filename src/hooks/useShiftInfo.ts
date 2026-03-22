@@ -23,7 +23,7 @@ export function useShiftInfo(userId: string | undefined) {
         .not('end_time', 'is', null)
         .order('end_time', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       setPreviousShiftEnd(lastShift?.end_time || null);
 
@@ -33,9 +33,9 @@ export function useShiftInfo(userId: string | undefined) {
         .select('start_time')
         .eq('user_id', userId)
         .is('end_time', null)
-        .order('start_time', { ascending: false }) // Get the most recent start time of an open shift
+        .order('start_time', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
         
       setCurrentShiftStart(activeShift?.start_time || null);
 
@@ -48,10 +48,7 @@ export function useShiftInfo(userId: string | undefined) {
       }
 
     } catch (err) {
-      // It's normal for these queries to find no rows, so we don't log those errors.
-      if (err instanceof Error && !(err as any).details?.includes('0 rows')) {
-          console.error("Failed to fetch shift info:", err);
-      }
+      console.error("Failed to fetch shift info:", err);
       // Set to defaults if anything fails
       setPreviousShiftEnd(null);
       setCurrentShiftStart(null);
@@ -67,15 +64,26 @@ export function useShiftInfo(userId: string | undefined) {
     // Initial fetch
     fetchShiftInfo();
 
-    // Set up a real-time listener
+    // Set up real-time listeners for shift start/end events only
     const channel = supabase
-      .channel(`public:work_sessions:user_id=eq.${userId}`)
+      .channel(`shift_info:${userId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'work_sessions', filter: `user_id=eq.${userId}` },
+        { event: 'INSERT', schema: 'public', table: 'work_sessions', filter: `user_id=eq.${userId}` },
         () => {
-          console.log('Work session change detected, refetching shift info...');
           fetchShiftInfo();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'work_sessions', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          // Only refetch when a shift starts or ends (status transition to/from idle)
+          const oldStatus = (payload.old as any)?.status;
+          const newStatus = (payload.new as any)?.status;
+          if (oldStatus !== newStatus && (newStatus === 'idle' || oldStatus === 'idle')) {
+            fetchShiftInfo();
+          }
         }
       )
       .subscribe();

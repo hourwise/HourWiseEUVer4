@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Modal } from 'react-native';
-import { ChevronLeft, ChevronRight, Edit, Plus, X, DollarSign, Clock } from 'react-native-feather';
+import { ChevronLeft, ChevronRight, Edit, Plus, X, DollarSign, Clock, Shield, Tool, Activity } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 import { supabase, WorkSession } from '../lib/supabase';
 import { calculatePayFromRaw, formatCurrency } from '../lib/payCalculations';
@@ -115,11 +115,12 @@ const formatTimeFromMinutes = (minutes: number) => {
   return `${hrs}h ${mins}m`;
 };
 
-const DayDetailsModal = ({ visible, onClose, selectedDate, sessions, dailyPay, timezone, onAddShift, onEditShift, t }: any) => {
+const DayDetailsModal = ({ visible, onClose, selectedDate, sessions, dailyPay, timezone, onAddShift, onEditShift, t, vehicleEvents }: any) => {
   if (!visible || !selectedDate) return null;
 
   const formatDateTime = (dateTimeStr: string) => new Date(dateTimeStr).toLocaleString('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false });
   const sessionsForDay = sessions.filter((s: WorkSession) => s.date === selectedDate);
+  const eventsForDay = vehicleEvents.filter((e: any) => e.date === selectedDate);
 
   return (
     <Modal visible={visible} onRequestClose={onClose} transparent={true} animationType="fade">
@@ -131,6 +132,19 @@ const DayDetailsModal = ({ visible, onClose, selectedDate, sessions, dailyPay, t
                 </View>
 
                 <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+                    {eventsForDay.length > 0 && (
+                      <View className="bg-amber-900/20 rounded-lg p-4 mb-4 border border-amber-500/30">
+                        <Text className="text-amber-500 font-bold mb-3 text-sm uppercase tracking-wider">Compliance Reminders</Text>
+                        {eventsForDay.map((event: any, idx: number) => (
+                          <View key={idx} className="flex-row items-center gap-3 py-2 border-b border-amber-500/10 last:border-0">
+                            {event.type === 'MOT' || event.type === 'Insurance' ? <Shield size={18} color="#f59e0b" /> :
+                             event.type === 'Tacho' ? <Activity size={18} color="#f59e0b" /> : <Tool size={18} color="#f59e0b" />}
+                            <Text className="text-white font-semibold">{event.type} Renewal Due</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
                     {sessionsForDay.length > 0 ? (
                         <>
                             <View className="bg-slate-800 rounded-lg p-4 mb-4 border border-slate-700">
@@ -183,9 +197,33 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
   const [editingSession, setEditingSession] = useState<WorkSession | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [newShiftDate, setNewShiftDate] = useState<string | null>(null);
+  const [vehicleEvents, setVehicleEvents] = useState<any[]>([]);
 
   const payConfig = usePayConfig(userId);
   const { sessions, refreshSessions } = useWorkSessions(userId, currentDate, periodView);
+
+  useEffect(() => {
+    const fetchVehicle = async () => {
+      if (!userId) return;
+      const { data } = await supabase
+        .from('vehicles')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (data) {
+        const events = [
+          { type: 'MOT', date: data.mot_due_date },
+          { type: 'Service', date: data.pmi_due_date },
+          { type: 'Tacho', date: data.tacho_calibration_due },
+          { type: 'Insurance', date: data.insurance_expiry },
+          { type: 'LOLER', date: data.loler_due_date },
+        ].filter(e => e.date);
+        setVehicleEvents(events);
+      }
+    };
+    fetchVehicle();
+  }, [userId]);
 
   const dailyPays = useMemo(() => {
     if (!payConfig || sessions.length === 0) return new Map();
@@ -248,10 +286,19 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
                         if (!day) return <View key={dayIndex} className="flex-1 p-2" />;
                         const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                         const hasSession = sessions.some(s => s.date === dateStr);
+                        const hasEvent = vehicleEvents.some(e => e.date === dateStr);
+
                         return (
-                            <TouchableOpacity key={dayIndex} onPress={() => handleDayPress(day)} className={`flex-1 p-1 aspect-square justify-center items-center rounded-lg border ${hasSession ? 'bg-blue-900/30 border-blue-500/50' : 'border-transparent'}`}>
-                                <Text className={`text-sm font-semibold ${hasSession ? 'text-blue-400' : 'text-white'}`}>{day}</Text>
-                                {hasSession && <View className="mt-1 w-1.5 h-1.5 rounded-full bg-blue-400" />}
+                            <TouchableOpacity
+                              key={dayIndex}
+                              onPress={() => handleDayPress(day)}
+                              className={`flex-1 p-1 aspect-square justify-center items-center rounded-lg border ${hasSession ? 'bg-blue-900/30 border-blue-500/50' : hasEvent ? 'bg-amber-900/20 border-amber-500/30' : 'border-transparent'}`}
+                            >
+                                <Text className={`text-sm font-semibold ${hasSession ? 'text-blue-400' : hasEvent ? 'text-amber-500' : 'text-white'}`}>{day}</Text>
+                                <View className="flex-row gap-0.5 mt-1">
+                                  {hasSession && <View className="w-1.5 h-1.5 rounded-full bg-blue-400" />}
+                                  {hasEvent && <View className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                                </View>
                             </TouchableOpacity>
                         );
                     })}
@@ -276,7 +323,7 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
         </View>
       </ScrollView>
 
-      <DayDetailsModal t={t} visible={!!selectedDate} onClose={() => setSelectedDate(null)} selectedDate={selectedDate} sessions={sessions} dailyPay={selectedDate ? dailyPays.get(selectedDate) : null} timezone={timezone} onAddShift={handleAddShift} onEditShift={handleEditShift} />
+      <DayDetailsModal t={t} visible={!!selectedDate} onClose={() => setSelectedDate(null)} selectedDate={selectedDate} sessions={sessions} dailyPay={selectedDate ? dailyPays.get(selectedDate) : null} timezone={timezone} onAddShift={handleAddShift} onEditShift={handleEditShift} vehicleEvents={vehicleEvents} />
       {isEditorOpen && <SessionEditorModal visible={isEditorOpen} onClose={() => setIsEditorOpen(false)} sessionToEdit={editingSession} selectedDate={newShiftDate} onSave={() => { setIsEditorOpen(false); refreshSessions(); onDataChanged(); }} />}
     </View>
   );

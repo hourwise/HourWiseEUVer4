@@ -3,7 +3,7 @@
     "name": "HourWise EU",
     "slug": "HourWise-EU",
     "owner": "pcgsoft",
-    "version": "7.0.1",
+    "version": "8.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -83,7 +83,10 @@
           "android": {
             "minSdkVersion": 24,
             "targetSdkVersion": 35,
-            "ndkVersion": "25.2.9519653"
+            "ndkVersion": "25.2.9519653",
+            "extraGradleProps": {
+              "org.gradle.jvmargs": "-Xmx4g -XX:MaxMetaspaceSize=1g"
+            }
           }
         }
       ],
@@ -103,7 +106,7 @@
         }
       ]
     ],
-    "runtimeVersion": "7.0.1",
+    "runtimeVersion": "8.0.0",
     "updates": {
       "enabled": false,
       "url": "https://u.expo.dev/dcfc655c-3967-47b9-9466-aab75e53f5e4"

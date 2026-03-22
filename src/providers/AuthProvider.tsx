@@ -62,7 +62,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
-    // Only show loading if we don't have a profile yet and it's not a background refresh
     const shouldShowLoading = !hasProfileRef.current && !isBackground;
     if (shouldShowLoading) setLoading(true);
 
@@ -84,7 +83,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (payError && payError.code !== 'PGRST116') throw payError;
       if (sessionError && sessionError.code !== 'PGRST116') throw sessionError;
 
-      const setupComplete = !!(profileData?.full_name);
+      // Determine setup status:
+      // 1. Need full_name
+      // 2. For Solo drivers, also need a pay configuration record
+      const isSolo = profileData?.account_type === 'solo';
+      const setupComplete = !!(profileData?.full_name) && (!isSolo || !!payConfig);
+
       setNeedsSetup(!setupComplete);
       setNeedsLastShiftEntry(!anySession);
 
@@ -97,7 +101,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } finally {
       if (shouldShowLoading) setLoading(false);
     }
-  }, []); // Empty deps to keep this function stable
+  }, []);
 
   const completeLastShiftEntry = () => setNeedsLastShiftEntry(false);
   const signOut = async () => { await supabase.auth.signOut(); };
@@ -148,11 +152,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       finalProfile = { ...profilePayload, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), pay_configurations: null } as any;
     }
 
-    // Proactively update state to prevent race conditions on redirect
     if (finalProfile) {
         setProfile(finalProfile);
         hasProfileRef.current = true;
-        setNeedsSetup(false);
+
+        // IMPORTANT: Proactively set setup/calendar needs based on logic above
+        const isSolo = finalProfile.account_type === 'solo';
+        // Solo drivers ALWAYS need setup after sign up because pay_configurations is initially null
+        setNeedsSetup(isSolo);
         setNeedsLastShiftEntry(true);
     }
 
@@ -176,7 +183,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         async (_event, newSession) => {
           setSession(newSession);
           if (newSession) {
-            // Background fetch for existing users
             await fetchProfile(newSession, true);
           } else {
             setProfile(null);
@@ -189,8 +195,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return () => authListener.subscription.unsubscribe();
     };
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only once on mount
+  }, [fetchProfile]);
 
   const refreshProfile = useCallback(async () => {
     const { data: { session: currentSession } } = await supabase.auth.getSession();

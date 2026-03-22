@@ -11,7 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
 import { X, Bell } from 'react-native-feather';
 import { supabase, getLatestBroadcasts, getSystemMessages } from '../lib/supabase';
@@ -35,6 +35,7 @@ async function registerForPushNotificationsAsync(userId: string) {
 
 const MessagesScreen = () => {
   const { t } = useTranslation();
+  const navigation = useNavigation();
   const { session, profile } = useAuth();
   const userId = session?.user?.id;
 
@@ -171,6 +172,14 @@ const MessagesScreen = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header with Close Button */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>{t('messages.title', 'Messages')}</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeHeaderButton}>
+          <X color="#fff" size={24} />
+        </TouchableOpacity>
+      </View>
+
       {/* Tab Switcher */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
@@ -274,6 +283,9 @@ const MessagesScreen = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
+  header: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b', position: 'relative' },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
+  closeHeaderButton: { position: 'absolute', right: 16, top: 16, padding: 4 },
   tabContainer: { flexDirection: 'row', padding: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
   activeTab: { backgroundColor: '#1e293b' },

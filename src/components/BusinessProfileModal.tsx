@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
-import { X, Save, Briefcase, Upload, Trash } from 'react-native-feather';
+import { X, Save, Briefcase, Upload, Trash, Plus, User, Mail, MapPin } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
+
+interface Client {
+  id: string;
+  name: string;
+  address: string;
+  email: string;
+}
 
 interface BusinessProfileModalProps {
   visible: boolean;
@@ -19,50 +26,124 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [taxId, setTaxId] = useState('');
+  const [vatNumber, setVatNumber] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState('Payment due within 30 days');
   const [bankAccountName, setBankAccountName] = useState('');
   const [bankSortCode, setBankSortCode] = useState('');
   const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [iban, setIban] = useState('');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  const [clients, setClients] = useState<Client[]>([]);
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [editingClient, setEditingClient] = useState<Partial<Client> | null>(null);
+
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const loadProfile = async () => {
-      if (!visible || !ready) return;
-      setLoading(true);
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const { data, error } = await supabase
-          .from('business_profiles')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (error) throw error;
-
-        if (data) {
-          setLegalName(data.legal_name || '');
-          setAddress(data.address || '');
-          setEmail(data.email || '');
-          setPhone(data.phone || '');
-          setTaxId(data.tax_id || '');
-          setBankAccountName(data.bank_account_name || '');
-          setBankSortCode(data.bank_sort_code || '');
-          setBankAccountNumber(data.bank_account_number || '');
-          setIban(data.iban || '');
-          setLogoUrl(data.logo_url || null);
-        }
-      } catch (err) {
-        console.error('Failed to load business profile:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadProfile();
+    if (visible && ready) {
+      loadProfile();
+      loadClients();
+    }
   }, [visible, ready]);
+
+  const loadProfile = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('business_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        setLegalName(data.legal_name || '');
+        setAddress(data.address || '');
+        setEmail(data.email || '');
+        setPhone(data.phone || '');
+        setTaxId(data.tax_id || '');
+        setVatNumber(data.vat_number || '');
+        setPaymentTerms(data.payment_terms || 'Payment due within 30 days');
+        setBankAccountName(data.bank_account_name || '');
+        setBankSortCode(data.bank_sort_code || '');
+        setBankAccountNumber(data.bank_account_number || '');
+        setIban(data.iban || '');
+        setLogoUrl(data.logo_url || null);
+      }
+    } catch (err) {
+      console.error('Failed to load business profile:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadClients = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('name');
+
+      if (error) throw error;
+      setClients(data || []);
+    } catch (err) {
+      console.error('Failed to load clients:', err);
+    }
+  };
+
+  const handleSaveClient = async () => {
+    if (!editingClient?.name) {
+      Alert.alert(t('common.error'), 'Client name is required');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const clientData = {
+        ...editingClient,
+        user_id: user.id
+      };
+
+      const { error } = await supabase.from('clients').upsert(clientData);
+      if (error) throw error;
+
+      loadClients();
+      setShowClientModal(false);
+      setEditingClient(null);
+    } catch (err: any) {
+      Alert.alert(t('common.error'), err.message);
+    }
+  };
+
+  const handleDeleteClient = async (id: string) => {
+    Alert.alert(
+      t('common.delete'),
+      t('businessProfile.clients.deleteConfirm'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase.from('clients').delete().eq('id', id);
+            if (error) Alert.alert(t('common.error'), error.message);
+            else loadClients();
+          }
+        }
+      ]
+    );
+  };
 
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -129,6 +210,8 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
         email,
         phone,
         tax_id: taxId,
+        vat_number: vatNumber,
+        payment_terms: paymentTerms,
         bank_account_name: bankAccountName,
         bank_sort_code: bankSortCode,
         bank_account_number: bankAccountNumber,
@@ -216,9 +299,20 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                     <View className="flex-1"><Text className="text-sm font-medium text-gray-700 mb-1">{t('businessProfile.fields.phone.label')}</Text><TextInput value={phone} onChangeText={setPhone} keyboardType="phone-pad" className="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder={t('businessProfile.fields.phone.placeholder')} /></View>
                   </View>
 
+                  <View className="flex-row gap-4">
+                    <View className="flex-1">
+                      <Text className="text-sm font-medium text-gray-700 mb-1">{t('businessProfile.fields.taxId.label')}</Text>
+                      <TextInput value={taxId} onChangeText={setTaxId} className="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder={t('businessProfile.fields.taxId.placeholder')} />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-sm font-medium text-gray-700 mb-1">{t('businessProfile.fields.vatNumber.label')}</Text>
+                      <TextInput value={vatNumber} onChangeText={setVatNumber} className="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder={t('businessProfile.fields.vatNumber.placeholder')} />
+                    </View>
+                  </View>
+
                   <View>
-                    <Text className="text-sm font-medium text-gray-700 mb-1">{t('businessProfile.fields.taxId.label')}</Text>
-                    <TextInput value={taxId} onChangeText={setTaxId} className="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder={t('businessProfile.fields.taxId.placeholder')} />
+                    <Text className="text-sm font-medium text-gray-700 mb-1">{t('businessProfile.fields.paymentTerms.label')}</Text>
+                    <TextInput value={paymentTerms} onChangeText={setPaymentTerms} className="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder={t('businessProfile.fields.paymentTerms.placeholder')} />
                   </View>
                 </View>
 
@@ -243,6 +337,40 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                     <TextInput value={iban} onChangeText={setIban} className="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder={t('businessProfile.fields.iban.placeholder')} />
                   </View>
                 </View>
+
+                {/* Client Management Section */}
+                <View className="space-y-4 pt-4 border-t border-gray-200">
+                    <View className="flex-row items-center justify-between">
+                        <Text className="text-lg font-semibold text-gray-900">{t('businessProfile.sections.clients')}</Text>
+                        <TouchableOpacity onPress={() => { setEditingClient({}); setShowClientModal(true); }} className="flex-row items-center gap-2 bg-blue-100 px-3 py-1.5 rounded-lg">
+                            <Plus size={16} color="#2563eb" />
+                            <Text className="text-blue-600 font-bold">{t('businessProfile.clients.addClient')}</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {clients.length === 0 ? (
+                        <Text className="text-gray-500 italic text-center py-4">{t('businessProfile.clients.noClients')}</Text>
+                    ) : (
+                        <View className="space-y-3">
+                            {clients.map(client => (
+                                <View key={client.id} className="p-4 bg-gray-50 rounded-xl border border-gray-200 flex-row justify-between items-center">
+                                    <View className="flex-1 mr-4">
+                                        <Text className="font-bold text-gray-900">{client.name}</Text>
+                                        <Text className="text-xs text-gray-500" numberOfLines={1}>{client.address || 'No address'}</Text>
+                                    </View>
+                                    <View className="flex-row gap-2">
+                                        <TouchableOpacity onPress={() => { setEditingClient(client); setShowClientModal(true); }} className="p-2 bg-gray-200 rounded-lg">
+                                            <Briefcase size={16} color="#475569" />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={() => handleDeleteClient(client.id)} className="p-2 bg-red-100 rounded-lg">
+                                            <Trash size={16} color="red" />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                </View>
               </View>
             )}
           </ScrollView>
@@ -255,6 +383,56 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
           </View>
         </View>
       </View>
+
+      {/* Client Edit Modal */}
+      <Modal visible={showClientModal} transparent animationType="fade">
+          <View className="flex-1 justify-center items-center bg-black/60 p-4">
+              <View className="bg-white w-full rounded-2xl p-6">
+                  <Text className="text-xl font-bold mb-6">{editingClient?.id ? t('businessProfile.clients.editClient') : t('businessProfile.clients.addClient')}</Text>
+
+                  <View className="space-y-4">
+                      <View>
+                          <Text className="text-sm font-medium text-gray-700 mb-1">{t('businessProfile.clients.fields.name')}</Text>
+                          <TextInput
+                            value={editingClient?.name}
+                            onChangeText={text => setEditingClient(prev => ({ ...prev, name: text }))}
+                            className="p-3 border border-gray-300 rounded-xl"
+                            placeholder="e.g. Acme Logistics"
+                          />
+                      </View>
+                      <View>
+                          <Text className="text-sm font-medium text-gray-700 mb-1">{t('businessProfile.clients.fields.address')}</Text>
+                          <TextInput
+                            value={editingClient?.address}
+                            onChangeText={text => setEditingClient(prev => ({ ...prev, address: text }))}
+                            multiline
+                            className="p-3 border border-gray-300 rounded-xl h-20"
+                            placeholder="Full delivery/billing address"
+                          />
+                      </View>
+                      <View>
+                          <Text className="text-sm font-medium text-gray-700 mb-1">{t('businessProfile.clients.fields.email')}</Text>
+                          <TextInput
+                            value={editingClient?.email}
+                            onChangeText={text => setEditingClient(prev => ({ ...prev, email: text }))}
+                            keyboardType="email-address"
+                            className="p-3 border border-gray-300 rounded-xl"
+                            placeholder="invoices@client.com"
+                          />
+                      </View>
+                  </View>
+
+                  <View className="flex-row gap-3 mt-8">
+                      <TouchableOpacity onPress={() => setShowClientModal(false)} className="flex-1 p-4 rounded-xl bg-gray-100">
+                          <Text className="text-center font-bold text-gray-600">{t('common.cancel')}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleSaveClient} className="flex-1 p-4 rounded-xl bg-blue-600">
+                          <Text className="text-center font-bold text-white">{t('common.save')}</Text>
+                      </TouchableOpacity>
+                  </View>
+              </View>
+          </View>
+      </Modal>
     </Modal>
   );
 }

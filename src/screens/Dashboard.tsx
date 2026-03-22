@@ -26,6 +26,7 @@ import {
   Bell,
   DollarSign,
   CheckCircle,
+  Clock,
 } from 'react-native-feather';
 import { Session } from '@supabase/supabase-js';
 import { useTranslation } from 'react-i18next';
@@ -56,13 +57,19 @@ import DailyComplianceReportModal from '../components/DailyComplianceReportModal
 import EndShiftConfirmationModal from '../components/EndShiftConfirmationModal';
 import AddExpenseModal from '../components/AddExpenseModal';
 import VehicleChecklistModal from '../components/VehicleChecklistModal';
+import SoloVehicleModal from '../components/SoloVehicleModal';
+import SoloQualificationsModal from '../components/SoloQualificationsModal';
 
 // --- Hooks & Services ---
 import { useWorkTimer } from '../hooks/useWorkTimer';
 import { useShiftInfo } from '../hooks/useShiftInfo';
 import { useComplianceData } from '../hooks/useComplianceData';
 
-const toLocalDateString = (date: Date) => date.toISOString().split('T')[0];
+const toLocalDateString = (date: Date) => {
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
 
 // --- HELPER FUNCTIONS ---
 const formatDuration = (totalSeconds: number) => {
@@ -154,7 +161,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   if (!session?.user?.id) { return <View className="flex-1 bg-brand-dark justify-center items-center"><ActivityIndicator size="large" color="#F59E0B" /></View>; }
   const userId = session.user.id;
 
-  const { status, sessionId, timerMode, displaySeconds, startWork, endWork, togglePOA, toggleBreak, isDriving, shiftSummaryData, setShiftSummaryData } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const { status, sessionId, timerMode, displaySeconds, startWork, endWork, togglePOA, toggleBreak, isDriving, isStarting, shiftSummaryData, setShiftSummaryData } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
   const display = displaySeconds || { workTimeRemaining: 0, drivingTimeRemaining: 0, breakDuration: 0, work: 0, poa: 0, break: 0, driving: 0 };
   const driverName = profile?.full_name;
   const payrollNumber = profile?.payroll_number;
@@ -177,6 +184,9 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const [showBusinessProfile, setShowBusinessProfile] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showVehicleCheck, setShowVehicleCheck] = useState(false);
+  const [showSoloVehicle, setShowSoloVehicle] = useState(false);
+  const [showQualsModal, setShowQualsModal] = useState(false);
+  const [soloVehicle, setSoloVehicle] = useState<any>(null);
   const [vehicleCheckCompletedToday, setVehicleCheckCompletedToday] = useState(false);
   const [dailyReportData, setDailyReportData] = useState<{ violations: string[]; date: string } | null>(null);
 
@@ -187,7 +197,6 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     unreadCheckInFlight.current = true;
 
     try {
-      // 1. Fetch messages and read statuses
       const [broadcasts, systemMessages, readRes] = await withTimeout(
         Promise.all([
           getLatestBroadcasts(profile?.company_id),
@@ -227,6 +236,16 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     setVehicleCheckCompletedToday(data && data.length > 0);
   }, [userId]);
 
+  const fetchSoloVehicle = useCallback(async () => {
+    if (!userId || profile?.account_type !== 'solo') return;
+    const { data } = await supabase
+      .from('vehicles')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    setSoloVehicle(data);
+  }, [userId, profile?.account_type]);
+
   useEffect(() => {
     const handleAppStateChange = (next: string) => {
       if (next === 'active') {
@@ -234,6 +253,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
         setTimeout(() => {
           checkUnreadMessages().catch(() => {});
           checkVehicleCheckToday().catch(() => {});
+          fetchSoloVehicle().catch(() => {});
         }, 300);
       }
     };
@@ -241,9 +261,10 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     const sub = AppState.addEventListener('change', handleAppStateChange);
     checkUnreadMessages();
     checkVehicleCheckToday();
+    fetchSoloVehicle();
 
     return () => sub.remove();
-  }, [checkUnreadMessages, checkVehicleCheckToday]);
+  }, [checkUnreadMessages, checkVehicleCheckToday, fetchSoloVehicle]);
 
   useEffect(() => {
     if (!userId) return;
@@ -251,13 +272,16 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
       const today = toLocalDateString(new Date());
       const lastLogin = await AsyncStorage.getItem('lastLoginDate');
       if (lastLogin !== today) {
-        const yest = new Date(); yest.setDate(yest.getDate() - 1); const yStr = toLocalDateString(yest);
-        const { data } = await supabase.from('work_sessions').select('compliance_violations').eq('user_id', userId).eq('date', yStr);
-        if (data?.length) {
-          const v = data.flatMap((s) => s.compliance_violations || []);
-          if (v.length > 0) setDailyReportData({ violations: [...new Set(v)], date: yStr });
+        try {
+          const yest = new Date(); yest.setDate(yest.getDate() - 1); const yStr = toLocalDateString(yest);
+          const { data } = await supabase.from('work_sessions').select('compliance_violations').eq('user_id', userId).eq('date', yStr);
+          if (data?.length) {
+            const v = data.flatMap((s) => s.compliance_violations || []);
+            if (v.length > 0) setDailyReportData({ violations: [...new Set(v)], date: yStr });
+          }
+        } finally {
+          await AsyncStorage.setItem('lastLoginDate', today);
         }
-        await AsyncStorage.setItem('lastLoginDate', today);
       }
     };
     checkDailyReport();
@@ -296,7 +320,6 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
         { event: 'INSERT', schema: 'public', table: 'system_messages' },
         () => {
           setHasUnreadMessages(true);
-          // (Local notification logic could go here if needed)
         }
       )
       .subscribe();
@@ -304,22 +327,72 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     return () => { channel.unsubscribe(); };
   }, []);
 
-  // Today's cumulative totals for fatigue monitor
   const dailyCumulativeTotals = useMemo(() => {
+    // During an active shift, display already has live totals for today.
+    // Only pull from complianceMap for completed historical sessions.
+    if (status !== 'idle') {
+      return {
+        work: display.work,
+        break: display.break,
+        driving: display.driving,
+        poa: display.poa,
+      };
+    }
+    // Shift is idle — show today's completed session totals from DB
     const todayStr = toLocalDateString(new Date());
     const historicalToday = complianceMap.get(todayStr);
-
     return {
-      work: (historicalToday?.totalWork || 0) + (display.work || 0),
-      break: (historicalToday?.totalBreak || 0) + (display.break || 0),
-      driving: (historicalToday?.totalDrive || 0) + (display.driving || 0),
-      poa: (historicalToday?.totalPoa || 0) + (display.poa || 0),
+      work: historicalToday?.totalWork || 0,
+      break: historicalToday?.totalBreak || 0,
+      driving: historicalToday?.totalDrive || 0,
+      poa: historicalToday?.totalPoa || 0,
     };
-  }, [complianceMap, display]);
+  }, [status, display, complianceMap]);
+
+  const nextSoloComplianceEvent = useMemo(() => {
+    if (!soloVehicle) return null;
+    const events = [
+      { type: 'MOT', date: soloVehicle.mot_due_date },
+      { type: 'Service', date: soloVehicle.pmi_due_date },
+      { type: 'Tacho', date: soloVehicle.tacho_calibration_due },
+      { type: 'Insurance', date: soloVehicle.insurance_expiry },
+      { type: 'LOLER', date: soloVehicle.loler_due_date },
+    ].filter(e => e.date);
+
+    if (events.length === 0) return null;
+
+    events.sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime());
+    const next = events[0];
+    const diff = Math.ceil((new Date(next.date!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+
+    return { ...next, daysRemaining: diff };
+  }, [soloVehicle]);
+
+  const qualificationWarnings = useMemo(() => {
+    if (!profile) return null;
+    const quals = [
+      { type: 'Licence', date: profile.driving_licence_expiry },
+      { type: 'CPC', date: profile.cpc_dqc_expiry },
+      { type: 'Tacho Card', date: profile.tacho_card_expiry },
+    ].filter(q => q.date);
+
+    if (quals.length === 0) return null;
+
+    const warnings = quals.map(q => {
+      const diff = Math.ceil((new Date(q.date!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+      return { ...q, daysRemaining: diff };
+    }).filter(q => q.daysRemaining <= 30);
+
+    if (warnings.length === 0) return null;
+
+    warnings.sort((a, b) => a.daysRemaining - b.daysRemaining);
+    return warnings[0];
+  }, [profile]);
 
   if (!userId || !ready) { return <View className="flex-1 bg-brand-dark justify-center items-center"><ActivityIndicator size="large" color="#F59E0B" /></View>; }
 
   const handleStartWork = async () => {
+    if (isStarting) return;
     await startWork();
     refreshShiftInfo();
     await refreshProfile();
@@ -335,6 +408,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   };
 
   const isFleet = profile?.account_type === 'fleet';
+  const isSolo = profile?.account_type === 'solo';
 
   return (
     <SafeAreaView className="flex-1 bg-brand-dark" edges={['top']}>
@@ -361,6 +435,9 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
             sessionId={sessionId}
             onSuccess={() => setVehicleCheckCompletedToday(true)}
         />
+        <SoloVehicleModal visible={showSoloVehicle} onClose={() => { setShowSoloVehicle(false); fetchSoloVehicle(); }} userId={userId} />
+        <SoloQualificationsModal visible={showQualsModal} onClose={() => { setShowQualsModal(false); refreshProfile(); }} userId={userId} />
+
         <Modal visible={showMenu} transparent animationType="fade">
           <TouchableOpacity className="flex-1" onPress={() => setShowMenu(false)}>
             <View className="absolute top-20 left-4 bg-slate-800 rounded-lg shadow-xl py-2 w-60 border border-slate-700">
@@ -390,7 +467,13 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                     <Bell size={24} color="white" />
                     {hasUnreadMessages && ( <View className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-brand-accent" /> )}
                 </TouchableOpacity>
-                <SettingsMenu onOpenDriverSetup={() => setShowDriverSetup(true)} onOpenLanguageSelector={() => setShowLanguageSelector(true)} onOpenBusinessProfile={() => setShowBusinessProfile(true)} onOpenSubscription={() => navigation.navigate('Subscription')} />
+                <SettingsMenu
+                  onOpenDriverSetup={() => setShowDriverSetup(true)}
+                  onOpenLanguageSelector={() => setShowLanguageSelector(true)}
+                  onOpenBusinessProfile={() => setShowBusinessProfile(true)}
+                  onOpenSubscription={() => navigation.navigate('Subscription')}
+                  onOpenVehicleSettings={() => setShowSoloVehicle(true)}
+                />
             </View>
         </View>
 
@@ -411,6 +494,55 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                     </TouchableOpacity>
                 </View>
             </View>
+
+            {qualificationWarnings && (
+              <TouchableOpacity
+                onPress={() => setShowQualsModal(true)}
+                className={`mb-6 p-4 rounded-2xl border flex-row items-center justify-between ${qualificationWarnings.daysRemaining <= 0 ? 'bg-red-500/10 border-red-500/50' : 'bg-amber-500/10 border-amber-500/50'}`}
+              >
+                <View className="flex-row items-center gap-3">
+                  <View className={`w-10 h-10 rounded-full items-center justify-center ${qualificationWarnings.daysRemaining <= 0 ? 'bg-red-500' : 'bg-amber-500'}`}>
+                    <Shield size={20} color="white" />
+                  </View>
+                  <View>
+                    <Text className="text-white font-bold">
+                      {qualificationWarnings.daysRemaining <= 0 ? `${qualificationWarnings.type} Expired` : `${qualificationWarnings.type} Expiring`}
+                    </Text>
+                    <Text className="text-slate-400 text-xs">{qualificationWarnings.date}</Text>
+                  </View>
+                </View>
+                <View className="items-end">
+                  <Text className={`text-xl font-black ${qualificationWarnings.daysRemaining <= 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                    {Math.max(0, qualificationWarnings.daysRemaining)}
+                  </Text>
+                  <Text className="text-[10px] text-slate-500 font-bold uppercase">Days Left</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {isSolo && nextSoloComplianceEvent && (
+              <TouchableOpacity
+                onPress={() => setShowSoloVehicle(true)}
+                className={`mb-6 p-4 rounded-2xl border flex-row items-center justify-between ${nextSoloComplianceEvent.daysRemaining < 7 ? 'bg-red-500/10 border-red-500/50' : nextSoloComplianceEvent.daysRemaining < 21 ? 'bg-amber-500/10 border-amber-500/50' : 'bg-slate-800/50 border-slate-700'}`}
+              >
+                <View className="flex-row items-center gap-3">
+                  <View className={`w-10 h-10 rounded-full items-center justify-center ${nextSoloComplianceEvent.daysRemaining < 7 ? 'bg-red-500' : nextSoloComplianceEvent.daysRemaining < 21 ? 'bg-amber-500' : 'bg-blue-500'}`}>
+                    <Clock size={20} color="white" />
+                  </View>
+                  <View>
+                    <Text className="text-white font-bold">{nextSoloComplianceEvent.type} Due</Text>
+                    <Text className="text-slate-400 text-xs">{nextSoloComplianceEvent.date}</Text>
+                  </View>
+                </View>
+                <View className="items-end">
+                  <Text className={`text-xl font-black ${nextSoloComplianceEvent.daysRemaining < 7 ? 'text-red-500' : nextSoloComplianceEvent.daysRemaining < 21 ? 'text-amber-500' : 'text-blue-400'}`}>
+                    {Math.max(0, nextSoloComplianceEvent.daysRemaining)}
+                  </Text>
+                  <Text className="text-[10px] text-slate-500 font-bold uppercase">Days Left</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
             <View className="bg-brand-card rounded-lg p-4 mb-4 border border-brand-border">
                 {previousShiftEnd ? ( <Row label={t('dashboard.previousShiftEnd')} value={new Date(previousShiftEnd).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> ) : null}
                 {currentShiftStart ? ( <Row label={t('dashboard.newShiftStarted')} value={new Date(currentShiftStart).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> ) : null}
@@ -440,7 +572,18 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                     <Text className={`text-5xl font-bold ${display.drivingTimeRemaining < 0 ? 'text-compliance-danger' : 'text-white'}`}>{formatTime(display.drivingTimeRemaining)}</Text>
                     <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.drivingTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-brand-accent'}`} style={{ width: `${drivePct}%` }} /></View>
                   </View></>
-                ) : ( <TouchableOpacity onPress={handleStartWork} className="w-full py-4 rounded-xl bg-brand-accent my-4"><Text className="text-white font-bold text-xl text-center uppercase">{t('dashboard.startShift')}</Text></TouchableOpacity> )}
+                ) : (
+                  <TouchableOpacity
+                    onPress={handleStartWork}
+                    disabled={isStarting}
+                    className={`w-full py-4 rounded-xl bg-brand-accent my-4 flex-row justify-center items-center ${isStarting ? 'opacity-70' : ''}`}
+                  >
+                    {isStarting && <ActivityIndicator color="white" style={{ marginRight: 10 }} />}
+                    <Text className="text-white font-bold text-xl text-center uppercase">
+                      {isStarting ? t('common.loading', 'Starting...') : t('dashboard.startShift')}
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 {status !== 'idle' ? ( <View className="w-full"><TouchableOpacity onPress={toggleBreak} disabled={isDriving} className={`py-3 rounded-lg mb-3 items-center ${status === 'break' ? 'bg-yellow-500' : 'bg-blue-600'} ${isDriving ? 'opacity-30' : ''}`}><Text className={`font-bold text-lg uppercase ${status === 'break' ? 'text-black' : 'text-white'}`}>{status === 'break' ? t('dashboard.endBreak') : t('dashboard.startBreak')}</Text></TouchableOpacity><TouchableOpacity onPress={togglePOA} disabled={status === 'break' || isDriving} className={`py-3 rounded-lg mb-3 items-center border-2 ${status === 'poa' ? 'bg-orange-400' : 'bg-brand-accent'} ${isDriving ? 'opacity-30' : ''}`}><Text className="text-white font-bold text-lg uppercase">{status === 'poa' ? t('dashboard.resumeWork') : t('dashboard.poaButtonText')}</Text></TouchableOpacity><TouchableOpacity onPress={endWork} disabled={isDriving} className="py-4 rounded-xl bg-compliance-danger mt-4"><Text className="text-white font-bold text-xl text-center uppercase">{t('dashboard.endShift')}</Text></TouchableOpacity></View> ) : null}
               </View>
               {status !== 'idle' ? <ShiftInfoBar display={display} /> : null}

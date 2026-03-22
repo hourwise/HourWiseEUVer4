@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Modal } from 'react-native';
-import { X, AlertTriangle, Play, Settings, BarChart2, Calendar, FilePlus, Download, UserCheck } from 'react-native-feather';
+import { X, AlertTriangle, Play, Settings, BarChart2, Calendar, FilePlus, Download, UserCheck, Truck, MessageSquare, Award, Clipboard, Briefcase } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -55,6 +55,7 @@ function Instructions({ onClose, visible }: InstructionsProps) {
 
       <Section title={t('instructions.workflow.title')}>
         <Step title={t('instructions.workflow.step1.title')} body={t('instructions.workflow.step1.body')} />
+        <Step title={t('instructions.workflow.step5.title')} body={t('instructions.workflow.step5.body')} />
         <Step title={t('instructions.workflow.step2.title')} body={t('instructions.workflow.step2.body')} />
         <Step title={t('instructions.workflow.step3.title')} body={t('instructions.workflow.step3.body')} />
         <Step title={t('instructions.workflow.step4.title')} body={t('instructions.workflow.step4.body')} />
@@ -62,6 +63,11 @@ function Instructions({ onClose, visible }: InstructionsProps) {
 
       <Section title={t('instructions.keyFeatures.title')}>
         <Feature icon={<UserCheck color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.fatigue.title')} body={t('instructions.keyFeatures.fatigue.body')} />
+        <Feature icon={<MessageSquare color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.messaging.title')} body={t('instructions.keyFeatures.messaging.body')} />
+        <Feature icon={<Award color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.qualifications.title')} body={t('instructions.keyFeatures.qualifications.body')} />
+        <Feature icon={<Truck color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.vehicles.title')} body={t('instructions.keyFeatures.vehicles.body')} />
+        <Feature icon={<Clipboard color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.safetyChecks.title')} body={t('instructions.keyFeatures.safetyChecks.body')} />
+        <Feature icon={<Briefcase color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.invoicing.title')} body={t('instructions.keyFeatures.invoicing.body')} />
         <Feature icon={<BarChart2 color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.compliance.title')} body={t('instructions.keyFeatures.compliance.body')} />
         <Feature icon={<Calendar color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.history.title')} body={t('instructions.keyFeatures.history.body')} />
         <Feature icon={<FilePlus color="#a5b4fc" size={24} />} title={t('instructions.keyFeatures.expenses.title')} body={t('instructions.keyFeatures.expenses.body')} />

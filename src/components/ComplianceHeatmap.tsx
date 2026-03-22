@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, XCircle, X, AlertCircle as AlertCircleIcon, Clock, Coffee, Truck, User } from 'react-native-feather';
 import { DayComplianceInfo } from '../hooks/useComplianceData';
+import { getViolationInfo } from '../lib/compliance';
 
 interface ComplianceHeatmapProps {
   onClose?: () => void;
@@ -54,9 +55,11 @@ function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, set
     let totalMonthScore = 0, monthSessionCount = 0, totalWeekScore = 0, weekSessionCount = 0;
     const today = new Date();
 
-    // Get start of current week
+    // Get start of current week (Monday-based per EU standard)
     const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay());
+    const day = today.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    weekStart.setDate(today.getDate() + diff);
     weekStart.setHours(0, 0, 0, 0);
 
     const currentMonth = currentDate.getMonth();
@@ -122,8 +125,16 @@ function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, set
             {selectedDayInfo.violations.length > 0 && (
               <View className="mt-6">
                 <Text className="text-lg font-bold text-white mb-2">Violations Recorded</Text>
-                <View className="bg-slate-900/50 p-4 rounded-lg space-y-2">
-                    {selectedDayInfo.violations.map((v, i) => <Text key={i} className="text-red-400 text-sm">- {v.replace(/_/g, ' ')}</Text>)}
+                <View className="bg-slate-900/50 p-4 rounded-lg">
+                    {selectedDayInfo.violations.map((v, i) => {
+                      const info = getViolationInfo(v);
+                      return (
+                        <View key={i} className="mb-3">
+                          <Text className="text-red-400 text-sm font-semibold">{info.title}</Text>
+                          <Text className="text-slate-400 text-xs mt-1">{info.tip}</Text>
+                        </View>
+                      );
+                    })}
                 </View>
               </View>
             )}

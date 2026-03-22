@@ -9,6 +9,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Switch,
 } from 'react-native';
 import { X, Check, AlertTriangle, Info, Truck, Plus } from 'react-native-feather';
 import { supabase } from '../lib/supabase';
@@ -45,6 +46,18 @@ const EXTERNAL_CHECKS = [
   { id: 'markers', translationKey: 'markers', hintKey: 'markersHint' },
 ];
 
+const TRAILER_CHECKS = [
+  { id: 'trailer_id', translationKey: 'trailer_id', hintKey: 'trailer_idHint' },
+  { id: 'trailer_tyres_wheels', translationKey: 'trailer_tyres', hintKey: 'trailer_tyresHint' },
+  { id: 'trailer_brakes', translationKey: 'trailer_brakes', hintKey: 'trailer_brakesHint' },
+  { id: 'trailer_lights', translationKey: 'trailer_lights', hintKey: 'trailer_lightsHint' },
+  { id: 'trailer_coupling', translationKey: 'trailer_coupling', hintKey: 'trailer_couplingHint' },
+  { id: 'trailer_legs', translationKey: 'trailer_legs', hintKey: 'trailer_legsHint' },
+  { id: 'trailer_curtains_doors', translationKey: 'trailer_curtains', hintKey: 'trailer_curtainsHint' },
+  { id: 'trailer_air_lines', translationKey: 'trailer_air_lines', hintKey: 'trailer_air_linesHint' },
+  { id: 'trailer_load_security', translationKey: 'trailer_load', hintKey: 'trailer_loadHint' },
+];
+
 const VEHICLE_TYPES = ['Van', '7.5t', 'Class 2 (Rigid)', 'Class 1 (Artic)'];
 
 interface Props {
@@ -61,7 +74,9 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
   const [existingChecks, setExistingChecks] = useState<any[]>([]);
   const [currentCheckId, setCurrentCheckId] = useState<string | null>(null);
   const [reg, setReg] = useState('');
+  const [trailerReg, setTrailerReg] = useState('');
   const [vehicleType, setVehicleType] = useState(VEHICLE_TYPES[1]);
+  const [pullingTrailer, setPullingTrailer] = useState(false);
   const [vehicleMake, setVehicleMake] = useState('');
   const [odometer, setOdometer] = useState('');
   const [answers, setAnswers] = useState<Record<string, boolean>>({});
@@ -69,6 +84,8 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
   const [defectDetails, setDefectDetails] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  const isArtic = vehicleType === 'Class 1 (Artic)';
 
   const fetchSessionChecks = useCallback(async () => {
     if (!sessionId) {
@@ -98,7 +115,9 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
   const loadCheck = (check: any) => {
     setCurrentCheckId(check.id);
     setReg(check.reg_number);
+    setTrailerReg(check.trailer_reg || '');
     setVehicleType(check.vehicle_type);
+    setPullingTrailer(!!check.trailer_reg);
     setVehicleMake(check.vehicle_make || '');
     setOdometer(check.odometer_reading?.toString() || '');
     setAnswers(check.items || {});
@@ -108,7 +127,9 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
   const resetForm = () => {
     setCurrentCheckId(null);
     setReg('');
+    setTrailerReg('');
     setVehicleType(VEHICLE_TYPES[1]);
+    setPullingTrailer(false);
     setVehicleMake('');
     setOdometer('');
     setAnswers({});
@@ -123,10 +144,18 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
   };
 
   const hasDefects = Object.values(answers).some((val) => val === false);
-  const allAnswered = [...INTERNAL_CHECKS, ...EXTERNAL_CHECKS].every((item) => answers[item.id] !== undefined);
+
+  const getRequiredItems = () => {
+    let items = [...INTERNAL_CHECKS, ...EXTERNAL_CHECKS];
+    if (isArtic && pullingTrailer) items = [...items, ...TRAILER_CHECKS];
+    return items;
+  };
+
+  const allAnswered = getRequiredItems().every((item) => answers[item.id] !== undefined);
 
   const handleSubmit = async () => {
     if (!reg) { Alert.alert(t('common.error'), t('vehicleChecklist.missingReg')); return; }
+    if (isArtic && pullingTrailer && !trailerReg) { Alert.alert(t('common.error'), t('vehicleChecklist.missingTrailerReg')); return; }
     if (!allAnswered) { Alert.alert(t('common.error'), t('vehicleChecklist.incomplete')); return; }
     if (hasDefects && !defectDetails.trim()) { Alert.alert(t('common.error'), t('vehicleChecklist.missingDefectDetails')); return; }
 
@@ -137,6 +166,7 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
         company_id: profile?.company_id || null,
         session_id: sessionId,
         reg_number: reg,
+        trailer_reg: (isArtic && pullingTrailer) ? trailerReg : null,
         vehicle_type: vehicleType,
         vehicle_make: vehicleMake || null,
         odometer_reading: parseInt(odometer, 10) || null,
@@ -233,6 +263,29 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
             <TextInput style={styles.input} placeholder={t('vehicleChecklist.odometer', 'Odometer Reading')} placeholderTextColor="#94a3b8" value={odometer} onChangeText={setOdometer} keyboardType="numeric" />
           </View>
 
+          {isArtic && (
+            <View style={styles.section}>
+              <View style={styles.toggleRow}>
+                <Text style={styles.toggleLabel}>{t('vehicleChecklist.pullingTrailer')}</Text>
+                <Switch
+                  value={pullingTrailer}
+                  onValueChange={setPullingTrailer}
+                  trackColor={{ false: '#334155', true: '#3b82f6' }}
+                  thumbColor={pullingTrailer ? '#fff' : '#94a3b8'}
+                />
+              </View>
+              {pullingTrailer && (
+                <TextInput
+                  style={[styles.input, { marginTop: 12 }]}
+                  placeholder={t('vehicleChecklist.trailerRegistration')}
+                  placeholderTextColor="#94a3b8"
+                  value={trailerReg}
+                  onChangeText={(t) => setTrailerReg(t.toUpperCase())}
+                />
+              )}
+            </View>
+          )}
+
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t('vehicleChecklist.internalChecks')}</Text>
             {INTERNAL_CHECKS.map(renderItem)}
@@ -243,6 +296,13 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
             {EXTERNAL_CHECKS.map(renderItem)}
           </View>
 
+          {isArtic && pullingTrailer && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{t('vehicleChecklist.trailer')}</Text>
+              {TRAILER_CHECKS.map(renderItem)}
+            </View>
+          )}
+
           {hasDefects && (
             <View style={styles.defectSection}>
               <View style={styles.defectHeader}><AlertTriangle size={20} color="#ef4444" /><Text style={styles.defectTitle}>{t('vehicleChecklist.defectReporting')}</Text></View>
@@ -250,7 +310,7 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
             </View>
           )}
 
-          <TouchableOpacity style={[styles.submitButton, (!allAnswered || !reg) && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={isSubmitting}>
+          <TouchableOpacity style={[styles.submitButton, (!allAnswered || !reg || (isArtic && pullingTrailer && !trailerReg)) && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>{currentCheckId ? t('vehicleChecklist.updateReport') : t('vehicleChecklist.submitReport')}</Text>}
           </TouchableOpacity>
           <View style={{ height: 40 }} />
@@ -300,4 +360,6 @@ const styles = StyleSheet.create({
   historyTextActive: { color: '#fff', fontWeight: 'bold' },
   historyChipNew: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, backgroundColor: 'transparent', borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed', flexDirection: 'row', alignItems: 'center', gap: 4 },
   historyTextNew: { color: '#60a5fa', fontSize: 13 },
+  toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
+  toggleLabel: { color: '#fff', fontSize: 16, fontWeight: '500' },
 });

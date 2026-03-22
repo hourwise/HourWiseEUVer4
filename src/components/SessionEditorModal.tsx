@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Alert, Platform, TextInput, ScrollView, Modal } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, Save } from 'react-native-feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../lib/supabase';
@@ -175,74 +176,76 @@ export default function SessionEditorModal({ onClose, onSave, sessionToEdit, sel
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View className="flex-1 bg-black/80 justify-center items-center p-4">
-        <View className="p-6 bg-slate-800 rounded-lg w-full max-h-[90%]">
-          <View className="flex-row justify-between items-center mb-6">
-            <Text className="text-xl font-bold text-white">{sessionToEdit ? t('editShift') : t('addShift')}</Text>
-            <TouchableOpacity onPress={onClose}><X color="white" size={24} /></TouchableOpacity>
+      <SafeAreaView className="flex-1 bg-black/80" edges={['top', 'bottom']}>
+        <View className="flex-1 justify-center items-center p-4">
+          <View className="p-6 bg-slate-800 rounded-lg w-full max-h-[90%]">
+            <View className="flex-row justify-between items-center mb-6">
+              <Text className="text-xl font-bold text-white">{sessionToEdit ? t('editShift') : t('addShift')}</Text>
+              <TouchableOpacity onPress={onClose}><X color="white" size={24} /></TouchableOpacity>
+            </View>
+
+            <ScrollView>
+              <TouchableOpacity onPress={() => showMode('date')} className="bg-slate-700 p-3 rounded-lg mb-4">
+                <Text className="text-gray-400 text-xs mb-1">{t('common.date')}</Text>
+                <Text className="text-white text-lg">{startDateTime.toLocaleDateString()}</Text>
+              </TouchableOpacity>
+
+              <View className="flex-row gap-4 mb-4">
+                <View className="flex-1">
+                  <TouchableOpacity onPress={() => showMode('time', 'start')} className="bg-slate-700 p-3 rounded-lg">
+                    <Text className="text-gray-400 text-xs mb-1">{t('common.startTime')}</Text>
+                    <Text className="text-white text-xl font-semibold text-center">{formatTime(startDateTime)}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View className="flex-1">
+                  <TouchableOpacity onPress={() => showMode('time', 'end')} className="bg-slate-700 p-3 rounded-lg">
+                    <Text className="text-gray-400 text-xs mb-1">{t('common.endTime')}</Text>
+                    <Text className="text-white text-xl font-semibold text-center">{formatTime(endDateTime)}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {showPicker && (
+                <DateTimePicker
+                  value={pickerMode === 'date' ? startDateTime : (activeTimeField === 'start' ? startDateTime : endDateTime)}
+                  mode={pickerMode}
+                  is24Hour
+                  display="default"
+                  onChange={handleDateChange}
+                />
+              )}
+
+              <View className="mb-4">
+                <Text className="text-white mb-2">{t('workHistory.totalBreakTime')} ({t('common.minutes')})</Text>
+                <TextInput
+                  className="bg-slate-700 p-3 rounded-lg text-white"
+                  keyboardType="numeric"
+                  value={totalBreakMinutes}
+                  onChangeText={totalBreakMinutes => setTotalBreakMinutes(totalBreakMinutes)}
+                  maxLength={3}
+                />
+              </View>
+
+              <View className="mb-6">
+                <Text className="text-white mb-2">{t('workHistory.totalPOATime')} ({t('common.minutes')})</Text>
+                <TextInput
+                  className="bg-slate-700 p-3 rounded-lg text-white"
+                  keyboardType="numeric"
+                  value={totalPoaMinutes}
+                  onChangeText={totalPoaMinutes => setTotalPoaMinutes(totalPoaMinutes)}
+                  maxLength={3}
+                />
+              </View>
+
+              <TouchableOpacity onPress={handleSave} className="bg-green-600 p-4 rounded-lg flex-row items-center justify-center gap-2">
+                <Save size={20} color="white" />
+                <Text className="text-white font-bold text-lg">{sessionToEdit ? t('workHistory.updateShift') : t('common.save')}</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
-
-          <ScrollView>
-            <TouchableOpacity onPress={() => showMode('date')} className="bg-slate-700 p-3 rounded-lg mb-4">
-              <Text className="text-gray-400 text-xs mb-1">{t('common.date')}</Text>
-              <Text className="text-white text-lg">{startDateTime.toLocaleDateString()}</Text>
-            </TouchableOpacity>
-
-            <View className="flex-row gap-4 mb-4">
-              <View className="flex-1">
-                <TouchableOpacity onPress={() => showMode('time', 'start')} className="bg-slate-700 p-3 rounded-lg">
-                  <Text className="text-gray-400 text-xs mb-1">{t('common.startTime')}</Text>
-                  <Text className="text-white text-xl font-semibold text-center">{formatTime(startDateTime)}</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View className="flex-1">
-                <TouchableOpacity onPress={() => showMode('time', 'end')} className="bg-slate-700 p-3 rounded-lg">
-                  <Text className="text-gray-400 text-xs mb-1">{t('common.endTime')}</Text>
-                  <Text className="text-white text-xl font-semibold text-center">{formatTime(endDateTime)}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {showPicker && (
-              <DateTimePicker
-                value={pickerMode === 'date' ? startDateTime : (activeTimeField === 'start' ? startDateTime : endDateTime)}
-                mode={pickerMode}
-                is24Hour
-                display="default"
-                onChange={handleDateChange}
-              />
-            )}
-
-            <View className="mb-4">
-              <Text className="text-white mb-2">{t('workHistory.totalBreakTime')} ({t('common.minutes')})</Text>
-              <TextInput
-                className="bg-slate-700 p-3 rounded-lg text-white"
-                keyboardType="numeric"
-                value={totalBreakMinutes}
-                onChangeText={setTotalBreakMinutes}
-                maxLength={3}
-              />
-            </View>
-
-            <View className="mb-6">
-              <Text className="text-white mb-2">{t('workHistory.totalPOATime')} ({t('common.minutes')})</Text>
-              <TextInput
-                className="bg-slate-700 p-3 rounded-lg text-white"
-                keyboardType="numeric"
-                value={totalPoaMinutes}
-                onChangeText={setTotalPoaMinutes}
-                maxLength={3}
-              />
-            </View>
-
-            <TouchableOpacity onPress={handleSave} className="bg-green-600 p-4 rounded-lg flex-row items-center justify-center gap-2">
-              <Save size={20} color="white" />
-              <Text className="text-white font-bold text-lg">{sessionToEdit ? t('workHistory.updateShift') : t('common.save')}</Text>
-            </TouchableOpacity>
-          </ScrollView>
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }
