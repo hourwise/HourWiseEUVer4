@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Modal, Alert, ActivityIndicator, ScrollView, TextInput, Switch } from 'react-native';
-import { X, ChevronDown } from 'react-native-feather';
+import { X, ChevronDown, Plus, Trash } from 'react-native-feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -17,6 +17,11 @@ interface DownloadReportModalProps {
 
 type ReportRange = 'last_week' | 'last_month' | 'custom';
 type ReportType = 'report' | 'invoice' | 'vehicle_check';
+
+interface ManualLineItem {
+  description: string;
+  amount: string;
+}
 
 export default function DownloadReportModal({ onClose, visible }: DownloadReportModalProps) {
   const { t } = useTranslation();
@@ -36,9 +41,12 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
   const [includeExpenses, setIncludeExpenses] = useState(true);
   const [vatRate, setVatRate] = useState('0');
   const [manualInvoiceNumber, setManualInvoiceNumber] = useState<string>('');
+  const [manualLineItems, setManualLineItems] = useState<ManualLineItem[]>([]);
+
+  const selectedClient = clients.find(c => c.id === selectedClientId);
 
   useEffect(() => {
-    if (visible && user && reportType === 'invoice') {
+    if (visible && user) {
       loadInitialData();
     }
   }, [visible, reportType]);
@@ -66,6 +74,173 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
       case 'custom':
         return { start: startDate, end: endDate };
     }
+  };
+
+  const addManualLineItem = () => {
+    setManualLineItems([...manualLineItems, { description: '', amount: '' }]);
+  };
+
+  const removeManualLineItem = (index: number) => {
+    const newItems = [...manualLineItems];
+    newItems.splice(index, 1);
+    setManualLineItems(newItems);
+  };
+
+  const updateManualLineItem = (index: number, field: keyof ManualLineItem, value: string) => {
+    const newItems = [...manualLineItems];
+    newItems[index] = { ...newItems[index], [field]: value };
+    setManualLineItems(newItems);
+  };
+
+  const calculateInvoiceLineItems = (
+    sessions: any[],
+    shiftJobs: any[],
+    client: Client,
+    expenses: any[],
+    includeExpenses: boolean
+  ) => {
+    const lineItems: {description: string, quantity: string, unitPrice: number, total: number}[] = [];
+
+    // Hourly billing
+    if (client.hourly_rate && (client.billing_types || []).includes('hourly')) {
+      const totalPaidMinutes = sessions.reduce((sum, s) => {
+        // Assume all work minutes are paid for now (could subtract unpaid breaks if implemented)
+        return sum + (s.total_work_minutes || 0);
+      }, 0);
+      const hours = totalPaidMinutes / 60;
+      if (hours > 0) {
+        lineItems.push({
+          description: 'Driving & Working Time',
+          quantity: `${hours.toFixed(2)} hrs`,
+          unitPrice: client.hourly_rate,
+          total: hours * client.hourly_rate
+        });
+      }
+    }
+
+    // Daily rate billing
+    if (client.daily_rate && (client.billing_types || []).includes('daily')) {
+      const workingDays = sessions.length;
+      if (workingDays > 0) {
+        lineItems.push({
+          description: 'Daily Rate',
+          quantity: `${workingDays} day${workingDays !== 1 ? 's' : ''}`,
+          unitPrice: client.daily_rate,
+          total: workingDays * client.daily_rate
+        });
+      }
+    }
+
+    // Night out
+    if (client.night_out_rate) {
+      const nightOuts = shiftJobs.filter(j => j.night_out).length;
+      if (nightOuts > 0) {
+        lineItems.push({
+          description: 'Night Out Allowance',
+          quantity: `${nightOuts} night${nightOuts !== 1 ? 's' : ''}`,
+          unitPrice: client.night_out_rate,
+          total: nightOuts * client.night_out_rate
+        });
+      }
+    }
+
+    // PPM
+    if (client.ppm_loaded_rate && (client.billing_types || []).includes('ppm')) {
+      const totalLoadedMiles = shiftJobs.reduce((sum, j) => sum + (j.loaded_miles || 0), 0);
+      if (totalLoadedMiles > 0) {
+        const loadedTotal = totalLoadedMiles * (client.ppm_loaded_rate / 100);
+        lineItems.push({
+          description: 'Loaded Mileage',
+          quantity: `${totalLoadedMiles.toFixed(0)} miles @ ${client.ppm_loaded_rate}ppm`,
+          unitPrice: client.ppm_loaded_rate / 100,
+          total: loadedTotal
+        });
+      }
+    }
+
+    if (client.ppm_empty_rate && (client.billing_types || []).includes('ppm')) {
+      const totalEmptyMiles = shiftJobs.reduce((sum, j) => sum + (j.empty_miles || 0), 0);
+      if (totalEmptyMiles > 0) {
+        const emptyTotal = totalEmptyMiles * (client.ppm_empty_rate / 100);
+        lineItems.push({
+          description: 'Empty Running',
+          quantity: `${totalEmptyMiles.toFixed(0)} miles @ ${client.ppm_empty_rate}ppm`,
+          unitPrice: client.ppm_empty_rate / 100,
+          total: emptyTotal
+        });
+      }
+    }
+
+    // Fuel surcharge on mileage
+    if (client.fuel_surcharge_pct && client.fuel_surcharge_pct > 0) {
+      const mileageTotal = lineItems
+        .filter(i => i.description.includes('Mileage') || i.description.includes('Running'))
+        .reduce((sum, i) => sum + i.total, 0);
+      if (mileageTotal > 0) {
+        const surcharge = mileageTotal * (client.fuel_surcharge_pct / 100);
+        lineItems.push({
+          description: `Fuel Surcharge (${client.fuel_surcharge_pct}%)`,
+          quantity: '',
+          unitPrice: surcharge,
+          total: surcharge
+        });
+      }
+    }
+
+    // Waiting time
+    if (client.waiting_time_rate) {
+      const totalWaitingMins = shiftJobs.reduce((sum, j) => sum + (j.waiting_minutes || 0), 0);
+      const freeMinutes = (client.waiting_time_free_minutes || 60) * (shiftJobs.length || sessions.length || 1);
+      const chargeableMins = Math.max(0, totalWaitingMins - freeMinutes);
+      if (chargeableMins > 0) {
+        const waitingHours = chargeableMins / 60;
+        lineItems.push({
+          description: 'Waiting Time',
+          quantity: `${chargeableMins} mins @ £${client.waiting_time_rate}/hr`,
+          unitPrice: client.waiting_time_rate,
+          total: waitingHours * client.waiting_time_rate
+        });
+      }
+    }
+
+    // Custom line items from client rate card
+    if (Array.isArray(client.custom_line_items)) {
+      client.custom_line_items.forEach((item: any) => {
+        lineItems.push({
+          description: item.description,
+          quantity: item.unit,
+          unitPrice: item.amount,
+          total: item.amount
+        });
+      });
+    }
+
+    // Manual Line Items
+    manualLineItems.forEach(item => {
+        const amount = parseFloat(item.amount) || 0;
+        if (item.description && amount !== 0) {
+            lineItems.push({
+                description: item.description,
+                quantity: '-',
+                unitPrice: amount,
+                total: amount
+            });
+        }
+    });
+
+    // Expenses
+    if (includeExpenses) {
+      expenses.forEach(e => {
+        lineItems.push({
+          description: `Expense: ${e.category || 'General'} — ${e.description || ''}`,
+          quantity: '',
+          unitPrice: e.amount,
+          total: e.amount
+        });
+      });
+    }
+
+    return lineItems;
   };
 
   const generateReport = async () => {
@@ -98,18 +273,23 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
           Alert.alert(t('businessProfile.title'), t('businessProfile.setupPrompt', 'Please set up your business profile before generating an invoice.'));
           setIsLoading(false);
           return;
-        } else if (!reportData.payConfig) {
-            Alert.alert(t('driverSetup.title'), t('payConfig.setupPrompt', 'Please set up your pay configuration to generate an invoice.'));
-            setIsLoading(false);
-            return;
         }
 
         const selectedClient = clients.find(c => c.id === selectedClientId);
         const invNum = manualInvoiceNumber || (reportData.businessProfile.invoice_counter || 1).toString().padStart(4, '0');
-        html = generateInvoiceHtml(reportData, start, end, selectedClient, invNum);
+
+        const lineItems = calculateInvoiceLineItems(
+          reportData.sessions,
+          reportData.shiftJobs,
+          selectedClient!,
+          reportData.expenses,
+          includeExpenses
+        );
+
+        html = generateInvoiceHtml(reportData, start, end, selectedClient, invNum, lineItems);
         filename = `Invoice_${invNum}_${format(start, 'yyyy-MM-dd')}.pdf`;
 
-        // Increment invoice counter in DB
+        // Increment invoice counter in DB using the manually entered number
         await reportService.incrementInvoiceCounter(user.id, parseInt(invNum, 10));
 
       } else if (reportType === 'vehicle_check') {
@@ -192,33 +372,19 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
         </html>`;
   };
 
-  const generateInvoiceHtml = (data: any, start: Date, end: Date, client?: Client, invoiceNum?: string) => {
-    const { sessions, businessProfile, totalPay, payDetailsMap, expenses } = data;
+  const generateInvoiceHtml = (data: any, start: Date, end: Date, client: Client | undefined, invoiceNum: string, lineItems: any[]) => {
+    const { businessProfile } = data;
 
-    const workItems = Array.from(payDetailsMap.entries()).map(([date, details]: [string, any]) => `
+    const tableRows = lineItems.map(item => `
         <tr>
-            <td style="padding: 10px; border-bottom: 1px solid #eee;">${format(new Date(date), 'PP')}</td>
-            <td style="padding: 10px; border-bottom: 1px solid #eee;">Work Shift - ${(details.paidMinutes / 60).toFixed(2)} hours</td>
-            <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(details.totalPay)}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.description}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.quantity}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(item.unitPrice)}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">${formatCurrency(item.total)}</td>
         </tr>
     `).join('');
 
-    let expenseItems = '';
-    let expenseTotal = 0;
-    if (includeExpenses && expenses.length > 0) {
-        expenseItems = expenses.map((e: any) => {
-            expenseTotal += e.amount || 0;
-            return `
-                <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; color: #666;">${format(new Date(e.date), 'PP')}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; color: #666;">Expense: ${e.category || 'General'} - ${e.description || ''}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; color: #666;">${formatCurrency(e.amount)}</td>
-                </tr>
-            `;
-        }).join('');
-    }
-
-    const subtotal = totalPay + expenseTotal;
+    const subtotal = lineItems.reduce((sum, item) => sum + item.total, 0);
     const vatRateNum = parseFloat(vatRate);
     const vatAmount = subtotal * (vatRateNum / 100);
     const grandTotal = subtotal + vatAmount;
@@ -245,7 +411,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
                     .description-box p { margin: 0; font-style: italic; color: #1e40af; }
 
                     table { width: 100%; border-collapse: collapse; margin: 30px 0; }
-                    th { text-align: left; padding: 12px; border-bottom: 2px solid #2563eb; color: #2563eb; font-size: 13px; text-transform: uppercase; }
+                    th { text-align: left; padding: 12px; border-bottom: 2px solid #2563eb; color: #2563eb; font-size: 11px; text-transform: uppercase; }
 
                     .totals-area { margin-left: auto; width: 300px; }
                     .total-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
@@ -259,66 +425,65 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
             <body>
                 <div class="header">
                     <div class="company-info">
-                        ${businessProfile.logo_url ? \`<img src="\${businessProfile.logo_url}" class="logo" />\` : ''}
-                        <h1>\${businessProfile.legal_name}</h1>
-                        <p>\${businessProfile.email || ''}</p>
-                        <p>\${businessProfile.phone || ''}</p>
-                        \${businessProfile.vat_number ? \`<p>VAT Reg: \${businessProfile.vat_number}</p>\` : ''}
+                        ${businessProfile.logo_url ? `<img src="${businessProfile.logo_url}" class="logo" />` : ''}
+                        <h1>${businessProfile.legal_name}</h1>
+                        <p>${businessProfile.email || ''}</p>
+                        <p>${businessProfile.phone || ''}</p>
+                        ${businessProfile.vat_number ? `<p>VAT Reg: ${businessProfile.vat_number}</p>` : ''}
                     </div>
                     <div class="invoice-meta">
                         <h2>INVOICE</h2>
-                        <p><strong>Invoice #:</strong> INV-\${invoiceNum || '0001'}</p>
-                        <p><strong>Date:</strong> \${format(new Date(), 'PP')}</p>
-                        <p><strong>Period:</strong> \${format(start, 'PP')} - \${format(end, 'PP')}</p>
+                        <p><strong>Invoice #:</strong> INV-${invoiceNum}</p>
+                        <p><strong>Date:</strong> ${format(new Date(), 'PP')}</p>
+                        <p><strong>Period:</strong> ${format(start, 'PP')} - ${format(end, 'PP')}</p>
                     </div>
                 </div>
 
                 <div class="address-block">
                     <div class="address-box">
                         <h3>From</h3>
-                        <p><strong>\${businessProfile.legal_name}</strong></p>
-                        <p style="white-space: pre-wrap;">\${businessProfile.address || ''}</p>
-                        \${businessProfile.tax_id ? \`<p>Tax ID: \${businessProfile.tax_id}</p>\` : ''}
+                        <p><strong>${businessProfile.legal_name}</strong></p>
+                        <p style="white-space: pre-wrap;">${businessProfile.address || ''}</p>
+                        ${businessProfile.tax_id ? `<p>Tax ID: ${businessProfile.tax_id}</p>` : ''}
                     </div>
                     <div class="address-box">
                         <h3>Bill To</h3>
-                        <p><strong>\${client?.name || 'N/A'}</strong></p>
-                        <p style="white-space: pre-wrap;">\${client?.address || ''}</p>
-                        <p>\${client?.email || ''}</p>
+                        <p><strong>${client?.name || 'N/A'}</strong></p>
+                        <p style="white-space: pre-wrap;">${client?.address || ''}</p>
+                        <p>${client?.email || ''}</p>
                     </div>
                 </div>
 
-                \${invoiceDescription ? \`<div class="description-box"><p>\${invoiceDescription}</p></div>\` : ''}
+                ${invoiceDescription ? `<div class="description-box"><p>${invoiceDescription}</p></div>` : ''}
 
                 <table>
                     <thead>
-                        <tr><th>Description</th><th>Details</th><th style="text-align: right;">Amount</th></tr>
+                        <tr><th>Description</th><th>Qty/Details</th><th style="text-align: right;">Unit Price</th><th style="text-align: right;">Total</th></tr>
                     </thead>
                     <tbody>
-                        \${workItems}
-                        \${expenseItems}
+                        ${tableRows}
                     </tbody>
                 </table>
 
                 <div class="totals-area">
-                    <div class="total-row"><span>Subtotal</span><span>\${formatCurrency(subtotal)}</span></div>
-                    \${vatAmount > 0 ? \`<div class="total-row"><span>VAT (\${vatRate}%)</span><span>\${formatCurrency(vatAmount)}</span></div>\` : ''}
-                    <div class="total-row grand"><span>Total Due</span><span>\${formatCurrency(grandTotal)}</span></div>
+                    <div class="total-row"><span>Subtotal</span><span>${formatCurrency(subtotal)}</span></div>
+                    ${vatAmount > 0 ? `<div class="total-row"><span>VAT (${vatRate}%)</span><span>${formatCurrency(vatAmount)}</span></div>` : ''}
+                    <div class="total-row grand"><span>Total Due</span><span>${formatCurrency(grandTotal)}</span></div>
                 </div>
 
                 <div class="bank-details">
-                    <div><strong>Bank:</strong> \${businessProfile.bank_account_name || ''}</div>
-                    <div><strong>Sort Code:</strong> \${businessProfile.bank_sort_code || ''}</div>
-                    <div><strong>Account #:</strong> \${businessProfile.bank_account_number || ''}</div>
-                    <div><strong>IBAN:</strong> \${businessProfile.iban || ''}</div>
+                    <div><strong>Bank:</strong> ${businessProfile.bank_account_name || ''}</div>
+                    <div><strong>Sort Code:</strong> ${businessProfile.bank_sort_code || ''}</div>
+                    <div><strong>Account #:</strong> ${businessProfile.bank_account_number || ''}</div>
+                    <div><strong>IBAN:</strong> ${businessProfile.iban || ''}</div>
                 </div>
 
                 <div class="footer">
-                    <p><strong>Terms:</strong> \${businessProfile.payment_terms || 'Payment due within 30 days'}</p>
+                    <p><strong>Terms:</strong> ${client?.payment_terms || businessProfile.payment_terms || 'Payment due within 30 days'}</p>
                     <p>Thank you for your business.</p>
                 </div>
             </body>
-        </html>\`;
+        </html>`;
   };
 
   const generateWorkReportHtml = (sessions: any[], start: Date, end: Date) => {
@@ -329,181 +494,240 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
         const poa = s.total_poa_minutes || 0;
         const total = s.total_work_minutes || 0;
 
-        return \`
+        return `
             <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 10px; font-size: 12px;">\${format(new Date(s.start_time), 'PP')}</td>
-                <td style="padding: 10px; font-size: 11px;">\${format(new Date(s.start_time), 'HH:mm')} - \${s.end_time ? format(new Date(s.end_time), 'HH:mm') : '--'}</td>
-                <td style="padding: 10px; text-align: center; color: #2563eb; font-weight: bold;">\${(driving / 60).toFixed(2)}h</td>
-                <td style="padding: 10px; text-align: center; color: #475569;">\${(work / 60).toFixed(2)}h</td>
-                <td style="padding: 10px; text-align: center; color: #10b981;">\${(breaks / 60).toFixed(2)}h</td>
-                <td style="padding: 10px; text-align: center; color: #f59e0b;">\${(poa / 60).toFixed(2)}h</td>
-                <td style="padding: 10px; text-align: right; font-weight: bold;">\${(total / 60).toFixed(2)}h</td>
+                <td style="padding: 10px; font-size: 12px;">${format(new Date(s.start_time), 'PP')}</td>
+                <td style="padding: 10px; font-size: 11px;">${format(new Date(s.start_time), 'HH:mm')} - ${s.end_time ? format(new Date(s.end_time), 'HH:mm') : '--'}</td>
+                <td style="padding: 10px; text-align: center; color: #2563eb; font-weight: bold;">${(driving / 60).toFixed(2)}h</td>
+                <td style="padding: 10px; text-align: center; color: #475569;">${(work / 60).toFixed(2)}h</td>
+                <td style="padding: 10px; text-align: center; color: #10b981;">${(breaks / 60).toFixed(2)}h</td>
+                <td style="padding: 10px; text-align: center; color: #f59e0b;">${(poa / 60).toFixed(2)}h</td>
+                <td style="padding: 10px; text-align: right; font-weight: bold;">${(total / 60).toFixed(2)}h</td>
             </tr>
-        \`;
+        `;
     }).join('');
 
-    return \`
+    return `
         <html>
             <head>
                 <style>
                     body { font-family: sans-serif; padding: 30px; color: #1e293b; }
-                    h1 { color: #1e293b; border-bottom: 2px solid #10b981; padding-bottom: 10px; margin-bottom: 5px; }
-                    .period { color: #64748b; margin-bottom: 30px; font-size: 14px; }
+                    h1 { color: #1e293b; border-bottom: 2px solid #10b981; padding-bottom: 10px; }
                     table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                    th { text-align: center; padding: 12px; background-color: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; }
-                    .summary { margin-top: 40px; border-top: 2px solid #1e293b; padding-top: 20px; }
-                    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; text-align: center; }
-                    .stat-box h4 { margin: 0; font-size: 10px; color: #94a3b8; text-transform: uppercase; }
-                    .stat-box p { margin: 5px 0 0; font-size: 18px; font-weight: bold; color: #1e293b; }
+                    th { text-align: left; padding: 12px; border-bottom: 2px solid #eee; color: #64748b; font-size: 11px; text-transform: uppercase; }
                 </style>
             </head>
             <body>
-                <h1>Driver Compliance & Work Record</h1>
-                <div class="period">Reporting Period: \${format(start, 'PP')} to \${format(end, 'PP')}</div>
-
+                <h1>Work Compliance Report</h1>
+                <p>Period: ${format(start, 'PP')} - ${format(end, 'PP')}</p>
                 <table>
                     <thead>
-                        <tr>
-                            <th style="text-align: left;">Date</th>
-                            <th style="text-align: left;">Shift Time</th>
-                            <th>Driving</th>
-                            <th>Work</th>
-                            <th>Break</th>
-                            <th>POA</th>
-                            <th style="text-align: right;">Total Work</th>
-                        </tr>
+                        <tr><th>Date</th><th>Times</th><th style="text-align: center;">Driving</th><th style="text-align: center;">Work</th><th style="text-align: center;">Break</th><th style="text-align: center;">POA</th><th style="text-align: right;">Total Work</th></tr>
                     </thead>
-                    <tbody>\${rows}</tbody>
+                    <tbody>${rows}</tbody>
                 </table>
-
-                <div class="summary">
-                    <div class="summary-grid">
-                        <div class="stat-box"><h4>Total Driving</h4><p>\${(sessions.reduce((sum, s) => sum + (s.total_driving_minutes || 0), 0) / 60).toFixed(2)}h</p></div>
-                        <div class="stat-box"><h4>Total Break</h4><p>\${(sessions.reduce((sum, s) => sum + (s.total_break_minutes || 0), 0) / 60).toFixed(2)}h</p></div>
-                        <div class="stat-box"><h4>Total POA</h4><p>\${(sessions.reduce((sum, s) => sum + (s.total_poa_minutes || 0), 0) / 60).toFixed(2)}h</p></div>
-                        <div class="stat-box"><h4>Total Period Work</h4><p style="color: #10b981;">\${(sessions.reduce((sum, s) => sum + (s.total_work_minutes || 0), 0) / 60).toFixed(2)}h</p></div>
-                    </div>
-                </div>
             </body>
-        </html>\`;
-  };
-
-  const onDateChange = (event: any, selectedDate?: Date) => {
-    const currentDate = selectedDate || (showPicker === 'start' ? startDate : endDate);
-    setShowPicker(null);
-    if (showPicker === 'start') setStartDate(currentDate);
-    else setEndDate(currentDate);
+        </html>`;
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View className="flex-1 justify-center items-center bg-black/50 p-4">
-        <View className="w-full bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 max-h-[90%]">
-          <View className="flex-row justify-between items-center p-6 border-b border-slate-700">
-            <Text className="text-white text-2xl font-bold">{t('menu.downloadReport')}</Text>
-            <TouchableOpacity onPress={onClose} className="p-2"><X color="white" size={24} /></TouchableOpacity>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View className="flex-1 justify-center items-center bg-black/60 p-4">
+        <View className="bg-white rounded-2xl w-full" style={{ maxHeight: '90%' }}>
+          <View className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex-row justify-between items-center rounded-t-2xl">
+            <Text className="text-xl font-bold text-gray-900">{t('menu.downloadReport')}</Text>
+            <TouchableOpacity onPress={onClose} className="p-1"><X size={24} color="#64748b" /></TouchableOpacity>
           </View>
 
           <ScrollView className="p-6">
-            {/* Report Type Toggle */}
-            <View className="flex-row bg-slate-900 rounded-xl p-1.5 mb-6">
-              <TouchableOpacity onPress={() => setReportType('report')} className={`flex-1 py-2.5 rounded-lg \${reportType === 'report' ? 'bg-emerald-600' : ''}`}><Text className="text-white text-center font-bold text-xs">{t('workReport')}</Text></TouchableOpacity>
-              <TouchableOpacity onPress={() => setReportType('invoice')} className={`flex-1 py-2.5 rounded-lg \${reportType === 'invoice' ? 'bg-blue-600' : ''}`}><Text className="text-white text-center font-bold text-xs">{t('invoice')}</Text></TouchableOpacity>
-              <TouchableOpacity onPress={() => setReportType('vehicle_check')} className={`flex-1 py-2.5 rounded-lg \${reportType === 'vehicle_check' ? 'bg-amber-600' : ''}`}><Text className="text-white text-center font-bold text-xs">VEHICLE CHECKS</Text></TouchableOpacity>
-            </View>
+            <View className="space-y-6">
 
-            {/* Date Range Selection */}
-            <View className="flex-row justify-around mb-6 bg-slate-700/50 py-3 rounded-xl">
-                <TouchableOpacity onPress={() => setRange('last_week')}><Text className={`font-bold \${range === 'last_week' ? 'text-blue-400' : 'text-slate-400'}`}>{t('previousWeek')}</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => setRange('last_month')}><Text className={`font-bold \${range === 'last_month' ? 'text-blue-400' : 'text-slate-400'}`}>{t('lastMonth')}</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => setRange('custom')}><Text className={`font-bold \${range === 'custom' ? 'text-blue-400' : 'text-slate-400'}`}>{t('customRange')}</Text></TouchableOpacity>
-            </View>
-
-            {range === 'custom' && (
-                <View className="flex-row justify-between mb-6">
-                    <TouchableOpacity onPress={() => setShowPicker('start')} className="bg-slate-700 p-3 rounded-xl w-[48%] border border-slate-600"><Text className="text-slate-400 text-xs mb-1 text-center">START</Text><Text className="text-white text-center font-bold">{format(startDate, 'PP')}</Text></TouchableOpacity>
-                    <TouchableOpacity onPress={() => setShowPicker('end')} className="bg-slate-700 p-3 rounded-xl w-[48%] border border-slate-600"><Text className="text-slate-400 text-xs mb-1 text-center">END</Text><Text className="text-white text-center font-bold">{format(endDate, 'PP')}</Text></TouchableOpacity>
+              {/* Report Type Selector */}
+              <View>
+                <Text className="text-sm font-bold text-gray-500 uppercase mb-3 tracking-wider">{t('reportType')}</Text>
+                <View className="flex-row gap-2">
+                  {[
+                    { id: 'report', label: t('workReport') },
+                    { id: 'invoice', label: t('invoice') },
+                    { id: 'vehicle_check', label: t('dashboard.checkVehicle') }
+                  ].map(type => (
+                    <TouchableOpacity
+                      key={type.id}
+                      onPress={() => setReportType(type.id as ReportType)}
+                      className={`flex-1 p-3 rounded-xl border-2 ${reportType === type.id ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-100'}`}
+                    >
+                      <Text className={`text-center font-bold text-xs ${reportType === type.id ? 'text-white' : 'text-gray-600'}`}>{type.label}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-            )}
+              </View>
 
-            {showPicker && <DateTimePicker value={showPicker === 'start' ? startDate : endDate} mode="date" display="default" onChange={onDateChange} />}
-
-            {/* Invoice Options */}
-            {reportType === 'invoice' && (
-                <View className="space-y-4 mb-6">
-                    <View>
-                        <Text className="text-slate-400 text-xs font-bold uppercase mb-2">Invoice Number</Text>
-                        <TextInput
-                            value={manualInvoiceNumber}
-                            onChangeText={setManualInvoiceNumber}
-                            keyboardType="numeric"
-                            placeholder="0001"
-                            placeholderTextColor="#64748b"
-                            className="bg-slate-700 p-3 rounded-xl text-white border border-slate-600 font-bold"
-                        />
-                    </View>
-
-                    <View>
-                        <Text className="text-slate-400 text-xs font-bold uppercase mb-2">{t('invoiceGeneration.selectClient')}</Text>
-                        <View className="bg-slate-700 rounded-xl overflow-hidden border border-slate-600">
-                            {clients.length === 0 ? (
-                                <Text className="text-slate-500 p-3 italic">No clients found. Add them in Business Profile.</Text>
-                            ) : (
-                                <View>
-                                    {clients.map(client => (
-                                        <TouchableOpacity
-                                            key={client.id}
-                                            onPress={() => setSelectedClientId(client.id)}
-                                            className={`p-3 border-b border-slate-600 flex-row justify-between items-center \${selectedClientId === client.id ? 'bg-blue-600/20' : ''}`}
-                                        >
-                                            <Text className="text-white font-medium">{client.name}</Text>
-                                            {selectedClientId === client.id && <View className="w-2 h-2 rounded-full bg-blue-400" />}
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            )}
-                        </View>
-                    </View>
-
-                    <View>
-                        <Text className="text-slate-400 text-xs font-bold uppercase mb-2">{t('invoiceGeneration.description')}</Text>
-                        <TextInput
-                            value={invoiceDescription}
-                            onChangeText={setInvoiceDescription}
-                            placeholder="e.g. Weekly trunking services"
-                            placeholderTextColor="#64748b"
-                            className="bg-slate-700 p-3 rounded-xl text-white border border-slate-600"
-                        />
-                    </View>
-
-                    <View className="flex-row items-center justify-between bg-slate-700 p-3 rounded-xl border border-slate-600">
-                        <Text className="text-white font-medium">{t('invoiceGeneration.includeExpenses')}</Text>
-                        <Switch value={includeExpenses} onValueChange={setIncludeExpenses} />
-                    </View>
-
-                    <View>
-                        <Text className="text-slate-400 text-xs font-bold uppercase mb-2">{t('invoiceGeneration.vatRate')}</Text>
-                        <View className="flex-row gap-2">
-                            {['0', '5', '20'].map(rate => (
-                                <TouchableOpacity
-                                    key={rate}
-                                    onPress={() => setVatRate(rate)}
-                                    className={`flex-1 p-3 rounded-xl border \${vatRate === rate ? 'bg-blue-600 border-blue-500' : 'bg-slate-700 border-slate-600'}`}
-                                >
-                                    <Text className="text-white text-center font-bold">{rate}%</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    </View>
+              {/* Range Selector */}
+              <View>
+                <Text className="text-sm font-bold text-gray-500 uppercase mb-3 tracking-wider">{t('dateRange')}</Text>
+                <View className="flex-row gap-2 mb-3">
+                  {[
+                    { id: 'last_week', label: t('previousWeek') },
+                    { id: 'last_month', label: t('lastMonth') },
+                    { id: 'custom', label: t('customRange') }
+                  ].map(r => (
+                    <TouchableOpacity
+                      key={r.id}
+                      onPress={() => setRange(r.id as ReportRange)}
+                      className={`flex-1 p-3 rounded-xl border-2 ${range === r.id ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-100'}`}
+                    >
+                      <Text className={`text-center font-bold text-xs ${range === r.id ? 'text-white' : 'text-gray-600'}`}>{r.label}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-            )}
 
-            <TouchableOpacity onPress={generateReport} disabled={isLoading} className={`p-4 rounded-xl flex-row items-center justify-center shadow-lg mb-8 \${reportType === 'report' ? 'bg-emerald-600' : reportType === 'invoice' ? 'bg-blue-600' : 'bg-amber-600'}`}>
-              {isLoading ? <ActivityIndicator color="white" /> : <Text className="text-white font-bold text-lg">{t('generateReport')}</Text>}
-            </TouchableOpacity>
+                {range === 'custom' && (
+                  <View className="flex-row gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <TouchableOpacity onPress={() => setShowPicker('start')} className="flex-1">
+                      <Text className="text-[10px] font-bold text-gray-400 uppercase mb-1">{t('common.date')} From</Text>
+                      <Text className="text-sm font-bold text-gray-700">{format(startDate, 'PP')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setShowPicker('end')} className="flex-1">
+                      <Text className="text-[10px] font-bold text-gray-400 uppercase mb-1">{t('common.date')} To</Text>
+                      <Text className="text-sm font-bold text-gray-700">{format(endDate, 'PP')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {/* Invoice Specific Fields */}
+              {reportType === 'invoice' && (
+                <View className="space-y-4 pt-4 border-t border-gray-100">
+                  <View>
+                    <Text className="text-sm font-bold text-gray-500 uppercase mb-2 tracking-wider">{t('invoiceGeneration.selectClient')}</Text>
+                    <View className="bg-white border-2 border-gray-100 rounded-xl overflow-hidden">
+                      {clients.length > 0 ? (
+                        <View>
+                           {clients.map(client => (
+                             <TouchableOpacity
+                               key={client.id}
+                               onPress={() => setSelectedClientId(client.id)}
+                               className={`p-4 border-b border-gray-50 ${selectedClientId === client.id ? 'bg-blue-50' : ''}`}
+                             >
+                               <Text className={`font-bold ${selectedClientId === client.id ? 'text-blue-600' : 'text-gray-700'}`}>{client.name}</Text>
+                               {selectedClientId === client.id && (
+                                 <View className="mt-1">
+                                    <Text className="text-[10px] text-gray-500">
+                                      {client.hourly_rate ? `• Hourly: £${client.hourly_rate} ` : ''}
+                                      {client.daily_rate ? `• Day rate: £${client.daily_rate} ` : ''}
+                                      {client.night_out_rate ? `• Night out: £${client.night_out_rate} ` : ''}
+                                      {client.ppm_loaded_rate ? `• PPM loaded: ${client.ppm_loaded_rate}p ` : ''}
+                                      {client.waiting_time_rate ? `• Waiting: £${client.waiting_time_rate}/hr after ${client.waiting_time_free_minutes || 60}m` : ''}
+                                    </Text>
+                                 </View>
+                               )}
+                             </TouchableOpacity>
+                           ))}
+                        </View>
+                      ) : (
+                        <Text className="p-4 text-gray-400 italic text-center">{t('businessProfile.clients.noClients')}</Text>
+                      )}
+                    </View>
+                  </View>
+
+                  <View>
+                    <Text className="text-sm font-bold text-gray-500 uppercase mb-2 tracking-wider">{t('invoiceGeneration.manualInvoiceNumber')}</Text>
+                    <TextInput
+                      value={manualInvoiceNumber}
+                      onChangeText={setManualInvoiceNumber}
+                      keyboardType="numeric"
+                      className="bg-white border-2 border-gray-100 rounded-xl p-4 font-bold text-gray-700"
+                      placeholder="e.g. 0014"
+                    />
+                  </View>
+
+                  <View>
+                    <Text className="text-sm font-bold text-gray-500 uppercase mb-2 tracking-wider">{t('invoiceGeneration.description')}</Text>
+                    <TextInput
+                      value={invoiceDescription}
+                      onChangeText={setInvoiceDescription}
+                      className="bg-white border-2 border-gray-100 rounded-xl p-4 text-gray-700"
+                      placeholder="e.g. HGV Driving Services"
+                    />
+                  </View>
+
+                  <View className="flex-row justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <Text className="font-bold text-gray-700">{t('invoiceGeneration.includeExpenses')}</Text>
+                    <Switch value={includeExpenses} onValueChange={setIncludeExpenses} trackColor={{ true: '#3b82f6' }} />
+                  </View>
+
+                  <View>
+                    <Text className="text-sm font-bold text-gray-500 uppercase mb-2 tracking-wider">{t('invoiceGeneration.vatRate')}</Text>
+                    <View className="flex-row gap-2">
+                      {['0', '5', '20'].map(rate => (
+                        <TouchableOpacity
+                          key={rate}
+                          onPress={() => setVatRate(rate)}
+                          className={`flex-1 p-3 rounded-xl border-2 ${vatRate === rate ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-100'}`}
+                        >
+                          <Text className={`text-center font-bold ${vatRate === rate ? 'text-white' : 'text-gray-600'}`}>{rate}%</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  <View className="pt-2">
+                    <View className="flex-row justify-between items-center mb-2">
+                        <Text className="text-sm font-bold text-gray-500 uppercase tracking-wider">Manual Line Items</Text>
+                        <TouchableOpacity onPress={addManualLineItem} className="bg-blue-100 px-3 py-1 rounded-full"><Text className="text-blue-600 text-xs font-bold">{t('invoiceGeneration.addManualLineItem')}</Text></TouchableOpacity>
+                    </View>
+                    {manualLineItems.map((item, index) => (
+                        <View key={index} className="flex-row gap-2 mb-2">
+                            <TextInput
+                                value={item.description}
+                                onChangeText={(val) => updateManualLineItem(index, 'description', val)}
+                                placeholder="Description"
+                                className="flex-1 bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                            />
+                            <TextInput
+                                value={item.amount}
+                                onChangeText={(val) => updateManualLineItem(index, 'amount', val)}
+                                placeholder="£"
+                                keyboardType="numeric"
+                                className="w-20 bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                            />
+                            <TouchableOpacity onPress={() => removeManualLineItem(index)} className="p-2 bg-red-100 rounded-lg"><Trash size={14} color="red" /></TouchableOpacity>
+                        </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+            <View className="h-10" />
           </ScrollView>
+
+          <View className="p-6 border-t border-gray-100">
+            <TouchableOpacity
+              onPress={generateReport}
+              disabled={isLoading}
+              className="bg-blue-600 p-4 rounded-2xl shadow-sm flex-row justify-center items-center space-x-2"
+            >
+              {isLoading ? <ActivityIndicator color="white" /> : <ChevronDown size={20} color="white" />}
+              <Text className="text-white font-bold text-lg">{isLoading ? t('common.saving') : t('generateReport')}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
+
+      {showPicker && (
+        <DateTimePicker
+          value={showPicker === 'start' ? startDate : endDate}
+          mode="date"
+          display="default"
+          onChange={(event, date) => {
+            setShowPicker(null);
+            if (date) {
+              if (showPicker === 'start') setStartDate(date);
+              else setEndDate(date);
+            }
+          }}
+        />
+      )}
     </Modal>
   );
 }

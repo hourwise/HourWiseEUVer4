@@ -385,8 +385,8 @@
         "body": "For correct 'Daily Rest' calculation, you MUST manually enter details of your last completed shift. Go to Menu -> Work History -> tap the correct date and add the shift."
       },
       "step3": {
-        "title": "3. Add Business Details (Optional)",
-        "body": "For invoicing, go to Settings -> Business Profile. Your details will automatically appear on generated PDF invoices."
+        "title": "3. Business Profile & Rate Cards",
+        "body": "Set up your Business Profile with company and bank details. In the Client Management section, you can add clients and configure their specific Rate Cards. This allows HourWise to automatically calculate your earnings based on Hourly, Daily, Mileage (PPM), and Waiting Time rates."
       }
     },
     "workflow": {
@@ -410,12 +410,16 @@
       "step4": {
         "title": "5. Period of Availability (POA)",
         "body": "Use 'POA / Waiting Time' for periods when you are available but not actively working (e.g., waiting for a loading bay). This time is tracked separately from work and breaks."
+      },
+      "step6": {
+        "title": "6. Log Job Details for Billing",
+        "body": "If you use the invoicing system, ensure you record job-specific data like mileage and waiting time before ending your shift. This data, combined with your client's rate card, will automatically populate your professional PDF invoices."
       }
     },
     "keyFeatures": {
       "title": "Key Features",
       "fatigue": {
-        "title": "Fatigue & Focus Monitor",
+        "title": "Fatigue & Focus Index",
         "body": "This appears on the main screen during your shift, providing real-time compliance warnings for insufficient daily rest, upcoming break requirements, and driving/work time limits."
       },
       "messaging": {
@@ -455,8 +459,23 @@
         "body": "Perform comprehensive walkaround checks covering internal and external safety items. Report defects instantly and maintain a digital log of all inspections."
       },
       "invoicing": {
-        "title": "Invoicing & Business Profile",
-        "body": "Set up your Business Profile with company and bank details. Use the 'Download Report' feature to generate professional PDF invoices that automatically include your business information and calculated earnings."
+        "title": "Smart Invoicing",
+        "body": "Set up client-specific 'Rate Cards' with support for Hourly, Daily, Pence-Per-Mile (PPM), and Job rates. HourWise automatically calculates invoice line items from your recorded shifts and job data, including fuel surcharges and waiting time."
+      }
+    },
+    "invoicing": {
+      "title": "Mastering Invoicing",
+      "step1": {
+        "title": "1. Set up Rate Cards",
+        "body": "In Settings -> Business Profile, add a client and configure their Rate Card. You can enable multiple billing types like Daily Rate and Pence Per Mile (PPM) for the same client."
+      },
+      "step2": {
+        "title": "2. Automated Line Items",
+        "body": "When generating an invoice, HourWise cross-references your client's rate card with your recorded shifts, automatically calculating totals for work hours, mileage, and night-out allowances."
+      },
+      "step3": {
+        "title": "3. Custom & Manual Items",
+        "body": "You can add permanent custom line items to a client's rate card, or add one-off manual charges directly on the generation screen before creating your PDF."
       }
     },
     "footer": {
@@ -787,22 +806,6 @@
       "signUpError": {
         "title": "Sign-Up Error"
       },
-      "signUpFailed": {
-        "title": "Sign-Up Failed",
-        "body": "We could not create your account at this time. Please try again later."
-      },
-      "profileCreationFailed": {
-        "title": "Profile Creation Failed",
-        "body": "Your account was created, but we failed to set up your profile. Please contact support."
-      },
-      "checkEmail": {
-        "title": "Check Your Email",
-        "body": "A confirmation link has been sent to your email address. Please verify your account to continue."
-      },
-      "signInMissing": {
-        "title": "Missing Information",
-        "body": "Please enter both your email and password."
-      },
       "signInError": {
         "title": "Sign-In Error"
       }
@@ -843,7 +846,8 @@
       "companyDetails": "Company Details",
       "bankDetails": "Bank Details",
       "companyLogo": "Company Logo",
-      "clients": "Client Management"
+      "clients": "Client Management",
+      "rateCard": "Rate Card"
     },
     "fields": {
       "legalName": {
@@ -897,11 +901,31 @@
         "editClient": "Edit Client",
         "noClients": "No clients added yet.",
         "deleteConfirm": "Are you sure you want to delete this client?",
+        "billingTypes": "Billing Types",
+        "hourly": "Hourly",
+        "daily": "Daily Rate",
+        "ppm": "Pence Per Mile",
+        "job": "Job Rate",
         "fields": {
             "name": "Client Name",
             "address": "Client Address",
-            "email": "Client Email"
-        }
+            "email": "Client Email",
+            "paymentTerms": "Payment Terms",
+            "notes": "Notes",
+            "hourlyRate": "Rate per hour (£)",
+            "dayRate": "Day rate (£)",
+            "nightOutRate": "Night Out Rate (£)",
+            "ppmLoaded": "Loaded rate (pence/mile)",
+            "ppmEmpty": "Empty running rate (pence/mile)",
+            "fuelSurcharge": "Fuel surcharge (%)",
+            "waitingFree": "Free period (minutes)",
+            "waitingRate": "Rate after free period (£/hour)",
+            "description": "Description",
+            "amount": "Amount (£)",
+            "unit": "Unit"
+        },
+        "customItems": "Custom Line Items",
+        "addCustom": "Add Line Item"
     }
   },
   "violation": {
@@ -970,11 +994,17 @@
   "generateReport": "Generate Report",
   "alerts": {
     "lowRestWarning": "Warning: You have had less than 9 hours rest since your last shift.",
+    "reducedRestWarning": "Warning: You have had less than 11 hours rest. This will count as a reduced daily rest.",
     "spreadTitle": "Shift Limit Warning",
     "spread30m": "30 minutes remaining before you reach your 13-hour shift limit.",
     "weeklyDriveTitle": "Weekly Driving Warning",
     "weeklyDrive1h": "1 hour remaining of your 56-hour weekly driving limit.",
     "weeklyDriveLimit": "Weekly driving limit of 56 hours reached."
+  },
+  "digitalClock": {
+    "title": "Current Time",
+    "timeFormat": "HH:mm:ss",
+    "dateFormat": "dddd, MMMM Do YYYY"
   },
   "invoiceGeneration": {
       "title": "Generate Invoice",
@@ -982,14 +1012,8 @@
       "description": "Invoice Description",
       "includeExpenses": "Include Expenses",
       "vatRate": "VAT Rate (%)",
-      "noVat": "No VAT"
-  },
-  "invoiceGeneration_old": {
-      "title": "Generate Invoice",
-      "selectClient": "Select Client",
-      "description": "Invoice Description",
-      "includeExpenses": "Include Expenses",
-      "vatRate": "VAT Rate (%)",
-      "noVat": "No VAT"
+      "noVat": "No VAT",
+      "manualInvoiceNumber": "Invoice Number",
+      "addManualLineItem": "+ Add Manual Line Item"
   }
 }

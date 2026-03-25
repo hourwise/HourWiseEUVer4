@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView } from 'react-native';
-import { AlertTriangle, CheckCircle } from 'react-native-feather';
+import { AlertTriangle, CheckCircle, Shield, Award, AlertCircle } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 import { getViolationInfo } from '../lib/compliance';
 
@@ -17,6 +17,7 @@ interface EndShiftConfirmationModalProps {
   onConfirm: () => void;
   violations: string[];
   shiftTotals: ShiftTotals;
+  score: number;
 }
 
 const formatTime = (seconds: number) => {
@@ -33,14 +34,44 @@ const EndShiftConfirmationModal = ({
   onConfirm,
   violations,
   shiftTotals,
+  score,
 }: EndShiftConfirmationModalProps) => {
   const { t } = useTranslation();
+
+  const getScoreColor = () => {
+    if (score >= 95) return 'text-green-400';
+    if (score >= 80) return 'text-amber-400';
+    return 'text-red-400';
+  };
+
+  const getScoreBg = () => {
+    if (score >= 95) return 'bg-green-500/10 border-green-500/20';
+    if (score >= 80) return 'bg-amber-500/10 border-amber-500/20';
+    return 'bg-red-500/10 border-red-500/20';
+  };
+
+  const ScoreIcon = score >= 95 ? Award : score >= 80 ? Shield : AlertCircle;
+  const iconColor = score >= 95 ? '#4ade80' : score >= 80 ? '#fbbf24' : '#f87171';
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View className="flex-1 justify-center items-center bg-black/70 p-4">
         <View className="bg-slate-800 rounded-2xl w-full max-w-sm p-6 border border-slate-700">
           <Text className="text-white text-2xl font-bold mb-4">{t('endShiftConfirmation.title')}</Text>
+
+          <View className={`flex-row items-center justify-between p-4 rounded-xl border mb-6 ${getScoreBg()}`}>
+            <View className="flex-row items-center gap-3">
+              <ScoreIcon size={24} color={iconColor} />
+              <View>
+                <Text className="text-slate-400 text-xs font-bold uppercase">{t('compliance.score', 'Compliance Score')}</Text>
+                <Text className={`text-2xl font-black ${getScoreColor()}`}>{score}%</Text>
+              </View>
+            </View>
+            <View className="items-end">
+              <Text className="text-slate-500 text-[10px] font-bold uppercase">{violations.length > 0 ? t('compliance.violationsFound', 'Violations') : t('compliance.perfect', 'Perfect')}</Text>
+              <Text className="text-white font-bold">{violations.length}</Text>
+            </View>
+          </View>
 
           <View className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 mb-6">
             <Text className="text-white font-bold mb-3 text-lg border-b border-slate-700 pb-2">

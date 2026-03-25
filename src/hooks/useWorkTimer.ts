@@ -21,7 +21,7 @@ const BG_SPEED_KEY = 'bg_last_speed_v1';
 // --- Motion thresholds ---
 const DRIVING_SPEED_THRESHOLD_KMH = 10;
 const STILL_SPEED_THRESHOLD_KMH = 4;
-const STATIONARY_CONFIRM_MS = 4000;
+const STATIONARY_CONFIRM_MS = 2000;
 const GPS_STALE_THRESHOLD_MS = 10000;
 const MOTION_MAGNITUDE_THRESHOLD = 0.12;
 const ACCEL_SCORE_MAX = 8;
@@ -58,6 +58,12 @@ type PersistedState = {
   weeklyDrivingAccumulator: number;
 };
 
+const toLocalDateString = (date: Date) => {
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
+
 const getTachographBreakSeconds = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
   return (Math.floor(minutes / 15) * 15) * 60;
@@ -77,6 +83,7 @@ const ALERT_TEXT = {
   audioShiftStarted: { titleKey: '', bodyKey: '' },
   audioShiftEnded: { titleKey: '', bodyKey: '' },
   warningLowRest: { titleKey: 'common.error', bodyKey: 'alerts.lowRestWarning' },
+  warningReducedRest: { titleKey: 'common.error', bodyKey: 'alerts.reducedRestWarning' },
   shift13hLimitSoon: { titleKey: 'alerts.spreadTitle', bodyKey: 'alerts.spread30m' },
 } as const;
 
@@ -144,6 +151,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     breakDuration: 0,
     poaDuration: 0,
     weeklyDrivingRemaining: MAX_WEEKLY_DRIVE,
+    lastBreakDuration: 0,
+    lastBreakEndTime: 0, // timestamp in ms
   });
   const [shiftSummaryData, setShiftSummaryData] = useState<any>(null);
 
@@ -159,6 +168,9 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const lastTickMsRef = useRef<number>(Date.now());
   const isDrivingRef = useRef<boolean>(false);
   const isStartingRef = useRef<boolean>(false);
+  const isPersistingRef = useRef<boolean>(false);
+  const prevStatusRef = useRef<WorkStatus>('idle');
+  const lastBreakDurationRef = useRef<number>(0);
 
   const scheduledComplianceIdsRef = useRef<string[]>([]);
   const ukVoiceIdentifierRef = useRef<string | null>(null);
@@ -249,6 +261,19 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     totalsRef.current = t;
     workCycleRef.current = cycle;
   }, []);
+
+  const fetchHistory = useCallback(async () => {
+    if (!userId) return;
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 28);
+    const data = await workSessionService.fetchSessionsForDateRange(
+      userId,
+      toLocalDateString(startDate),
+      toLocalDateString(endDate),
+    );
+    if (data) setHistory(data.filter((s: any) => s.end_time !== null));
+  }, [userId]);
 
   const refreshSession = useCallback(async () => {
     if (!userId || isStartingRef.current) return;
@@ -384,37 +409,49 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, [cancelScheduledComplianceNotifications, timerModeRef]);
 
   const persistFromRefs = useCallback(async () => {
-    if (!userStorageKey) return;
-    const nowMs = Date.now();
-    if (statusRef.current !== 'idle' && segmentStartRef.current) {
-      const segStartMs = new Date(segmentStartRef.current).getTime();
-      const elapsedSinceSegment = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
-      if (elapsedSinceSegment > 0) {
-        applyElapsed(elapsedSinceSegment, statusRef.current, isDrivingRef.current);
-        segmentStartRef.current = new Date(nowMs).toISOString();
+    if (!userStorageKey || isPersistingRef.current) return;
+    isPersistingRef.current = true;
+    try {
+      const nowMs = Date.now();
+      if (statusRef.current !== 'idle' && segmentStartRef.current) {
+        const segStartMs = new Date(segmentStartRef.current).getTime();
+        const elapsedSinceSegment = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
+        if (elapsedSinceSegment > 0) {
+          applyElapsed(elapsedSinceSegment, statusRef.current, isDrivingRef.current);
+          segmentStartRef.current = new Date(nowMs).toISOString();
+        }
       }
+      lastTickMsRef.current = nowMs;
+      const state: PersistedState = {
+        status: statusRef.current,
+        sessionId: sessionIdRef.current,
+        timerMode: timerModeRef.current,
+        workStartTime: workStartRef.current,
+        currentSegmentStart: segmentStartRef.current,
+        totals: totalsRef.current,
+        workCycleTotal: workCycleRef.current,
+        breakTracker: breakTrackerRef.current,
+        isDriving: isDrivingRef.current,
+        lastTickMs: nowMs,
+        weeklyDrivingAccumulator: weeklyDrivingAccumulatorRef.current,
+      };
+      if (state.status !== 'idle') await AsyncStorage.setItem(userStorageKey, JSON.stringify(state));
+      else await AsyncStorage.removeItem(userStorageKey);
+    } finally {
+      isPersistingRef.current = false;
     }
-    lastTickMsRef.current = nowMs;
-    const state: PersistedState = {
-      status: statusRef.current,
-      sessionId: sessionIdRef.current,
-      timerMode: timerModeRef.current,
-      workStartTime: workStartRef.current,
-      currentSegmentStart: segmentStartRef.current,
-      totals: totalsRef.current,
-      workCycleTotal: workCycleRef.current,
-      breakTracker: breakTrackerRef.current,
-      isDriving: isDrivingRef.current,
-      lastTickMs: nowMs,
-      weeklyDrivingAccumulator: weeklyDrivingAccumulatorRef.current,
-    };
-    if (state.status !== 'idle') await AsyncStorage.setItem(userStorageKey, JSON.stringify(state));
-    else await AsyncStorage.removeItem(userStorageKey);
   }, [applyElapsed, userStorageKey]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (next) => {
       if (next !== 'active') return;
+
+      // Refresh sessionData from server in case other_data was modified while app was backgrounded
+      if (statusRef.current !== 'idle') {
+        await refreshSession();
+      }
+
+      // BG speed reconciliation for driving state
       if (statusRef.current !== 'working') return;
       try {
         const raw = await AsyncStorage.getItem(BG_SPEED_KEY);
@@ -428,7 +465,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       } catch (e) { console.warn('BG speed reconciliation failed:', e); }
     });
     return () => sub.remove();
-  }, [commitAndFlipDriving, buildComplianceSchedule]);
+  }, [commitAndFlipDriving, buildComplianceSchedule, refreshSession]);
 
   const stopTracking = useCallback(async () => {
     locationSubRef.current?.remove();
@@ -444,7 +481,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       const { status: foreStatus } = await Location.requestForegroundPermissionsAsync();
       if (foreStatus !== 'granted') return;
       const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-      locationSubRef.current = await Location.watchPositionAsync({ accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 3, timeInterval: 1500 }, (loc) => {
+      locationSubRef.current = await Location.watchPositionAsync({ accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 2, timeInterval: 1000 }, (loc) => {
         const accuracy = loc.coords.accuracy ?? 9999;
         if (accuracy > 50) return;
         const speedKmh = Math.max(0, (loc.coords.speed ?? 0) * 3.6);
@@ -507,6 +544,11 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
 
   const updateTotalsAndSwitchStatus = useCallback(async (newStatus: WorkStatus) => {
     await cancelScheduledComplianceNotifications();
+
+    while (isPersistingRef.current) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
     const nowMs = Date.now();
     const segStartMs = segmentStartRef.current ? new Date(segmentStartRef.current).getTime() : nowMs;
     const elapsedSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
@@ -575,25 +617,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, [userId, userStorageKey, syncStateFromRefs, refreshSession]);
 
   useEffect(() => {
-    if (!userId) return;
-    const fetchHistory = async () => {
-      const toLocalDateString = (date: Date) => {
-        const offset = date.getTimezoneOffset();
-        const localDate = new Date(date.getTime() - (offset * 60 * 1000));
-        return localDate.toISOString().split('T')[0];
-      };
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 28);
-      const data = await workSessionService.fetchSessionsForDateRange(
-        userId,
-        toLocalDateString(startDate),
-        toLocalDateString(endDate),
-      );
-      if (data) setHistory(data.filter((s: any) => s.end_time !== null));
-    };
     fetchHistory();
-  }, [userId]);
+  }, [fetchHistory]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -614,6 +639,25 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       const shiftElapsed = Math.floor((nowMs - shiftStartMs) / 1000);
       const weeklyDrivingTotal = weeklyDrivingAccumulatorRef.current + d.driving;
 
+      // Detect break end: if we were in break and now we're not
+      let lastBreakDuration = display.lastBreakDuration;
+      let lastBreakEndTime = display.lastBreakEndTime;
+
+      if (prevStatusRef.current === 'break' && statusRef.current !== 'break') {
+        // Break just ended - save the duration and timestamp
+        lastBreakDuration = elapsedSec;
+        lastBreakEndTime = nowMs;
+        lastBreakDurationRef.current = elapsedSec;
+      }
+
+      // Fade out last break after 3 minutes (180 seconds)
+      if (lastBreakEndTime > 0 && nowMs - lastBreakEndTime > 180000) {
+        lastBreakDuration = 0;
+        lastBreakEndTime = 0;
+      }
+
+      prevStatusRef.current = statusRef.current;
+
       setDisplay({
         work: d.work, poa: d.poa, break: d.break, driving: d.driving, shift: shiftElapsed,
         workTimeRemaining: maxWork - cycle,
@@ -622,10 +666,12 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         breakDuration: statusRef.current === 'break' ? elapsedSec : 0,
         poaDuration: statusRef.current === 'poa' ? elapsedSec : 0,
         weeklyDrivingRemaining: MAX_WEEKLY_DRIVE - weeklyDrivingTotal,
+        lastBreakDuration,
+        lastBreakEndTime,
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [display.lastBreakDuration, display.lastBreakEndTime]);
 
   useEffect(() => {
     if (status !== 'working' && status !== 'poa') return;
@@ -662,7 +708,14 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     isStartingRef.current = true; setIsStarting(true);
     try {
       const { data: lastSession } = await supabase.from('work_sessions').select('end_time').eq('user_id', userId).order('end_time', { ascending: false }).limit(1).maybeSingle();
-      if (lastSession?.end_time && (Date.now() - new Date(lastSession.end_time).getTime()) / 1000 < 9 * 3600) { vibrateAlert(); speakAlert('warningLowRest'); }
+      if (lastSession?.end_time) {
+        const restSec = (Date.now() - new Date(lastSession.end_time).getTime()) / 1000;
+        if (restSec < 9 * 3600) {
+          await triggerImmediateAlert('warningLowRest');
+        } else if (restSec < 11 * 3600) {
+          await triggerImmediateAlert('warningReducedRest');
+        }
+      }
 
       // Initialize weekly driving accumulator from DB
       const weeklyDrivingMins = await workSessionService.fetchWeeklyDrivingMinutes(userId);
@@ -677,7 +730,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       await persistFromRefs(); await buildComplianceSchedule(); speakAlert('audioShiftStarted');
       await promptBatteryOptimisationIfNeeded();
     } catch (e) { console.error('startWork error:', e); } finally { isStartingRef.current = false; setIsStarting(false); }
-  }, [userId, timezone, persistFromRefs, syncStateFromRefs, buildComplianceSchedule, speakAlert, vibrateAlert]);
+  }, [userId, timezone, persistFromRefs, syncStateFromRefs, buildComplianceSchedule, speakAlert, triggerImmediateAlert]);
 
   const endWork = useCallback(async () => {
     // Commit in-flight segment before snapshotting totals
@@ -706,6 +759,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     setShiftSummaryData({
       totals: finalTotals,
       violations,
+      score,
       onConfirm: async () => {
         if (!sessionIdRef.current) return;
 
@@ -741,11 +795,12 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         setStatus('idle');
         await cancelScheduledComplianceNotifications(true);
         await persistFromRefs();
+        await fetchHistory(); // REFRESH HISTORY AFTER SHIFT ENDS
         setShiftSummaryData(null);
         speakAlert('audioShiftEnded');
       }
     });
-  }, [history, persistFromRefs, cancelScheduledComplianceNotifications, speakAlert, applyElapsed, sessionData]);
+  }, [history, persistFromRefs, cancelScheduledComplianceNotifications, speakAlert, applyElapsed, sessionData, fetchHistory]);
 
   const toggleBreak = useCallback(() =>
     updateTotalsAndSwitchStatus(statusRef.current === 'break' ? 'working' : 'break'),

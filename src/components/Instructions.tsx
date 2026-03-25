@@ -59,6 +59,13 @@ function Instructions({ onClose, visible }: InstructionsProps) {
         <Step title={t('instructions.workflow.step2.title')} body={t('instructions.workflow.step2.body')} />
         <Step title={t('instructions.workflow.step3.title')} body={t('instructions.workflow.step3.body')} />
         <Step title={t('instructions.workflow.step4.title')} body={t('instructions.workflow.step4.body')} />
+        <Step title={t('instructions.workflow.step6.title')} body={t('instructions.workflow.step6.body')} />
+      </Section>
+
+      <Section title={t('instructions.invoicing.title')}>
+        <Step title={t('instructions.invoicing.step1.title')} body={t('instructions.invoicing.step1.body')} />
+        <Step title={t('instructions.invoicing.step2.title')} body={t('instructions.invoicing.step2.body')} />
+        <Step title={t('instructions.invoicing.step3.title')} body={t('instructions.invoicing.step3.body')} />
       </Section>
 
       <Section title={t('instructions.keyFeatures.title')}>

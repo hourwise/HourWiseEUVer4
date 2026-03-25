@@ -11,7 +11,11 @@ export interface DayComplianceInfo {
   totalPoa: number;
 }
 
-const toLocalDateString = (date: Date) => date.toISOString().split('T')[0];
+const toLocalDateString = (date: Date) => {
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+};
 
 export const useComplianceData = (userId: string, currentDate: Date) => {
   const [allSessions, setAllSessions] = useState<WorkSession[]>([]);

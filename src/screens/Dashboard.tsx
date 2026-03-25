@@ -123,6 +123,8 @@ const Row = ({ label, value }: { label: string; value: string }) => (
 
 const ShiftInfoBar = ({ display }: { display: any }) => {
   const { t } = useTranslation();
+  const MAX_WEEKLY_DRIVE = 56 * 3600;
+  const weeklyUsed = MAX_WEEKLY_DRIVE - (display?.weeklyDrivingRemaining ?? MAX_WEEKLY_DRIVE);
   return (
     <View className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 mt-6 w-full">
       <Text className="text-white font-bold mb-3 text-lg border-b border-slate-700 pb-2">{t('shiftSummary.title')}</Text>
@@ -130,6 +132,9 @@ const ShiftInfoBar = ({ display }: { display: any }) => {
       <Row label={t('shiftSummary.totalDriving')} value={formatShiftTime(display?.driving ?? 0)} />
       <Row label={t('shiftSummary.totalBreaks')} value={formatBreakTime(display?.break ?? 0)} />
       <Row label={t('shiftSummary.totalPOA')} value={formatShiftTime(display?.poa ?? 0)} />
+      <View className="border-t border-slate-700 mt-2 pt-2">
+        <Row label="Weekly Driving Used" value={`${formatShiftTime(weeklyUsed)} / 56h`} />
+      </View>
     </View>
   );
 };
@@ -162,7 +167,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const userId = session.user.id;
 
   const { status, sessionId, timerMode, displaySeconds, startWork, endWork, togglePOA, toggleBreak, isDriving, isStarting, shiftSummaryData, setShiftSummaryData } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const display = displaySeconds || { workTimeRemaining: 0, drivingTimeRemaining: 0, breakDuration: 0, work: 0, poa: 0, break: 0, driving: 0 };
+  const display = displaySeconds || { workTimeRemaining: 0, drivingTimeRemaining: 0, spreadoverRemaining: 13 * 3600, breakDuration: 0, work: 0, poa: 0, break: 0, driving: 0, lastBreakDuration: 0, lastBreakEndTime: 0, weeklyDrivingRemaining: 56 * 3600 };
   const driverName = profile?.full_name;
   const payrollNumber = profile?.payroll_number;
   const { previousShiftEnd, currentShiftStart, dailyRest, refreshShiftInfo } = useShiftInfo(userId);
@@ -225,12 +230,13 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
 
   const checkVehicleCheckToday = useCallback(async () => {
     if (!userId) return;
-    const today = toLocalDateString(new Date());
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
     const { data } = await supabase
       .from('vehicle_checks')
       .select('id')
       .eq('driver_id', userId)
-      .gte('created_at', today)
+      .gte('created_at', todayStart.toISOString())
       .limit(1);
 
     setVehicleCheckCompletedToday(data && data.length > 0);
@@ -399,8 +405,10 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   };
   const workLimit = timerMode === '6h' ? 6 * 3600 : 9 * 3600;
   const driveLimit = 4.5 * 3600;
+  const spreadoverLimit = 13 * 3600;
   const workPct = Math.min(100, ((workLimit - (display.workTimeRemaining || 0)) / workLimit) * 100);
   const drivePct = Math.min(100, ((driveLimit - (display.drivingTimeRemaining || 0)) / driveLimit) * 100);
+  const spreadPct = Math.min(100, ((spreadoverLimit - (display.spreadoverRemaining || 0)) / spreadoverLimit) * 100);
 
   const handleOpenMessages = () => {
     navigation.navigate('Messages');
@@ -414,7 +422,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     <SafeAreaView className="flex-1 bg-brand-dark" edges={['top']}>
       <View className="flex-1">
         {dailyReportData ? <DailyComplianceReportModal visible={!!dailyReportData} onClose={() => setDailyReportData(null)} violations={dailyReportData.violations} date={dailyReportData.date}/> : null}
-        {shiftSummaryData ? <EndShiftConfirmationModal visible={!!shiftSummaryData} onClose={() => setShiftSummaryData(null)} onConfirm={shiftSummaryData.onConfirm} violations={shiftSummaryData.violations} shiftTotals={shiftSummaryData.totals}/> : null}
+        {shiftSummaryData ? <EndShiftConfirmationModal visible={!!shiftSummaryData} onClose={() => setShiftSummaryData(null)} onConfirm={shiftSummaryData.onConfirm} violations={shiftSummaryData.violations} shiftTotals={shiftSummaryData.totals} score={shiftSummaryData.score}/> : null}
         <AddExpenseModal visible={showAddExpense} onClose={() => setShowAddExpense(false)} onSaveSuccess={refreshProfile} userId={userId}/>
         <BusinessProfileModal visible={showBusinessProfile} onClose={() => setShowBusinessProfile(false)} />
         <Modal visible={showSafetyWarning} transparent animationType="fade"><SafetyWarningModal onClose={() => setShowSafetyWarning(false)} /></Modal>
@@ -561,6 +569,8 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
               <DigitalClock />
               <View className="mt-6 items-center">
                 {status === 'break' ? ( <View className="items-center mb-4"><Text className="text-5xl font-bold text-compliance-warning">{formatTime(display.breakDuration)}</Text><Text className="text-slate-400">{t('dashboard.breakDuration')}</Text></View>
+                ) : display.lastBreakDuration > 0 && display.lastBreakEndTime > 0 ? (
+                  <View className="items-center mb-4"><Text className="text-lg font-semibold text-slate-300">Last break: {formatTime(display.lastBreakDuration)}</Text></View>
                 ) : status !== 'idle' ? (
                   <><View className="w-full mb-4 items-center">
                     <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">{t('dashboard.workTimeRemaining')}</Text>
@@ -571,7 +581,15 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                     <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">{t('dashboard.drivingTimeRemaining')}</Text>
                     <Text className={`text-5xl font-bold ${display.drivingTimeRemaining < 0 ? 'text-compliance-danger' : 'text-white'}`}>{formatTime(display.drivingTimeRemaining)}</Text>
                     <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.drivingTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-brand-accent'}`} style={{ width: `${drivePct}%` }} /></View>
-                  </View></>
+                  </View>
+                  {display.spreadoverRemaining < 3 * 3600 && (
+                    <View className="w-full mb-4 items-center">
+                      <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">Spreadover Remaining</Text>
+                      <Text className={`text-5xl font-bold ${display.spreadoverRemaining < 0 ? 'text-compliance-danger' : 'text-amber-400'}`}>{formatTime(display.spreadoverRemaining)}</Text>
+                      <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.spreadoverRemaining < 0 ? 'bg-compliance-danger' : 'bg-amber-500'}`} style={{ width: `${spreadPct}%` }} /></View>
+                    </View>
+                  )}
+                  </>
                 ) : (
                   <TouchableOpacity
                     onPress={handleStartWork}
@@ -584,7 +602,11 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                     </Text>
                   </TouchableOpacity>
                 )}
-                {status !== 'idle' ? ( <View className="w-full"><TouchableOpacity onPress={toggleBreak} disabled={isDriving} className={`py-3 rounded-lg mb-3 items-center ${status === 'break' ? 'bg-yellow-500' : 'bg-blue-600'} ${isDriving ? 'opacity-30' : ''}`}><Text className={`font-bold text-lg uppercase ${status === 'break' ? 'text-black' : 'text-white'}`}>{status === 'break' ? t('dashboard.endBreak') : t('dashboard.startBreak')}</Text></TouchableOpacity><TouchableOpacity onPress={togglePOA} disabled={status === 'break' || isDriving} className={`py-3 rounded-lg mb-3 items-center border-2 ${status === 'poa' ? 'bg-orange-400' : 'bg-brand-accent'} ${isDriving ? 'opacity-30' : ''}`}><Text className="text-white font-bold text-lg uppercase">{status === 'poa' ? t('dashboard.resumeWork') : t('dashboard.poaButtonText')}</Text></TouchableOpacity><TouchableOpacity onPress={endWork} disabled={isDriving} className="py-4 rounded-xl bg-compliance-danger mt-4"><Text className="text-white font-bold text-xl text-center uppercase">{t('dashboard.endShift')}</Text></TouchableOpacity></View> ) : null}
+                {status !== 'idle' ? ( <View className="w-full">
+                    {/* TODO: Navigate to ShiftJobsScreen before EndShiftConfirmationModal to capture per-job mileage, waiting time and night out data for invoice generation. */}
+                    <TouchableOpacity onPress={toggleBreak} disabled={isDriving} className={`py-3 rounded-lg mb-3 items-center ${status === 'break' ? 'bg-yellow-500' : 'bg-blue-600'} ${isDriving ? 'opacity-30' : ''}`}><Text className={`font-bold text-lg uppercase ${status === 'break' ? 'text-black' : 'text-white'}`}>{status === 'break' ? t('dashboard.endBreak') : t('dashboard.startBreak')}</Text></TouchableOpacity><TouchableOpacity onPress={togglePOA} disabled={status === 'break' || isDriving} className={`py-3 rounded-lg mb-3 items-center border-2 ${status === 'poa' ? 'bg-orange-400' : 'bg-brand-accent'} ${isDriving ? 'opacity-30' : ''}`}><Text className="text-white font-bold text-lg uppercase">{status === 'poa' ? t('dashboard.resumeWork') : t('dashboard.poaButtonText')}</Text></TouchableOpacity><TouchableOpacity onPress={endWork} disabled={isDriving} className="py-4 rounded-xl bg-compliance-danger mt-4"><Text className="text-white font-bold text-xl text-center uppercase">{t('dashboard.endShift')}</Text></TouchableOpacity>
+                    {isDriving && <Text className="text-red-400 text-xs text-center mt-2 font-bold uppercase">Stop vehicle before ending shift</Text>}
+                    </View> ) : null}
               </View>
               {status !== 'idle' ? <ShiftInfoBar display={display} /> : null}
             </View>
