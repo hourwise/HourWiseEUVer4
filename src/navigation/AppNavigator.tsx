@@ -1,7 +1,8 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, TouchableOpacity, Text, SafeAreaView, StatusBar } from 'react-native';
+import { View, TouchableOpacity, Text, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../providers/AuthProvider';
 import { useSubscriptionData } from '../providers/SubscriptionProvider';

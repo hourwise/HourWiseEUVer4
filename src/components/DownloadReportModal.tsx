@@ -25,7 +25,7 @@ interface ManualLineItem {
 
 export default function DownloadReportModal({ onClose, visible }: DownloadReportModalProps) {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { session } = useAuth();
 
   const [reportType, setReportType] = useState<ReportType>('report');
   const [range, setRange] = useState<ReportRange>('last_week');
@@ -46,15 +46,15 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
   const selectedClient = clients.find(c => c.id === selectedClientId);
 
   useEffect(() => {
-    if (visible && user) {
+    if (visible && session?.user) {
       loadInitialData();
     }
   }, [visible, reportType]);
 
   const loadInitialData = async () => {
-    if (!user) return;
+    if (!session?.user) return;
     try {
-      const data = await reportService.getReportData(user.id, startDate, endDate);
+      const data = await reportService.getReportData(session.user.id, startDate, endDate);
       setClients(data.clients || []);
       const nextNum = (data.businessProfile?.invoice_counter || 1).toString().padStart(4, '0');
       setManualInvoiceNumber(nextNum);
@@ -102,7 +102,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
     const lineItems: {description: string, quantity: string, unitPrice: number, total: number}[] = [];
 
     // Hourly billing
-    if (client.hourly_rate && (client.billing_types || []).includes('hourly')) {
+    if (client.hourly_rate && (client.billing_type || []).includes('hourly')) {
       const totalPaidMinutes = sessions.reduce((sum, s) => {
         // Assume all work minutes are paid for now (could subtract unpaid breaks if implemented)
         return sum + (s.total_work_minutes || 0);
@@ -119,7 +119,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
     }
 
     // Daily rate billing
-    if (client.daily_rate && (client.billing_types || []).includes('daily')) {
+    if (client.daily_rate && (client.billing_type || []).includes('daily')) {
       const workingDays = sessions.length;
       if (workingDays > 0) {
         lineItems.push({
@@ -145,7 +145,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
     }
 
     // PPM
-    if (client.ppm_loaded_rate && (client.billing_types || []).includes('ppm')) {
+    if (client.ppm_loaded_rate && (client.billing_type || []).includes('ppm')) {
       const totalLoadedMiles = shiftJobs.reduce((sum, j) => sum + (j.loaded_miles || 0), 0);
       if (totalLoadedMiles > 0) {
         const loadedTotal = totalLoadedMiles * (client.ppm_loaded_rate / 100);
@@ -158,7 +158,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
       }
     }
 
-    if (client.ppm_empty_rate && (client.billing_types || []).includes('ppm')) {
+    if (client.ppm_empty_rate && (client.billing_type || []).includes('ppm')) {
       const totalEmptyMiles = shiftJobs.reduce((sum, j) => sum + (j.empty_miles || 0), 0);
       if (totalEmptyMiles > 0) {
         const emptyTotal = totalEmptyMiles * (client.ppm_empty_rate / 100);
@@ -244,7 +244,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
   };
 
   const generateReport = async () => {
-    if (!user) return;
+    if (!session?.user) return;
     const { start, end } = getRangeDates();
     if (range === 'custom' && end < start) {
       Alert.alert(t('common.error'), t('dateRangeError'));
@@ -258,7 +258,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
 
     setIsLoading(true);
     try {
-      const reportData = await reportService.getReportData(user.id, start, end);
+      const reportData = await reportService.getReportData(session.user.id, start, end);
 
       let html = '';
       let filename = '';
@@ -290,7 +290,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
         filename = `Invoice_${invNum}_${format(start, 'yyyy-MM-dd')}.pdf`;
 
         // Increment invoice counter in DB using the manually entered number
-        await reportService.incrementInvoiceCounter(user.id, parseInt(invNum, 10));
+        await reportService.incrementInvoiceCounter(session.user.id, parseInt(invNum, 10));
 
       } else if (reportType === 'vehicle_check') {
         if (reportData.vehicleChecks.length === 0) {

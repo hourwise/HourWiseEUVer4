@@ -722,7 +722,7 @@
   "drivingTimeWarningTitle": "Driving Time Warning",
   "workTime30minLeft": "30 minutes remaining in your work cycle.",
   "workTime15minLeft": "15 minutes remaining in your work cycle.",
-  "workTime5minLeft": "15 minutes remaining in your work cycle.",
+  "workTime5minLeft": "5 minutes remaining in your work cycle.",
   "workTimeLimitReached": "Work time limit reached.",
   "drivingTime30minLeft": "30 minutes remaining in your driving cycle.",
   "drivingTime15minLeft": "15 minutes of driving remaining.",

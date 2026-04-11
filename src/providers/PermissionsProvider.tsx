@@ -38,10 +38,14 @@ const withTimeout = async <T,>(p: Promise<T>, ms = 5000): Promise<T> => {
 const setupNotificationChannels = async () => {
   if (Platform.OS !== 'android') return;
 
-  // 1. Standard Messages
+  // 1. Messages (fleet + system)
   await Notifications.setNotificationChannelAsync('messages', {
     name: 'Messages',
-    importance: Notifications.AndroidImportance.DEFAULT,
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: 'default',
+    enableVibrate: true,
+    vibrationPattern: [0, 250, 100, 250],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
   // 2. Default Compliance Alerts (Fallback)

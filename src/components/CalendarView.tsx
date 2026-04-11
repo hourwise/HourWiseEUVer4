@@ -248,12 +248,19 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
     const year = currentDate.getFullYear(), month = currentDate.getMonth();
     const firstDay = new Date(year, month, 1), lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate(), startingDayOfWeek = (firstDay.getDay() + 6) % 7;
-    const days = Array.from({ length: startingDayOfWeek }, () => null).concat(Array.from({ length: daysInMonth }, (_, i) => i + 1));
-    const grid = [];
-    for (let i = 0; i < days.length; i += 7) grid.push(days.slice(i, i + 7));
-    if (grid[grid.length - 1].length < 7) {
-      grid[grid.length - 1] = grid[grid.length - 1].concat(Array(7 - grid[grid.length - 1].length).fill(null));
+    const days: (number | null)[] = Array.from({ length: startingDayOfWeek }, () => null);
+    const dayNumbers = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const allDays = days.concat(dayNumbers);
+
+    const grid: (number | null)[][] = [];
+    for (let i = 0; i < allDays.length; i += 7) {
+        const week = allDays.slice(i, i + 7);
+        while (week.length < 7) {
+            week.push(null);
+        }
+        grid.push(week);
     }
+
     return { weeks: grid, monthName: currentDate.toLocaleString('default', { month: 'long', year: 'numeric' }) };
   }, [currentDate]);
 
@@ -280,9 +287,9 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
             <View className="flex-row mb-4 border-b border-slate-700 pb-2">
                 {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => <Text key={i} className="flex-1 text-center text-slate-500 font-semibold">{day}</Text>)}
             </View>
-            {weeks.map((week: any, weekIndex: number) => (
+            {weeks.map((week: (number | null)[], weekIndex: number) => (
                 <View key={weekIndex} className="flex-row mb-2">
-                    {week.map((day: any, dayIndex: number) => {
+                    {week.map((day: number | null, dayIndex: number) => {
                         if (!day) return <View key={dayIndex} className="flex-1 p-2" />;
                         const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                         const hasSession = sessions.some(s => s.date === dateStr);
@@ -324,7 +331,7 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
       </ScrollView>
 
       <DayDetailsModal t={t} visible={!!selectedDate} onClose={() => setSelectedDate(null)} selectedDate={selectedDate} sessions={sessions} dailyPay={selectedDate ? dailyPays.get(selectedDate) : null} timezone={timezone} onAddShift={handleAddShift} onEditShift={handleEditShift} vehicleEvents={vehicleEvents} />
-      {isEditorOpen && <SessionEditorModal visible={isEditorOpen} onClose={() => setIsEditorOpen(false)} sessionToEdit={editingSession} selectedDate={newShiftDate} onSave={() => { setIsEditorOpen(false); refreshSessions(); onDataChanged(); }} />}
+      {isEditorOpen && <SessionEditorModal visible={isEditorOpen} onClose={() => setIsEditorOpen(false)} sessionToEdit={editingSession as any} selectedDate={newShiftDate} onSave={() => { setIsEditorOpen(false); refreshSessions(); onDataChanged(); }} />}
     </View>
   );
 }

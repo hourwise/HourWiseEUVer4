@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "lib": ["deno.window"],
+    "module": "esnext",
+    "moduleResolution": "node",
+    "noEmit": true,
+    "strict": true,
+    "target": "esnext",
+    "types": [
+      "https://deno.land/x/types/react/v18/index.d.ts"
+    ]
+  },
+  "include": ["./**/*.ts"]
+}

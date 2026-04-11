@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Alert, Image } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { verifyInviteCode } from '../lib/inviteService';
-import type { Database } from '../lib/database.types';
+import type { Database } from '../types/supabase';
 import { useAuth } from '../providers/AuthProvider'; // Import useAuth
 
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
@@ -68,8 +68,18 @@ export default function Auth() {
     <>
       <View style={styles.toggleContainer}><TouchableOpacity style={[styles.toggleButton, accountType === 'solo' && styles.toggleButtonActive]} onPress={() => setAccountType('solo')}><Text style={[styles.toggleButtonText, accountType === 'solo' && styles.toggleButtonTextActive]}>Solo Driver</Text></TouchableOpacity><TouchableOpacity style={[styles.toggleButton, accountType === 'fleet' && styles.toggleButtonActive]} onPress={() => setAccountType('fleet')}><Text style={[styles.toggleButtonText, accountType === 'fleet' && styles.toggleButtonTextActive]}>Fleet Member</Text></TouchableOpacity></View>
       {accountType === 'solo' ? (<TextInput style={styles.input} placeholder="Full Name" value={fullName} onChangeText={setFullName} placeholderTextColor="#94a3b8" />) : (<><View style={styles.inviteContainer}><TextInput style={[styles.input, styles.inviteInput]} placeholder="Invite Code" value={inviteCode} onChangeText={setInviteCode} autoCapitalize="characters" editable={!verifiedInvite} placeholderTextColor="#94a3b8" /><TouchableOpacity style={styles.verifyButton} onPress={handleVerifyCode} disabled={verifying || !!verifiedInvite}>{verifying ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Verify</Text>}</TouchableOpacity></View>{verifiedInvite && <Text style={styles.verifiedText}>✓ Verified: Welcome, {fullName}!</Text>}</>)}
-      <TextInput style={[styles.input, verifiedInvite && styles.inputDisabled]} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" editable={!verifiedInvite} placeholderTextColor="#94a3b8" />
-      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry placeholderTextColor="#94a3b8" />
+      <TextInput
+        style={[styles.input, verifiedInvite && styles.inputDisabled]}
+        placeholder="Email"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+        autoCorrect={false}
+        editable={!verifiedInvite}
+        placeholderTextColor="#94a3b8"
+      />
+      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" autoCorrect={false} placeholderTextColor="#94a3b8" />
     </>
   );
 
@@ -79,7 +89,30 @@ export default function Auth() {
       <View style={styles.card}>
         <Text style={styles.title}>{mode === 'signIn' ? 'Sign In' : 'Create Account'}</Text>
         {mode === 'signUp' && renderSignUpForm()}
-        {mode === 'signIn' && (<><TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" placeholderTextColor="#94a3b8" /><TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry placeholderTextColor="#94a3b8" /></>)}
+        {mode === 'signIn' && (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoCorrect={false}
+              placeholderTextColor="#94a3b8"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholderTextColor="#94a3b8"
+            />
+          </>
+        )}
         <TouchableOpacity style={styles.button} onPress={mode === 'signIn' ? handleLogin : handleSignUp} disabled={loading}>{loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue</Text>}</TouchableOpacity>
         <TouchableOpacity onPress={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}><Text style={styles.switch}>{mode === 'signIn' ? "Don't have an account? Sign Up" : 'Already have an account? Sign In'}</Text></TouchableOpacity>
       </View>

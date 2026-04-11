@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../providers/AuthProvider';
 
 const CreateProfileScreen = () => {
-  const { user, refreshSession } = useAuth();
+  const { session, refreshProfile } = useAuth();
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<'driver' | 'manager'>('driver');
   const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleCreateProfile = async () => {
-    if (!user) {
+    if (!session?.user) {
       Alert.alert('Error', 'You must be logged in to create a profile.');
       return;
     }
@@ -33,7 +33,7 @@ const CreateProfileScreen = () => {
       if (role === 'manager' && companyName.trim()) {
         const { data: company, error: companyError } = await supabase
           .from('companies')
-          .insert({ name: companyName.trim(), created_by: user.id })
+          .insert({ name: companyName.trim(), created_by: session.user.id })
           .select()
           .single();
 
@@ -42,8 +42,9 @@ const CreateProfileScreen = () => {
       }
 
       const { error: profileError } = await supabase.from('profiles').insert({
-        user_id: user.id,
-        email: user.email,
+        id: session.user.id,
+        user_id: session.user.id,
+        email: session.user.email,
         full_name: fullName.trim(),
         role,
         company_id: companyId,
@@ -53,7 +54,7 @@ const CreateProfileScreen = () => {
       if (profileError) throw profileError;
       
       Alert.alert('Success', 'Your profile has been created.');
-      await refreshSession(); // This will trigger a reload in AppNavigator
+      await refreshProfile(); // This will trigger a reload in AppNavigator
 
     } catch (error) {
       console.error('Error creating profile:', error);

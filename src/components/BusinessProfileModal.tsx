@@ -19,7 +19,7 @@ interface Client {
   email: string;
   payment_terms?: string;
   notes?: string;
-  billing_types?: string[]; // 'hourly', 'daily', 'ppm', 'job'
+  billing_type?: string[]; // 'hourly', 'daily', 'ppm', 'job'
   hourly_rate?: number;
   daily_rate?: number;
   night_out_rate?: number;
@@ -164,11 +164,11 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
   };
 
   const toggleBillingType = (type: string) => {
-    const currentTypes = editingClient?.billing_types || [];
+    const currentTypes = editingClient?.billing_type || [];
     if (currentTypes.includes(type)) {
-      setEditingClient({ ...editingClient, billing_types: currentTypes.filter(t => t !== type) });
+      setEditingClient({ ...editingClient, billing_type: currentTypes.filter(t => t !== type) });
     } else {
-      setEditingClient({ ...editingClient, billing_types: [...currentTypes, type] });
+      setEditingClient({ ...editingClient, billing_type: [...currentTypes, type] });
     }
   };
 
@@ -389,7 +389,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                 <View className="space-y-4 pt-4 border-t border-slate-700">
                     <View className="flex-row items-center justify-between">
                         <Text className="text-lg font-semibold text-white">{t('businessProfile.sections.clients')}</Text>
-                        <TouchableOpacity onPress={() => { setEditingClient({ payment_terms: 'Payment due within 30 days', billing_types: [], custom_line_items: [] }); setShowClientModal(true); }} className="flex-row items-center gap-2 bg-brand-accent/20 px-3 py-1.5 rounded-lg border border-brand-accent/50">
+                        <TouchableOpacity onPress={() => { setEditingClient({ payment_terms: 'Payment due within 30 days', billing_type: [], custom_line_items: [] }); setShowClientModal(true); }} className="flex-row items-center gap-2 bg-brand-accent/20 px-3 py-1.5 rounded-lg border border-brand-accent/50">
                             <Plus size={16} color="#F59E0B" />
                             <Text className="text-brand-accent font-bold">{t('businessProfile.clients.addClient')}</Text>
                         </TouchableOpacity>
@@ -503,24 +503,24 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                           <Text className="text-sm font-medium text-slate-300 mb-2">{t('businessProfile.clients.billingTypes')}</Text>
                           <View className="flex-row flex-wrap gap-2 mb-6">
                             {[
-                              { id: 'hourly', label: t('businessProfile.clients.hourly'), icon: <Clock size={14} color={editingClient?.billing_types?.includes('hourly') ? 'white' : '#64748b'} /> },
-                              { id: 'daily', label: t('businessProfile.clients.daily'), icon: <Truck size={14} color={editingClient?.billing_types?.includes('daily') ? 'white' : '#64748b'} /> },
-                              { id: 'ppm', label: t('businessProfile.clients.ppm'), icon: <Map size={14} color={editingClient?.billing_types?.includes('ppm') ? 'white' : '#64748b'} /> },
-                              { id: 'job', label: t('businessProfile.clients.job'), icon: <DollarSign size={14} color={editingClient?.billing_types?.includes('job') ? 'white' : '#64748b'} /> }
+                              { id: 'hourly', label: t('businessProfile.clients.hourly'), icon: <Clock size={14} color={editingClient?.billing_type?.includes('hourly') ? 'white' : '#64748b'} /> },
+                              { id: 'daily', label: t('businessProfile.clients.daily'), icon: <Truck size={14} color={editingClient?.billing_type?.includes('daily') ? 'white' : '#64748b'} /> },
+                              { id: 'ppm', label: t('businessProfile.clients.ppm'), icon: <Map size={14} color={editingClient?.billing_type?.includes('ppm') ? 'white' : '#64748b'} /> },
+                              { id: 'job', label: t('businessProfile.clients.job'), icon: <DollarSign size={14} color={editingClient?.billing_type?.includes('job') ? 'white' : '#64748b'} /> }
                             ].map(type => (
                               <TouchableOpacity
                                 key={type.id}
                                 onPress={() => toggleBillingType(type.id)}
-                                className={`flex-row items-center gap-2 px-4 py-2 rounded-full border ${editingClient?.billing_types?.includes(type.id) ? 'bg-brand-accent border-brand-accent' : 'bg-slate-800 border-slate-600'}`}
+                                className={`flex-row items-center gap-2 px-4 py-2 rounded-full border ${editingClient?.billing_type?.includes(type.id) ? 'bg-brand-accent border-brand-accent' : 'bg-slate-800 border-slate-600'}`}
                               >
                                 {type.icon}
-                                <Text className={`text-sm font-semibold ${editingClient?.billing_types?.includes(type.id) ? 'text-white' : 'text-slate-400'}`}>{type.label}</Text>
+                                <Text className={`text-sm font-semibold ${editingClient?.billing_type?.includes(type.id) ? 'text-white' : 'text-slate-400'}`}>{type.label}</Text>
                               </TouchableOpacity>
                             ))}
                           </View>
 
                           {/* Hourly Section */}
-                          {editingClient?.billing_types?.includes('hourly') && (
+                          {editingClient?.billing_type?.includes('hourly') && (
                             <View className="p-4 bg-slate-800/50 rounded-xl border border-slate-700 mb-4">
                               <Text className="font-bold text-white mb-3">{t('businessProfile.clients.hourly')}</Text>
                               <View>
@@ -537,7 +537,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                           )}
 
                           {/* Daily Section */}
-                          {editingClient?.billing_types?.includes('daily') && (
+                          {editingClient?.billing_type?.includes('daily') && (
                             <View className="p-4 bg-slate-800/50 rounded-xl border border-slate-700 mb-4">
                               <Text className="font-bold text-white mb-3">{t('businessProfile.clients.daily')}</Text>
                               <View className="flex-row gap-3">
@@ -566,7 +566,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                           )}
 
                           {/* PPM Section */}
-                          {editingClient?.billing_types?.includes('ppm') && (
+                          {editingClient?.billing_type?.includes('ppm') && (
                             <View className="p-4 bg-slate-800/50 rounded-xl border border-slate-700 mb-4">
                               <Text className="font-bold text-white mb-3">{t('businessProfile.clients.ppm')}</Text>
                               <View className="space-y-3">

@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StatusBar, Platform, Linking, Alert } from 'react-native';
+import { View, ActivityIndicator, StatusBar } from 'react-native';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
-import * as IntentLauncher from 'expo-intent-launcher';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import i18n, { i18nConfig } from './lib/i18n';
+import i18n from './lib/i18n';
 
 import { AuthProvider } from './providers/AuthProvider';
 import { SubscriptionProvider } from './providers/SubscriptionProvider';
@@ -48,7 +47,7 @@ Notifications.setNotificationHandler({
 });
 
 export default function App() {
-  const [i18nReady, setI18nReady] = useState(false);
+  const [i18nReady, setI18nReady] = useState(i18n.isInitialized);
 
   useEffect(() => {
     let mounted = true;
@@ -56,7 +55,13 @@ export default function App() {
     const init = async () => {
       try {
         if (!i18n.isInitialized) {
-          await i18n.init(i18nConfig);
+          // i18n is initialized in src/lib/i18n.ts, but we check here just in case
+          // if it's not initialized, it will initialize itself due to the .init() call in src/lib/i18n.ts
+          // We just wait for it to be ready.
+          await new Promise<void>((resolve) => {
+            if (i18n.isInitialized) resolve();
+            i18n.on('initialized', () => resolve());
+          });
         }
         if (mounted) setI18nReady(true);
       } catch (e) {
@@ -64,9 +69,12 @@ export default function App() {
       }
     };
 
-    init();
+    if (!i18nReady) {
+      init();
+    }
+
     return () => { mounted = false; };
-  }, []);
+  }, [i18nReady]);
 
   if (!i18nReady) {
     return (

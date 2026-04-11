@@ -4,7 +4,7 @@ import { Clock } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 
 export const DigitalClock = () => {
-  const { t } = useTranslation();
+  const { i18n } = useTranslation();
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -12,8 +12,10 @@ export const DigitalClock = () => {
     return () => clearInterval(timerId);
   }, []);
 
+  const locale = i18n.language;
+
   // Format time in 24-hour format
-  const formattedTime = time.toLocaleTimeString([], {
+  const formattedTime = time.toLocaleTimeString(locale, {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -21,7 +23,7 @@ export const DigitalClock = () => {
   });
 
   // Format date with weekday, day, month, year
-  const formattedDate = time.toLocaleDateString([], {
+  const formattedDate = time.toLocaleDateString(locale, {
     weekday: 'long',
     year: 'numeric',
     month: 'long',

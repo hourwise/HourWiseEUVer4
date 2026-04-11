@@ -9,7 +9,7 @@ import React, {
 import { Alert } from 'react-native';
 import { supabase } from '../lib/supabase';
 import type { Session, SignInWithPasswordCredentials, SignUpWithPasswordCredentials } from '@supabase/supabase-js';
-import type { Database } from '../lib/database.types';
+import type { Database } from '../types/supabase';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
@@ -111,8 +111,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (error) throw error;
   };
 
-  const signUp = async ({ email, password, fullName, accountType, invite }: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; }) => {
-    const { data, error: authError } = await supabase.auth.signUp({ email, password });
+  const signUp = async ({ email, password, options, fullName, accountType, invite }: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; }) => {
+    const { data, error: authError } = await supabase.auth.signUp({ email, password, options });
     if (authError) throw authError;
     if (!data.user) throw new Error('Sign up failed.');
 

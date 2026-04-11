@@ -11,7 +11,7 @@ import enTranslations from './i18n/en.json';
 
 // We prioritize en-GB for EU compliance (date formats, currency, etc.)
 const supportedLanguages = [
-  'en-GB', 'de', 'fr', 'es', 'it', 'pl', 'ro', 'nl', 'pt', 'uk', 'hu', 'bg', 'lt', 'cs', 'sk', 'lv', 'tr'
+  'en', 'en-GB', 'de', 'fr', 'es', 'it', 'pl', 'ro', 'nl', 'pt', 'uk', 'hu', 'bg', 'lt', 'cs', 'sk', 'lv', 'tr'
 ];
 
 // Map en-GB back to en for remote requests as the server hosts en.json

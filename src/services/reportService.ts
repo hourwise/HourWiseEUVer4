@@ -31,7 +31,7 @@ export interface Client {
   waiting_time_free_minutes?: number;
   waiting_time_rate?: number;
   custom_line_items?: any[];
-  billing_types?: string[];
+  billing_type?: string[];
 }
 
 export interface ShiftJob {

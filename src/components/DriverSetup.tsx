@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { Save, Plus, Trash2, X } from 'react-native-feather';
 import { Session } from '@supabase/supabase-js';
 import { useAuth } from '../providers/AuthProvider';
-import type { Database } from '../lib/database.types';
+import type { Database } from '../types/supabase';
 
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
 type Profile = Database['public']['Tables']['profiles']['Row'];
@@ -373,12 +373,12 @@ const styles = StyleSheet.create({
     saveButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
     subtitle: { fontSize: 18, color: '#94A3B8', marginBottom: 24, textAlign: 'center' },
     sectionTitle: { fontSize: 20, fontWeight: '600', color: 'white', marginBottom: 12 },
-    inlineInputContainer: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 12 },
+    inlineInputContainer: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginBottom: 12 },
     unitSelector: { backgroundColor: '#334155', height: 50, justifyContent: 'center', alignItems: 'center', borderRadius: 8, paddingHorizontal: 12 },
     unitSelectorText: { color: 'white', fontWeight: '600', textTransform: 'capitalize' },
     addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#334155', padding: 12, borderRadius: 8, marginTop: 8 },
     addButtonText: { color: 'white', fontWeight: '600' },
-    removeButton: { paddingVertical: 10 },
+    removeButton: { paddingVertical: 10, marginTop: 22 },
 });
 
 export default DriverSetup;

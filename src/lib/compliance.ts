@@ -163,12 +163,11 @@ function breakSatisfiesWtdRule(session: any, thresholdMins: number): boolean {
 
   if (total >= thresholdMins) return true;
 
-  // For the 30-min WTD threshold, a 15+15 split is NOT sufficient —
-  // it must be a single uninterrupted 30-min period.
-  // For the 45-min WTD threshold, the 15+30 split is valid.
-  if (thresholdMins === RULES.MIN_BREAK_AFTER_9H_MINS && has15 && total >= thresholdMins) {
-    return true;
-  }
+  // WTD 2002/15/EC Art. 5.2 — breaks may be subdivided into periods of at
+  // least 15 minutes each. So both the 30-min (>6h work) and 45-min (>9h work)
+  // thresholds can be satisfied by splits of ≥15 min each.
+  // has15minBreak confirms a qualifying 15-min segment was taken first.
+  if (has15 && total >= thresholdMins) return true;
 
   return false;
 }
@@ -284,7 +283,8 @@ function checkFortnightlyDriving(
  * The live hook alert handles real-time enforcement.
  */
 function checkWtdBreaks(today: any): ViolationKey | null {
-  const work  = workMins(today);
+  // WTD working time = driving + non-driving work (POA excluded per 2002/15/EC)
+  const work  = workMins(today) + driveMins(today);
   const total = breakMins(today);
 
   if (work > RULES.MAX_WORK_BEFORE_LONG_BREAK_MINS) {
@@ -338,6 +338,7 @@ function checkDailyRest(
   today: any,
   previousSession: any | null,
   sessionsThisWeekExcludingToday: any[],
+  allSessionsSorted: any[],
 ): ViolationKey | null {
   if (!previousSession?.end_time) return null;
 
@@ -350,13 +351,15 @@ function checkDailyRest(
   }
 
   if (restHours < RULES.MIN_DAILY_REST_HOURS_REGULAR) {
-    // Reduced rest taken — check whether allowance already exhausted this week
+    // Reduced rest taken — check whether allowance already exhausted this week.
+    // We check all sessions this week against the full sorted history so that
+    // rest gaps straddling a week boundary (e.g. Sun→Mon) are counted correctly.
     const reducedRestsThisWeek = sessionsThisWeekExcludingToday.filter(s => {
-      const precedingIdx = sessionsThisWeekExcludingToday.indexOf(s) - 1;
-      if (precedingIdx < 0) return false;
-      const prev = sessionsThisWeekExcludingToday[precedingIdx];
-      if (!prev?.end_time) return false;
-      const gap = (new Date(s.start_time).getTime() - new Date(prev.end_time).getTime()) / (1000 * 3600);
+      const prevForS = allSessionsSorted.findLast(
+        h => new Date(h.start_time).getTime() < new Date(s.start_time).getTime()
+      );
+      if (!prevForS?.end_time) return false;
+      const gap = (new Date(s.start_time).getTime() - new Date(prevForS.end_time).getTime()) / (1000 * 3600);
       return gap >= RULES.MIN_DAILY_REST_HOURS_REDUCED && gap < RULES.MIN_DAILY_REST_HOURS_REGULAR;
     }).length;
 
@@ -479,7 +482,12 @@ export const calculateCompliance = (
 
   // --- EC 561/2006 Rest rules ---
 
-  const dailyRest = checkDailyRest(currentShift, previousSession, sessionsThisWeek);
+  // TODO: Weekly rest check (Art. 8.6) — drivers must take ≥45h regular weekly
+  // rest per week (reducible to 24h once per fortnight with 3-week compensation).
+  // Requires tracking rest gaps between working weeks, not just daily sessions.
+  // Add once sufficient real-shift data is available for testing.
+
+  const dailyRest = checkDailyRest(currentShift, previousSession, sessionsThisWeek, historySorted);
   if (dailyRest) violations.push(dailyRest);
 
   // -------------------------------------------------------------------------

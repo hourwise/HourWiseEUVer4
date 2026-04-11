@@ -293,30 +293,40 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     checkDailyReport();
   }, [userId]);
 
-  useEffect(() => {
-    if (!profile?.company_id) return;
-    const channel = supabase
-      .channel(`broadcasts:${profile.company_id}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'broadcasts', filter: `company_id=eq.${profile.company_id}` },
-        (payload) => {
-          setHasUnreadMessages(true);
-          Notifications.scheduleNotificationAsync({
-            content: {
-              title: t('messages.notificationTitle', 'New Fleet Message'),
-              body: (payload.new as any).content,
-              sound: 'default',
-              channelId: 'messages',
-            },
-            trigger: null,
-          });
-        }
-      )
-      .subscribe();
+useEffect(() => {
+  if (!profile?.company_id) return;
 
-    return () => { channel.unsubscribe(); };
-  }, [profile?.company_id, t]);
+  const channel = supabase
+    .channel(`broadcasts:${profile.company_id}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'broadcasts',
+        filter: `company_id=eq.${profile.company_id}`
+      },
+      (payload) => {
+        setHasUnreadMessages(true);
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: t('messages.notificationTitle', 'New Fleet Message'),
+            body: (payload.new as any).content,
+            sound: 'default',
+          },
+          trigger: {
+            channelId: 'messages',
+            seconds: 1,
+          },
+        });
+      }
+    ) // This closes the .on()
+    .subscribe(); // This is the line that was failing
+
+  return () => {
+    channel.unsubscribe();
+  };
+}, [profile?.company_id, t]);
 
   useEffect(() => {
     const channel = supabase
@@ -324,14 +334,25 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'system_messages' },
-        () => {
+        (payload) => {
           setHasUnreadMessages(true);
+          Notifications.scheduleNotificationAsync({
+            content: {
+              title: t('messages.systemNotificationTitle', 'System Announcement'),
+              body: (payload.new as any).content,
+              sound: 'default',
+            },
+            trigger: {
+              channelId: 'messages',
+              seconds: 1,
+            },
+          });
         }
       )
       .subscribe();
 
     return () => { channel.unsubscribe(); };
-  }, []);
+  }, [t]);
 
   const dailyCumulativeTotals = useMemo(() => {
     // During an active shift, display already has live totals for today.
@@ -409,6 +430,13 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const workPct = Math.min(100, ((workLimit - (display.workTimeRemaining || 0)) / workLimit) * 100);
   const drivePct = Math.min(100, ((driveLimit - (display.drivingTimeRemaining || 0)) / driveLimit) * 100);
   const spreadPct = Math.min(100, ((spreadoverLimit - (display.spreadoverRemaining || 0)) / spreadoverLimit) * 100);
+
+  const getProgressBarColor = (pct: number) => {
+    if (pct >= 75) return '#ef4444'; // red
+    if (pct >= 50) return '#f97316'; // orange
+    if (pct >= 25) return '#eab308'; // yellow
+    return '#22c55e';                // green
+  };
 
   const handleOpenMessages = () => {
     navigation.navigate('Messages');
@@ -575,12 +603,12 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                   <><View className="w-full mb-4 items-center">
                     <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">{t('dashboard.workTimeRemaining')}</Text>
                     <Text className={`text-5xl font-bold ${display.workTimeRemaining < 0 ? 'text-compliance-danger' : 'text-white'}`}>{formatTime(display.workTimeRemaining)}</Text>
-                    <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.workTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-compliance-success'}`} style={{ width: `${workPct}%` }} /></View>
+                    <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View style={{ height: '100%', width: `${workPct}%`, backgroundColor: getProgressBarColor(workPct) }} /></View>
                   </View>
                   <View className="w-full mb-4 items-center">
                     <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">{t('dashboard.drivingTimeRemaining')}</Text>
                     <Text className={`text-5xl font-bold ${display.drivingTimeRemaining < 0 ? 'text-compliance-danger' : 'text-white'}`}>{formatTime(display.drivingTimeRemaining)}</Text>
-                    <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.drivingTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-brand-accent'}`} style={{ width: `${drivePct}%` }} /></View>
+                    <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View style={{ height: '100%', width: `${drivePct}%`, backgroundColor: getProgressBarColor(drivePct) }} /></View>
                   </View>
                   {display.spreadoverRemaining < 3 * 3600 && (
                     <View className="w-full mb-4 items-center">
