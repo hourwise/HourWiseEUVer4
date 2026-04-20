@@ -66,7 +66,7 @@ export default function SettingsMenu({
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => handlePress(onOpenSubscription)} className="flex-row items-center gap-3 p-4 border-b border-slate-700 active:bg-slate-700"><User size={20} color="#94a3b8" /><Text className="text-slate-200 font-medium">{t('settingsMenu.manageSubscription')}</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => handlePress(onOpenBusinessProfile)} className="flex-row items-center gap-3 p-4 border-b border-slate-700 active:bg-slate-700"><User size={20} color="#94a3b8" /><Text className="text-slate-200 font-medium">{t('settingsMenu.businessProfile')}</Text></TouchableOpacity>
+            {isSolo && <TouchableOpacity onPress={() => handlePress(onOpenBusinessProfile)} className="flex-row items-center gap-3 p-4 border-b border-slate-700 active:bg-slate-700"><User size={20} color="#94a3b8" /><Text className="text-slate-200 font-medium">{t('settingsMenu.businessProfile')}</Text></TouchableOpacity>}
 
             {isSolo && (
               <>

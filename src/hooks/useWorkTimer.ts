@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Vibration, Platform, Alert } from 'react-native';
+import { AppState, Vibration, Platform, Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Speech from 'expo-speech';
 import * as Location from 'expo-location';
@@ -94,36 +94,55 @@ const notificationSetupDone = { current: false };
 async function ensureNotificationSetup() {
   if (notificationSetupDone.current) return;
   notificationSetupDone.current = true;
-  await Notifications.setNotificationCategoryAsync('alarm', [], {
-    intentIdentifiers: [],
-    previewPlaceholder: 'Compliance Alert',
-  });
+  // Notification channels are set up in PermissionsProvider — no category needed here
 }
 
-const batteryPromptShown = { current: false };
+const BATTERY_PROMPT_KEY = 'battery_prompt_dismissed';
 
 async function promptBatteryOptimisationIfNeeded() {
-  if (Platform.OS !== 'android' || batteryPromptShown.current) return;
-  batteryPromptShown.current = true;
+  if (Platform.OS !== 'android') return;
+
+  const dismissed = await AsyncStorage.getItem(BATTERY_PROMPT_KEY);
+  if (dismissed) return;
+
   Alert.alert(
     'Keep Alerts Reliable',
     "To receive driving and work-time alerts when your screen is off, please set HourWise to 'Unrestricted' battery usage.",
     [
-      { text: 'Not Now', style: 'cancel' },
+      {
+        text: 'Not Now',
+        style: 'cancel',
+        onPress: () => {
+          // Don't persist — ask again next shift start
+        },
+      },
+      {
+        text: "Don't Ask Again",
+        style: 'destructive',
+        onPress: () => {
+          AsyncStorage.setItem(BATTERY_PROMPT_KEY, 'true');
+        },
+      },
       {
         text: 'Open Settings',
         onPress: async () => {
+          AsyncStorage.setItem(BATTERY_PROMPT_KEY, 'true');
           try {
+            // Open the app's own battery settings page directly
             await IntentLauncher.startActivityAsync(
-              IntentLauncher.ActivityAction.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+              'android.settings.APPLICATION_DETAILS_SETTINGS',
               { data: `package:${APP_BUNDLE_ID}` }
             );
           } catch {
             try {
+              // Fallback: open general battery optimization list
               await IntentLauncher.startActivityAsync(
                 IntentLauncher.ActivityAction.IGNORE_BATTERY_OPTIMIZATION_SETTINGS
               );
-            } catch {}
+            } catch {
+              // Last resort: open app settings via Linking
+              Linking.openSettings();
+            }
           }
         },
       },
@@ -240,8 +259,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
           title: i18n.t(cfg.titleKey),
           body: i18n.t(cfg.bodyKey),
           priority: 'max',
-          categoryIdentifier: 'alarm',
-          channelId: channel,
+                    channelId: channel,
         },
         trigger: null,
       });

@@ -9,12 +9,15 @@ import {
   TouchableOpacity,
   Modal,
   ScrollView,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
-import { X, Bell } from 'react-native-feather';
-import { supabase, getLatestBroadcasts, getSystemMessages } from '../lib/supabase';
+import { X, Bell, Send } from 'react-native-feather';
+import { supabase, getLatestBroadcasts, getSystemMessages, getMessages } from '../lib/supabase';
 import { useAuth } from '../providers/AuthProvider';
 import { useTranslation } from 'react-i18next';
 
@@ -45,6 +48,8 @@ const MessagesScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedMessage, setSelectedMessage] = useState<any | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
   const fetchMessages = useCallback(async () => {
     if (!userId) {
@@ -56,7 +61,7 @@ const MessagesScreen = () => {
     setFetchError(null);
 
     try {
-      // Read statuses
+      // Read statuses for broadcasts/system messages
       const { data: readData, error: readError } = await supabase
         .from('message_reads')
         .select('message_id')
@@ -68,23 +73,38 @@ const MessagesScreen = () => {
 
       const readIds = new Set((readData ?? []).map((r) => r.message_id));
 
-      // Fetch system + broadcasts using same helper logic as dashboard
-      const [systemMessages, broadcasts] = await Promise.all([
+      // Fetch all three sources in parallel
+      const [systemMessages, broadcasts, directMessages] = await Promise.all([
         getSystemMessages(),
         getLatestBroadcasts(profile?.company_id),
+        getMessages(userId, profile?.company_id),
       ]);
 
       const combined = [
         ...systemMessages.map((m: any) => ({
           ...m,
           type: 'system',
+          content: m.content,
           is_read: readIds.has(m.id),
         })),
         ...broadcasts.map((m: any) => ({
           ...m,
           type: 'broadcast',
+          content: m.content,
           is_read: readIds.has(m.id),
         })),
+        ...directMessages.map((m: any) => {
+          const isDirect = m.recipient_id !== null;
+          // Direct messages track read via read_at on the row itself
+          // Company broadcasts from messages table use message_reads
+          const isRead = isDirect ? m.read_at !== null : readIds.has(m.id);
+          return {
+            ...m,
+            type: isDirect ? 'direct' : 'broadcast',
+            content: m.body,
+            is_read: isRead,
+          };
+        }),
       ].sort(
         (a, b) =>
           new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
@@ -120,22 +140,50 @@ const MessagesScreen = () => {
 
   const handleOpenMessage = async (message: any) => {
     setSelectedMessage(message);
+    setReplyText('');
     if (!message.is_read && userId) {
       try {
-        const { error } = await supabase
-          .from('message_reads')
-          .insert({ user_id: userId, message_id: message.id });
-
-        if (!error || error.code === '23505') {
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === message.id ? { ...msg, is_read: true } : msg
-            )
-          );
+        if (message.type === 'direct') {
+          // Direct messages: mark read via read_at on the messages row
+          const { error } = await supabase
+            .from('messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('id', message.id);
+          if (!error) {
+            setMessages(prev => prev.map(msg => msg.id === message.id ? { ...msg, is_read: true } : msg));
+          }
+        } else {
+          // System / broadcast: use message_reads join table
+          const { error } = await supabase
+            .from('message_reads')
+            .insert({ user_id: userId, message_id: message.id });
+          if (!error || error.code === '23505') {
+            setMessages(prev => prev.map(msg => msg.id === message.id ? { ...msg, is_read: true } : msg));
+          }
         }
       } catch (error) {
         console.error('Error marking message as read:', error);
       }
+    }
+  };
+
+  const handleSendReply = async () => {
+    if (!replyText.trim() || !selectedMessage?.sender_id || !userId) return;
+    setIsSending(true);
+    try {
+      const { error } = await supabase.from('messages').insert({
+        company_id: selectedMessage.company_id || profile?.company_id,
+        sender_id: userId,
+        recipient_id: selectedMessage.sender_id,
+        body: replyText.trim(),
+      });
+      if (error) throw error;
+      setReplyText('');
+      Alert.alert('Sent', 'Your reply has been sent to your fleet manager.');
+    } catch (err) {
+      Alert.alert('Error', 'Failed to send reply. Please try again.');
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -205,6 +253,17 @@ const MessagesScreen = () => {
         keyExtractor={(item, index) => (item.id || index).toString()}
         renderItem={({ item }) => {
           const isSystem = item.type === 'system';
+          const isDirect = item.type === 'direct';
+
+          const badgeLabel = isSystem ? 'SYSTEM' : isDirect ? 'DIRECT' : 'FLEET';
+          const badgeStyle = isSystem ? styles.systemBadge : isDirect ? styles.directBadge : styles.fleetBadge;
+          const badgeTextStyle = isSystem ? styles.systemBadgeText : isDirect ? styles.directBadgeText : styles.fleetBadgeText;
+
+          const defaultTitle = isSystem
+            ? t('messages.systemNotificationTitle', 'System Announcement')
+            : isDirect
+            ? 'Direct Message'
+            : t('messages.notificationTitle', 'Fleet Message');
 
           return (
             <TouchableOpacity
@@ -213,22 +272,17 @@ const MessagesScreen = () => {
                 styles.messageCard,
                 !item.is_read && styles.unreadCard,
                 isSystem && styles.systemCard,
+                isDirect && styles.directCard,
               ]}
             >
               {!item.is_read && <View style={styles.unreadIndicatorDot} />}
 
               <View style={styles.messageHeader}>
                 <Text style={[styles.messageTitle, !item.is_read && styles.unreadTitle]}>
-                  {item.title ||
-                    (isSystem
-                      ? t('messages.systemNotificationTitle', 'System Announcement')
-                      : t('messages.notificationTitle', 'Fleet Message'))}
+                  {item.title || defaultTitle}
                 </Text>
-
-                <View style={[styles.badge, isSystem && styles.systemBadge]}>
-                  <Text style={[styles.badgeText, isSystem && styles.systemBadgeText]}>
-                    {isSystem ? 'SYSTEM' : 'FLEET'}
-                  </Text>
+                <View style={[styles.badge, badgeStyle]}>
+                  <Text style={[styles.badgeText, badgeTextStyle]}>{badgeLabel}</Text>
                 </View>
               </View>
 
@@ -260,22 +314,69 @@ const MessagesScreen = () => {
 
       {/* Message Viewer Modal */}
       <Modal visible={!!selectedMessage} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalType}>{selectedMessage?.type === 'system' ? 'System Update' : 'Fleet Alert'}</Text>
-              <TouchableOpacity onPress={() => setSelectedMessage(null)}><X color="#94a3b8" /></TouchableOpacity>
+              <Text style={styles.modalType}>
+                {selectedMessage?.type === 'system'
+                  ? 'System Update'
+                  : selectedMessage?.type === 'direct'
+                  ? 'Direct Message'
+                  : 'Fleet Alert'}
+              </Text>
+              <TouchableOpacity onPress={() => { setSelectedMessage(null); setReplyText(''); }}>
+                <X color="#94a3b8" />
+              </TouchableOpacity>
             </View>
+
             <ScrollView style={styles.modalBody}>
-              <Text style={styles.modalTitle}>{selectedMessage?.title || (selectedMessage?.type === 'system' ? t('messages.systemNotificationTitle') : t('messages.notificationTitle'))}</Text>
+              <Text style={styles.modalTitle}>
+                {selectedMessage?.title ||
+                  (selectedMessage?.type === 'system'
+                    ? t('messages.systemNotificationTitle')
+                    : selectedMessage?.type === 'direct'
+                    ? 'Direct Message'
+                    : t('messages.notificationTitle'))}
+              </Text>
               <Text style={styles.modalDate}>{formatDate(selectedMessage?.created_at)}</Text>
               <Text style={styles.modalText}>{selectedMessage?.content}</Text>
             </ScrollView>
-            <TouchableOpacity onPress={() => setSelectedMessage(null)} style={styles.closeButton}>
+
+            {/* Reply input — only for direct messages from a manager */}
+            {selectedMessage?.type === 'direct' && selectedMessage?.sender_id && (
+              <View style={styles.replyContainer}>
+                <TextInput
+                  style={styles.replyInput}
+                  placeholder="Type a reply to your manager..."
+                  placeholderTextColor="#64748b"
+                  value={replyText}
+                  onChangeText={setReplyText}
+                  multiline
+                  maxLength={500}
+                />
+                <TouchableOpacity
+                  onPress={handleSendReply}
+                  disabled={isSending || !replyText.trim()}
+                  style={[styles.sendButton, (!replyText.trim() || isSending) && styles.sendButtonDisabled]}
+                >
+                  {isSending
+                    ? <ActivityIndicator color="#fff" size="small" />
+                    : <Send size={18} color="#fff" />}
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <TouchableOpacity
+              onPress={() => { setSelectedMessage(null); setReplyText(''); }}
+              style={styles.closeButton}
+            >
               <Text style={styles.closeButtonText}>{t('common.close', 'Close')}</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -408,14 +509,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#64748b',
   },
+  directCard: { borderLeftColor: '#10b981' },
+  directBadge: { backgroundColor: '#064e3b' },
+  directBadgeText: { color: '#34d399', fontSize: 10, fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 20, maxHeight: '80%' },
+  modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 20, maxHeight: '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
   modalType: { color: '#60a5fa', fontWeight: 'bold', textTransform: 'uppercase', fontSize: 12 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
   modalDate: { fontSize: 12, color: '#64748b', marginBottom: 16 },
   modalText: { fontSize: 16, color: '#cbd5e1', lineHeight: 24, marginBottom: 24 },
-  modalBody: { marginBottom: 20 },
+  modalBody: { marginBottom: 12 },
+  replyContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 12, borderTopWidth: 1, borderTopColor: '#334155', paddingTop: 12 },
+  replyInput: { flex: 1, backgroundColor: '#0f172a', color: '#fff', borderWidth: 1, borderColor: '#334155', borderRadius: 8, padding: 10, fontSize: 14, maxHeight: 80 },
+  sendButton: { backgroundColor: '#2563eb', width: 40, height: 40, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  sendButtonDisabled: { backgroundColor: '#1e3a5f', opacity: 0.5 },
   closeButton: { backgroundColor: '#2563eb', padding: 14, borderRadius: 8, alignItems: 'center' },
   closeButtonText: { color: '#fff', fontWeight: 'bold' },
 });

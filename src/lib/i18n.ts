@@ -57,6 +57,7 @@ i18n
     debug: __DEV__,
     fallbackLng: 'en-GB',
     supportedLngs: supportedLanguages,
+    load: 'currentOnly',
     ns: ['translation'],
     defaultNS: 'translation',
     keySeparator: '.',

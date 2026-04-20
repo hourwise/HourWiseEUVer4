@@ -51,6 +51,33 @@ export const getSystemMessages = async () => {
   return data ?? [];
 };
 
+// Fetches from the two-way messages table.
+// Returns direct messages to this user + company-wide broadcasts (recipient_id IS NULL).
+export const getMessages = async (userId: string, companyId?: string | null) => {
+  let query = supabase
+    .from('messages')
+    .select('id, body, sender_id, recipient_id, company_id, read_at, created_at')
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (companyId) {
+    // Direct messages OR company broadcasts
+    query = query.or(
+      `recipient_id.eq.${userId},and(recipient_id.is.null,company_id.eq.${companyId})`
+    );
+  } else {
+    // Solo driver: direct messages only
+    query = query.eq('recipient_id', userId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('Error fetching messages:', error);
+    return [];
+  }
+  return data ?? [];
+};
+
 
 export type WorkSession = {
   id: string;

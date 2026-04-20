@@ -10,8 +10,10 @@ import {
   ActivityIndicator,
   Alert,
   Switch,
+  Image,
 } from 'react-native';
-import { X, Check, AlertTriangle, Info, Truck, Plus } from 'react-native-feather';
+import { X, Check, AlertTriangle, Info, Truck, Plus, Camera, Trash2 } from 'react-native-feather';
+import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -84,6 +86,7 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
   const [defectDetails, setDefectDetails] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [defectPhotos, setDefectPhotos] = useState<{ uri: string; storagePath?: string; dbId?: string }[]>([]);
 
   const isArtic = vehicleType === 'Class 1 (Artic)';
 
@@ -112,7 +115,7 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
     if (visible) fetchSessionChecks();
   }, [visible, fetchSessionChecks]);
 
-  const loadCheck = (check: any) => {
+  const loadCheck = async (check: any) => {
     setCurrentCheckId(check.id);
     setReg(check.reg_number);
     setTrailerReg(check.trailer_reg || '');
@@ -122,6 +125,24 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
     setOdometer(check.odometer_reading?.toString() || '');
     setAnswers(check.items || {});
     setDefectDetails(check.defect_details || '');
+
+    // Fetch any previously attached defect photos
+    const { data: photoData } = await supabase
+      .from('defect_photos')
+      .select('id, storage_path')
+      .eq('vehicle_check_id', check.id);
+
+    if (photoData && photoData.length > 0) {
+      const photos = photoData.map((p: any) => {
+        const { data: urlData } = supabase.storage
+          .from('defect-photos')
+          .getPublicUrl(p.storage_path);
+        return { uri: urlData.publicUrl, storagePath: p.storage_path, dbId: p.id };
+      });
+      setDefectPhotos(photos);
+    } else {
+      setDefectPhotos([]);
+    }
   };
 
   const resetForm = () => {
@@ -134,6 +155,41 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
     setOdometer('');
     setAnswers({});
     setDefectDetails('');
+    setDefectPhotos([]);
+  };
+
+  const pickDefectPhoto = async (source: 'camera' | 'gallery') => {
+    if (defectPhotos.length >= 3) {
+      Alert.alert('Photo Limit', 'You can attach a maximum of 3 photos per defect report.');
+      return;
+    }
+
+    const result = source === 'camera'
+      ? await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.7,
+          allowsEditing: true,
+        })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.7,
+        });
+
+    if (!result.canceled && result.assets?.[0]) {
+      setDefectPhotos(prev => [...prev, { uri: result.assets[0].uri }]);
+    }
+  };
+
+  const removeDefectPhoto = async (index: number) => {
+    const photo = defectPhotos[index];
+    // If already persisted to DB/storage, delete it
+    if (photo.dbId) {
+      await supabase.from('defect_photos').delete().eq('id', photo.dbId);
+      if (photo.storagePath) {
+        await supabase.storage.from('defect-photos').remove([photo.storagePath]);
+      }
+    }
+    setDefectPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleNewVehicle = () => {
@@ -175,14 +231,46 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
         defect_details: hasDefects ? defectDetails : null,
       };
 
-      let error;
+      let checkId = currentCheckId;
+
       if (currentCheckId) {
-        ({ error } = await supabase.from('vehicle_checks').update(payload).eq('id', currentCheckId));
+        const { error } = await supabase.from('vehicle_checks').update(payload).eq('id', currentCheckId);
+        if (error) throw error;
       } else {
-        ({ error } = await supabase.from('vehicle_checks').insert(payload));
+        const { data: insertData, error } = await supabase
+          .from('vehicle_checks')
+          .insert(payload)
+          .select('id')
+          .single();
+        if (error) throw error;
+        checkId = insertData.id;
       }
 
-      if (error) throw error;
+      // Upload any locally selected photos (those without storagePath are new)
+      const newPhotos = defectPhotos.filter(p => !p.storagePath);
+      if (newPhotos.length > 0 && checkId) {
+        const companyPrefix = profile?.company_id || 'solo';
+        for (const photo of newPhotos) {
+          try {
+            const ext = (photo.uri.split('.').pop() || 'jpg').toLowerCase().split('?')[0];
+            const storagePath = `${companyPrefix}/${checkId}/${Date.now()}.${ext}`;
+            const response = await fetch(photo.uri);
+            const blob = await response.blob();
+            const { error: uploadError } = await supabase.storage
+              .from('defect-photos')
+              .upload(storagePath, blob, { contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
+            if (!uploadError) {
+              await supabase.from('defect_photos').insert({
+                vehicle_check_id: checkId,
+                storage_path: storagePath,
+              });
+            }
+          } catch (photoErr) {
+            console.error('Photo upload failed:', photoErr);
+            // Non-fatal: continue submitting even if a photo fails
+          }
+        }
+      }
 
       Alert.alert(t('vehicleChecklist.success'), t('vehicleChecklist.checkRecorded'));
       onSuccess();
@@ -251,7 +339,7 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t('vehicleChecklist.vehicleDetails')}</Text>
-            <TextInput style={styles.input} placeholder={t('vehicleChecklist.registration')} placeholderTextColor="#94a3b8" value={reg} onChangeText={(t) => setReg(t.toUpperCase())} />
+            <TextInput style={styles.input} placeholder={t('vehicleChecklist.registration')} placeholderTextColor="#94a3b8" value={reg} onChangeText={setReg} autoCapitalize="characters" autoComplete="off" autoCorrect={false} textContentType="none" importantForAutofill="no" />
             <View style={styles.pickerContainer}>
               {VEHICLE_TYPES.map((t) => (
                 <TouchableOpacity key={t} onPress={() => setVehicleType(t)} style={[styles.typeChip, vehicleType === t && styles.typeChipActive]}>
@@ -280,7 +368,12 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
                   placeholder={t('vehicleChecklist.trailerRegistration')}
                   placeholderTextColor="#94a3b8"
                   value={trailerReg}
-                  onChangeText={(t) => setTrailerReg(t.toUpperCase())}
+                  onChangeText={setTrailerReg}
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  autoCorrect={false}
+                  textContentType="none"
+                  importantForAutofill="no"
                 />
               )}
             </View>
@@ -305,8 +398,61 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
 
           {hasDefects && (
             <View style={styles.defectSection}>
-              <View style={styles.defectHeader}><AlertTriangle size={20} color="#ef4444" /><Text style={styles.defectTitle}>{t('vehicleChecklist.defectReporting')}</Text></View>
-              <TextInput style={[styles.input, styles.textArea]} placeholder={t('vehicleChecklist.defectPlaceholder')} placeholderTextColor="#94a3b8" multiline numberOfLines={4} value={defectDetails} onChangeText={setDefectDetails} />
+              <View style={styles.defectHeader}>
+                <AlertTriangle size={20} color="#ef4444" />
+                <Text style={styles.defectTitle}>{t('vehicleChecklist.defectReporting')}</Text>
+              </View>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder={t('vehicleChecklist.defectPlaceholder')}
+                placeholderTextColor="#94a3b8"
+                multiline
+                numberOfLines={4}
+                value={defectDetails}
+                onChangeText={setDefectDetails}
+              />
+
+              {/* Defect photo capture */}
+              <View style={styles.photoSection}>
+                <Text style={styles.photoSectionTitle}>
+                  Defect Photos ({defectPhotos.length}/3)
+                </Text>
+
+                {defectPhotos.length > 0 && (
+                  <View style={styles.photoGrid}>
+                    {defectPhotos.map((photo, index) => (
+                      <View key={index} style={styles.photoThumb}>
+                        <Image source={{ uri: photo.uri }} style={styles.thumbImage} />
+                        <TouchableOpacity
+                          onPress={() => removeDefectPhoto(index)}
+                          style={styles.removePhotoBtn}
+                        >
+                          <Trash2 size={12} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {defectPhotos.length < 3 && (
+                  <View style={styles.photoButtons}>
+                    <TouchableOpacity
+                      onPress={() => pickDefectPhoto('camera')}
+                      style={styles.photoBtn}
+                    >
+                      <Camera size={16} color="#60a5fa" />
+                      <Text style={styles.photoBtnText}>Camera</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => pickDefectPhoto('gallery')}
+                      style={[styles.photoBtn, { marginLeft: 8 }]}
+                    >
+                      <Camera size={16} color="#94a3b8" />
+                      <Text style={[styles.photoBtnText, { color: '#94a3b8' }]}>Gallery</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             </View>
           )}
 
@@ -362,4 +508,13 @@ const styles = StyleSheet.create({
   historyTextNew: { color: '#60a5fa', fontSize: 13 },
   toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   toggleLabel: { color: '#fff', fontSize: 16, fontWeight: '500' },
+  photoSection: { marginTop: 12, borderTopWidth: 1, borderTopColor: '#7f1d1d', paddingTop: 12 },
+  photoSectionTitle: { color: '#fca5a5', fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  photoThumb: { width: 80, height: 80, borderRadius: 8, overflow: 'hidden', position: 'relative' },
+  thumbImage: { width: '100%', height: '100%' },
+  removePhotoBtn: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(239,68,68,0.85)', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+  photoButtons: { flexDirection: 'row' },
+  photoBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a' },
+  photoBtnText: { color: '#60a5fa', fontSize: 13, fontWeight: '600' },
 });

@@ -202,14 +202,27 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     unreadCheckInFlight.current = true;
 
     try {
-      const [broadcasts, systemMessages, readRes] = await withTimeout(
+      const [broadcasts, systemMessages, readRes, directUnreadRes] = await withTimeout(
         Promise.all([
           getLatestBroadcasts(profile?.company_id),
           getSystemMessages(),
-          supabase.from('message_reads').select('message_id').eq('user_id', userId)
+          supabase.from('message_reads').select('message_id').eq('user_id', userId),
+          // Direct messages to this driver that haven't been read yet
+          supabase
+            .from('messages')
+            .select('id')
+            .eq('recipient_id', userId)
+            .is('read_at', null)
+            .limit(1),
         ]),
         8000
       );
+
+      // Check direct unread first — fastest path
+      if ((directUnreadRes.data || []).length > 0) {
+        setHasUnreadMessages(true);
+        return;
+      }
 
       const allMessages = [...broadcasts, ...systemMessages];
       if (allMessages.length === 0) {
@@ -333,6 +346,32 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     return () => { channel.unsubscribe(); };
   }, []);
 
+  // Direct messages sent to this driver via the two-way messages table
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`direct_messages:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `recipient_id=eq.${userId}` },
+        (payload) => {
+          setHasUnreadMessages(true);
+          Notifications.scheduleNotificationAsync({
+            content: {
+              title: 'Message from Manager',
+              body: (payload.new as any).body,
+              sound: 'default',
+              channelId: 'messages',
+            },
+            trigger: null,
+          });
+        }
+      )
+      .subscribe();
+
+    return () => { channel.unsubscribe(); };
+  }, [userId]);
+
   const dailyCumulativeTotals = useMemo(() => {
     // During an active shift, display already has live totals for today.
     // Only pull from complianceMap for completed historical sessions.
@@ -424,14 +463,14 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
         {dailyReportData ? <DailyComplianceReportModal visible={!!dailyReportData} onClose={() => setDailyReportData(null)} violations={dailyReportData.violations} date={dailyReportData.date}/> : null}
         {shiftSummaryData ? <EndShiftConfirmationModal visible={!!shiftSummaryData} onClose={() => setShiftSummaryData(null)} onConfirm={shiftSummaryData.onConfirm} violations={shiftSummaryData.violations} shiftTotals={shiftSummaryData.totals} score={shiftSummaryData.score}/> : null}
         <AddExpenseModal visible={showAddExpense} onClose={() => setShowAddExpense(false)} onSaveSuccess={refreshProfile} userId={userId}/>
-        <BusinessProfileModal visible={showBusinessProfile} onClose={() => setShowBusinessProfile(false)} />
+        {isSolo && <BusinessProfileModal visible={showBusinessProfile} onClose={() => setShowBusinessProfile(false)} />}
         <Modal visible={showSafetyWarning} transparent animationType="fade"><SafetyWarningModal onClose={() => setShowSafetyWarning(false)} /></Modal>
         <Modal visible={showDriverSetup} animationType="slide" onRequestClose={() => setShowDriverSetup(false)}><DriverSetup session={session} onClose={() => setShowDriverSetup(false)} /></Modal>
         <Instructions visible={showInstructions} onClose={() => setShowInstructions(false)} />
         <PrivacyInfo visible={showPrivacyInfo} onClose={() => setShowPrivacyInfo(false)} />
         <EUWorkingTimeRules visible={showEURules} onClose={() => setShowEURules(false)} />
         <DigitalTachographGuide visible={showDigitalTachographGuide} onClose={() => setShowDigitalTachographGuide(false)} />
-        <DownloadReportModal visible={showReportModal} onClose={() => setShowReportModal(false)} />
+        {isSolo && <DownloadReportModal visible={showReportModal} onClose={() => setShowReportModal(false)} />}
         <LanguageSelector visible={showLanguageSelector} onClose={() => setShowLanguageSelector(false)} onSelectLanguage={(l) => i18n.changeLanguage(l)} currentLanguage={i18n.language}/>
         <Modal visible={showCompliance} transparent animationType="slide"><ComplianceHeatmap onClose={() => setShowCompliance(false)} complianceMap={complianceMap} isLoading={isComplianceLoading} currentDate={currentComplianceDate} setCurrentDate={setCurrentComplianceDate}/></Modal>
         <Modal visible={showWorkHistory} animationType="slide"><CalendarView timezone={Intl.DateTimeFormat().resolvedOptions().timeZone} userId={userId} onClose={() => setShowWorkHistory(false)} onDataChanged={refreshProfile}/></Modal>
@@ -443,8 +482,8 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
             sessionId={sessionId}
             onSuccess={() => setVehicleCheckCompletedToday(true)}
         />
-        <SoloVehicleModal visible={showSoloVehicle} onClose={() => { setShowSoloVehicle(false); fetchSoloVehicle(); }} userId={userId} />
-        <SoloQualificationsModal visible={showQualsModal} onClose={() => { setShowQualsModal(false); refreshProfile(); }} userId={userId} />
+        {isSolo && <SoloVehicleModal visible={showSoloVehicle} onClose={() => { setShowSoloVehicle(false); fetchSoloVehicle(); }} userId={userId} />}
+        {isSolo && <SoloQualificationsModal visible={showQualsModal} onClose={() => { setShowQualsModal(false); refreshProfile(); }} userId={userId} />}
 
         <Modal visible={showMenu} transparent animationType="fade">
           <TouchableOpacity className="flex-1" onPress={() => setShowMenu(false)}>
@@ -457,7 +496,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                 { label: 'menu.compliance', icon: <AlertTriangle size={18} color="white" />, action: () => setShowCompliance(true) },
                 { label: 'menu.workHistory', icon: <Calendar size={18} color="white" />, action: () => setShowWorkHistory(true) },
                 { label: 'menu.addExpense', icon: <DollarSign size={18} color="white" />, action: () => setShowAddExpense(true) },
-                { label: 'menu.downloadReport', icon: <Download size={18} color="white" />, action: () => setShowReportModal(true) }
+                ...(isSolo ? [{ label: 'menu.downloadReport', icon: <Download size={18} color="white" />, action: () => setShowReportModal(true) }] : [])
               ].map((item, idx) => ( <TouchableOpacity key={idx} onPress={() => { item.action(); setShowMenu(false); }} className="px-4 py-3 flex-row items-center gap-3">{item.icon}<Text className="text-white">{t(item.label)}</Text></TouchableOpacity> ))}
             </View>
           </TouchableOpacity>
@@ -503,7 +542,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                 </View>
             </View>
 
-            {qualificationWarnings && (
+            {isSolo && qualificationWarnings && (
               <TouchableOpacity
                 onPress={() => setShowQualsModal(true)}
                 className={`mb-6 p-4 rounded-2xl border flex-row items-center justify-between ${qualificationWarnings.daysRemaining <= 0 ? 'bg-red-500/10 border-red-500/50' : 'bg-amber-500/10 border-amber-500/50'}`}

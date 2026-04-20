@@ -114,7 +114,7 @@ android {
         applicationId 'com.PCGsoft.hourwise.eu'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 26
+        versionCode 53
         versionName "7.0.1"
     }
     signingConfigs {
