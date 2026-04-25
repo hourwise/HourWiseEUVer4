@@ -105,7 +105,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
     if (client.hourly_rate && (client.billing_types || []).includes('hourly')) {
       const totalPaidMinutes = sessions.reduce((sum, s) => {
         // Assume all work minutes are paid for now (could subtract unpaid breaks if implemented)
-        return sum + (s.total_work_minutes || 0);
+        return sum + (s.total_work_minutes || 0) + (s.other_data?.driving || s.total_driving_minutes || 0);
       }, 0);
       const hours = totalPaidMinutes / 60;
       if (hours > 0) {
@@ -488,11 +488,11 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
 
   const generateWorkReportHtml = (sessions: any[], start: Date, end: Date) => {
     const rows = sessions.map(s => {
-        const driving = s.total_driving_minutes || 0;
-        const work = (s.total_work_minutes || 0) - driving;
+        const driving = s.other_data?.driving || s.total_driving_minutes || 0;
+        const work = s.total_work_minutes || 0;
         const breaks = s.total_break_minutes || 0;
         const poa = s.total_poa_minutes || 0;
-        const total = s.total_work_minutes || 0;
+        const total = work + driving;
 
         return `
             <tr style="border-bottom: 1px solid #eee;">

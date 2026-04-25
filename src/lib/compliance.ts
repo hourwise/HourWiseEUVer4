@@ -124,7 +124,12 @@ function daysAgo(from: Date, days: number): Date {
 // ---------------------------------------------------------------------------
 
 const driveMins  = (s: any): number => s.other_data?.driving   ?? 0;
-const workMins   = (s: any): number => s.total_work_minutes     ?? 0;
+const drivingCycleMins = (s: any): number | null =>
+  typeof s.other_data?.drivingCycle === 'number' ? s.other_data.drivingCycle : null;
+const workCycleMins = (s: any): number | null =>
+  typeof s.other_data?.workCycle === 'number' ? s.other_data.workCycle : null;
+const otherWorkMins = (s: any): number => s.total_work_minutes ?? 0;
+const workMins   = (s: any): number => otherWorkMins(s) + driveMins(s);
 const breakMins  = (s: any): number => s.total_break_minutes    ?? 0;
 
 /**
@@ -189,6 +194,13 @@ function breakSatisfiesWtdRule(session: any, thresholdMins: number): boolean {
  * in useWorkTimer handles the real-time enforcement during a shift.
  */
 function check4_5hDriving(today: any): ViolationKey | null {
+  const continuousDriving = drivingCycleMins(today);
+  if (continuousDriving !== null) {
+    return continuousDriving > RULES.MAX_CONTINUOUS_DRIVING_MINS
+      ? VIOLATION_KEYS.EXCEEDED_4_5H_DRIVING
+      : null;
+  }
+
   if (driveMins(today) <= RULES.MAX_CONTINUOUS_DRIVING_MINS) return null;
   if (breakSatisfies45MinRule(today)) return null;
   return VIOLATION_KEYS.EXCEEDED_4_5H_DRIVING;
@@ -284,7 +296,7 @@ function checkFortnightlyDriving(
  * The live hook alert handles real-time enforcement.
  */
 function checkWtdBreaks(today: any): ViolationKey | null {
-  const work  = workMins(today);
+  const work  = workCycleMins(today) ?? workMins(today);
   const total = breakMins(today);
 
   if (work > RULES.MAX_WORK_BEFORE_LONG_BREAK_MINS) {

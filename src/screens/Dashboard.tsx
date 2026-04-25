@@ -109,9 +109,8 @@ const formatShiftTime = (seconds: number) => {
 const formatBreakTime = (seconds: number) => {
   if (typeof seconds !== 'number' || isNaN(seconds) || seconds < 0) return '0m';
   const totalMinutes = Math.floor(seconds / 60);
-  if (totalMinutes >= 45) return formatShiftTime(seconds);
-  const legalBreakMinutes = Math.floor(totalMinutes / 15) * 15;
-  return `${legalBreakMinutes}m`;
+  if (totalMinutes >= 60) return formatShiftTime(seconds);
+  return `${totalMinutes}m`;
 };
 
 const Row = ({ label, value }: { label: string; value: string }) => (
@@ -130,7 +129,7 @@ const ShiftInfoBar = ({ display }: { display: any }) => {
       <Text className="text-white font-bold mb-3 text-lg border-b border-slate-700 pb-2">{t('shiftSummary.title')}</Text>
       <Row label={t('shiftSummary.totalWork')} value={formatShiftTime(display?.work ?? 0)} />
       <Row label={t('shiftSummary.totalDriving')} value={formatShiftTime(display?.driving ?? 0)} />
-      <Row label={t('shiftSummary.totalBreaks')} value={formatBreakTime(display?.break ?? 0)} />
+      <Row label={t('shiftSummary.totalBreaks')} value={formatBreakTime(display?.legalBreak ?? 0)} />
       <Row label={t('shiftSummary.totalPOA')} value={formatShiftTime(display?.poa ?? 0)} />
       <View className="border-t border-slate-700 mt-2 pt-2">
         <Row label="Weekly Driving Used" value={`${formatShiftTime(weeklyUsed)} / 56h`} />
@@ -167,7 +166,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const userId = session.user.id;
 
   const { status, sessionId, timerMode, displaySeconds, startWork, endWork, togglePOA, toggleBreak, isDriving, isStarting, shiftSummaryData, setShiftSummaryData } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const display = displaySeconds || { workTimeRemaining: 0, drivingTimeRemaining: 0, spreadoverRemaining: 13 * 3600, breakDuration: 0, work: 0, poa: 0, break: 0, driving: 0, lastBreakDuration: 0, lastBreakEndTime: 0, weeklyDrivingRemaining: 56 * 3600 };
+  const display = displaySeconds || { workTimeRemaining: 0, drivingTimeRemaining: 0, spreadoverRemaining: 13 * 3600, breakDuration: 0, work: 0, poa: 0, break: 0, legalBreak: 0, driving: 0, lastBreakDuration: 0, lastBreakEndTime: 0, weeklyDrivingRemaining: 56 * 3600 };
   const driverName = profile?.full_name;
   const payrollNumber = profile?.payroll_number;
   const { previousShiftEnd, currentShiftStart, dailyRest, refreshShiftInfo } = useShiftInfo(userId);
