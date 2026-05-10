@@ -239,6 +239,32 @@ export const workSessionService = {
     return data?.reduce((sum, s) => sum + (s.other_data?.driving ?? 0), 0) ?? 0;
   },
 
+  fetchWeekSessions: async (
+    userId: string,
+    forDate?: Date,
+  ) => {
+    const weekStart = getWeekStartDate(forDate ?? new Date());
+    const weekEndDate = new Date(weekStart);
+    weekEndDate.setDate(weekEndDate.getDate() + 6);
+    const weekEnd = toLocalDateString(weekEndDate);
+
+    const { data, error } = await supabase
+      .from('work_sessions')
+      .select('start_time,end_time,other_data')
+      .eq('user_id', userId)
+      .gte('date', weekStart)
+      .lte('date', weekEnd)
+      .not('end_time', 'is', null)
+      .order('start_time', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching week sessions:', error);
+      return [];
+    }
+
+    return data ?? [];
+  },
+
   // -------------------------------------------------------------------------
   // fetchFortnightlyDrivingMinutes — NEW
   //

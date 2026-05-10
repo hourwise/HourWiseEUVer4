@@ -75,10 +75,10 @@ function EUWorkingTimeRules({ visible, onClose }: EUWorkingTimeRulesProps) {
             </Section>
 
             <Section title={t('euRules.drivingLimits.title')} icon={<Clock size={20} color="#CBD5E1" />}>
-              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.daily.label')}</Text> {t('euRules.drivingLimits.daily.description')}</BulletPoint>
-              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.weekly.label')}</Text> {t('euRules.drivingLimits.weekly.description')}</BulletPoint>
-              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.fortnightly.label')}</Text> {t('euRules.drivingLimits.fortnightly.description')}</BulletPoint>
-              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.breaks.label')}</Text> {t('euRules.drivingLimits.breaks.description')}</BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.daily.label')}</Text><Text> {t('euRules.drivingLimits.daily.description')}</Text></BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.weekly.label')}</Text><Text> {t('euRules.drivingLimits.weekly.description')}</Text></BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.fortnightly.label')}</Text><Text> {t('euRules.drivingLimits.fortnightly.description')}</Text></BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.drivingLimits.breaks.label')}</Text><Text> {t('euRules.drivingLimits.breaks.description')}</Text></BulletPoint>
               <BulletPoint>{t('euRules.drivingLimits.breaksSplitExample')}</BulletPoint>
             </Section>
 
@@ -94,9 +94,9 @@ function EUWorkingTimeRules({ visible, onClose }: EUWorkingTimeRulesProps) {
             </Section>
 
             <Section title={t('euRules.workingTimeLimits.title')} icon={<Clock size={20} color="#CBD5E1" />}>
-              <BulletPoint><Text className="font-bold text-white">{t('euRules.workingTimeLimits.maxWeekly.label')}</Text> {t('euRules.workingTimeLimits.maxWeekly.description')}</BulletPoint>
-              <BulletPoint><Text className="font-bold text-white">{t('euRules.workingTimeLimits.avgWeekly.label')}</Text> {t('euRules.workingTimeLimits.avgWeekly.description')}</BulletPoint>
-              <BulletPoint><Text className="font-bold text-white">{t('euRules.workingTimeLimits.nightWork.label')}</Text> {t('euRules.workingTimeLimits.nightWork.description')}</BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.workingTimeLimits.maxWeekly.label')}</Text><Text> {t('euRules.workingTimeLimits.maxWeekly.description')}</Text></BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.workingTimeLimits.avgWeekly.label')}</Text><Text> {t('euRules.workingTimeLimits.avgWeekly.description')}</Text></BulletPoint>
+              <BulletPoint><Text className="font-bold text-white">{t('euRules.workingTimeLimits.nightWork.label')}</Text><Text> {t('euRules.workingTimeLimits.nightWork.description')}</Text></BulletPoint>
             </Section>
 
             <Section title={t('euRules.workBreaks.title')} icon={<Coffee size={20} color="#CBD5E1" />}>

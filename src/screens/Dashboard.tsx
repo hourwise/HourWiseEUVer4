@@ -7,8 +7,6 @@ import {
   Text,
   ActivityIndicator,
   AppState,
-  Platform,
-  Alert,
 } from 'react-native';
 import {
   Menu,
@@ -33,7 +31,6 @@ import { useTranslation } from 'react-i18next';
 import { supabase, getLatestBroadcasts, getSystemMessages } from '../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../providers/AuthProvider';
 import * as Notifications from 'expo-notifications';
 
@@ -95,7 +92,7 @@ const formatTime = (seconds: number) => {
   const absSeconds = Math.abs(seconds);
   try {
     return (isNegative ? '-' : '') + new Date(absSeconds * 1000).toISOString().substr(11, 8);
-  } catch (e) { return '00:00:00'; }
+  } catch { return '00:00:00'; }
 };
 const formatShiftTime = (seconds: number) => {
   if (typeof seconds !== 'number' || isNaN(seconds)) return '0h 0m';
@@ -162,11 +159,25 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const { t, i18n, ready } = useTranslation();
   const { profile, refreshProfile } = useAuth();
 
-  if (!session?.user?.id) { return <View className="flex-1 bg-brand-dark justify-center items-center"><ActivityIndicator size="large" color="#F59E0B" /></View>; }
-  const userId = session.user.id;
+  const userId = session?.user?.id;
 
   const { status, sessionId, timerMode, displaySeconds, startWork, endWork, togglePOA, toggleBreak, isDriving, isStarting, shiftSummaryData, setShiftSummaryData } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const display = displaySeconds || { workTimeRemaining: 0, drivingTimeRemaining: 0, spreadoverRemaining: 13 * 3600, breakDuration: 0, work: 0, poa: 0, break: 0, legalBreak: 0, driving: 0, lastBreakDuration: 0, lastBreakEndTime: 0, weeklyDrivingRemaining: 56 * 3600 };
+
+  const display = useMemo(() => displaySeconds || {
+    workTimeRemaining: 0,
+    drivingTimeRemaining: 0,
+    maxShiftTimeRemaining: 13 * 3600,
+    spreadoverRemaining: 13 * 3600, // backward compatibility
+    breakDuration: 0,
+    work: 0,
+    poa: 0,
+    break: 0,
+    legalBreak: 0,
+    driving: 0,
+    lastBreakDuration: 0,
+    lastBreakEndTime: 0,
+    weeklyDrivingRemaining: 56 * 3600
+  }, [displaySeconds]);
   const driverName = profile?.full_name;
   const payrollNumber = profile?.payroll_number;
   const { previousShiftEnd, currentShiftStart, dailyRest, refreshShiftInfo } = useShiftInfo(userId);
@@ -251,7 +262,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
       .gte('created_at', todayStart.toISOString())
       .limit(1);
 
-    setVehicleCheckCompletedToday(data && data.length > 0);
+    setVehicleCheckCompletedToday(!!(data && data.length > 0));
   }, [userId]);
 
   const fetchSoloVehicle = useCallback(async () => {
@@ -320,7 +331,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
               body: (payload.new as any).content,
               sound: 'default',
               channelId: 'messages',
-            },
+            } as any,
             trigger: null,
           });
         }
@@ -361,7 +372,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
               body: (payload.new as any).body,
               sound: 'default',
               channelId: 'messages',
-            },
+            } as any,
             trigger: null,
           });
         }
@@ -443,10 +454,10 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   };
   const workLimit = timerMode === '6h' ? 6 * 3600 : 9 * 3600;
   const driveLimit = 4.5 * 3600;
-  const spreadoverLimit = 13 * 3600;
+  const maxShiftTimeLimit = Math.max(13 * 3600, (display.shift || 0) + (display.maxShiftTimeRemaining || 0));
   const workPct = Math.min(100, ((workLimit - (display.workTimeRemaining || 0)) / workLimit) * 100);
   const drivePct = Math.min(100, ((driveLimit - (display.drivingTimeRemaining || 0)) / driveLimit) * 100);
-  const spreadPct = Math.min(100, ((spreadoverLimit - (display.spreadoverRemaining || 0)) / spreadoverLimit) * 100);
+  const maxShiftTimePct = Math.min(100, ((maxShiftTimeLimit - (display.maxShiftTimeRemaining || 0)) / maxShiftTimeLimit) * 100);
 
   const handleOpenMessages = () => {
     navigation.navigate('Messages');
@@ -455,6 +466,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
 
   const isFleet = profile?.account_type === 'fleet';
   const isSolo = profile?.account_type === 'solo';
+  const isFleetDriverRole = isFleet && profile?.role === 'driver';
 
   return (
     <SafeAreaView className="flex-1 bg-brand-dark" edges={['top']}>
@@ -494,6 +506,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                 { label: 'menu.tachoGuide', icon: <FileText size={18} color="white" />, action: () => setShowDigitalTachographGuide(true) },
                 { label: 'menu.compliance', icon: <AlertTriangle size={18} color="white" />, action: () => setShowCompliance(true) },
                 { label: 'menu.workHistory', icon: <Calendar size={18} color="white" />, action: () => setShowWorkHistory(true) },
+                ...(isFleetDriverRole ? [{ label: 'menu.mySchedule', icon: <Clock size={18} color="white" />, action: () => navigation.navigate('MySchedule') }] : []),
                 { label: 'menu.addExpense', icon: <DollarSign size={18} color="white" />, action: () => setShowAddExpense(true) },
                 ...(isSolo ? [{ label: 'menu.downloadReport', icon: <Download size={18} color="white" />, action: () => setShowReportModal(true) }] : [])
               ].map((item, idx) => ( <TouchableOpacity key={idx} onPress={() => { item.action(); setShowMenu(false); }} className="px-4 py-3 flex-row items-center gap-3">{item.icon}<Text className="text-white">{t(item.label)}</Text></TouchableOpacity> ))}
@@ -534,7 +547,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                         className={`px-3 py-1.5 rounded-full flex-row items-center gap-1.5 ${vehicleCheckCompletedToday ? 'bg-green-600/20 border border-green-500/50' : isFleet ? 'bg-red-600 border border-red-500' : 'bg-slate-700/50 border border-slate-600'}`}
                     >
                         {vehicleCheckCompletedToday ? <CheckCircle size={14} color="#22c55e" /> : <AlertTriangle size={14} color={isFleet ? "white" : "#94a3b8"} />}
-                        <Text style={{ fontSize: 12, fontWeight: 'bold', color: vehicleCheckCompletedToday ? '#22c55e' : 'white' }}>
+                        <Text className={`font-bold ${vehicleCheckCompletedToday ? 'text-green-500' : 'text-white'}`} style={{ fontSize: 12 }}>
                             {vehicleCheckCompletedToday ? 'Check OK' : 'Check Vehicle'}
                         </Text>
                     </TouchableOpacity>
@@ -620,11 +633,15 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                     <Text className={`text-5xl font-bold ${display.drivingTimeRemaining < 0 ? 'text-compliance-danger' : 'text-white'}`}>{formatTime(display.drivingTimeRemaining)}</Text>
                     <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.drivingTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-brand-accent'}`} style={{ width: `${drivePct}%` }} /></View>
                   </View>
-                  {display.spreadoverRemaining < 3 * 3600 && (
+                  {display.maxShiftTimeRemaining < 3 * 3600 && (
                     <View className="w-full mb-4 items-center">
-                      <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">Spreadover Remaining</Text>
-                      <Text className={`text-5xl font-bold ${display.spreadoverRemaining < 0 ? 'text-compliance-danger' : 'text-amber-400'}`}>{formatTime(display.spreadoverRemaining)}</Text>
-                      <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.spreadoverRemaining < 0 ? 'bg-compliance-danger' : 'bg-amber-500'}`} style={{ width: `${spreadPct}%` }} /></View>
+                      <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">Max Shift Time Remaining</Text>
+                      <View className="flex-row items-center justify-between w-full mb-2">
+                        <Text className={`text-5xl font-bold ${display.maxShiftTimeRemaining < 0 ? 'text-compliance-danger' : 'text-amber-400'}`}>{formatTime(display.maxShiftTimeRemaining)}</Text>
+                        <Text className="text-xs text-slate-400 text-right">({Math.round(maxShiftTimeLimit / 3600)}h limit)</Text>
+                      </View>
+                      <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.maxShiftTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-amber-500'}`} style={{ width: `${maxShiftTimePct}%` }} /></View>
+                      <Text className="text-xs text-slate-500 mt-2 font-semibold">Note: POA, work, and breaks all count toward this limit</Text>
                     </View>
                   )}
                   </>
@@ -634,7 +651,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                     disabled={isStarting}
                     className={`w-full py-4 rounded-xl bg-brand-accent my-4 flex-row justify-center items-center ${isStarting ? 'opacity-70' : ''}`}
                   >
-                    {isStarting && <ActivityIndicator color="white" style={{ marginRight: 10 }} />}
+                    {isStarting && <ActivityIndicator color="white" className="mr-2" />}
                     <Text className="text-white font-bold text-xl text-center uppercase">
                       {isStarting ? t('common.loading', 'Starting...') : t('dashboard.startShift')}
                     </Text>

@@ -4,6 +4,12 @@ import { supabase } from '../lib/supabase';
 import { verifyInviteCode } from '../lib/inviteService';
 import type { Database } from '../lib/database.types';
 import { useAuth } from '../providers/AuthProvider'; // Import useAuth
+import {
+  getBiometricAvailability,
+  hasStoredBiometricSession,
+  saveBiometricSession,
+  signInWithBiometricSession,
+} from '../lib/biometricAuth';
 
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
 type AccountType = 'solo' | 'fleet';
@@ -21,19 +27,45 @@ export default function Auth() {
   const [verifiedInvite, setVerifiedInvite] = useState<Invite | null>(null);
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+
+  React.useEffect(() => {
+    const loadBiometricState = async () => {
+      try {
+        const availability = await getBiometricAvailability();
+        const hasStoredSession = await hasStoredBiometricSession();
+        setBiometricAvailable(availability.isAvailable);
+        setBiometricEnabled(hasStoredSession);
+      } catch (error) {
+        console.warn('Biometric availability check failed:', error);
+      }
+    };
+
+    loadBiometricState();
+  }, []);
 
   const handleVerifyCode = async () => {
     setVerifying(true);
-    const inviteData = await verifyInviteCode(inviteCode);
-    setVerifying(false);
+    try {
+      const result = await verifyInviteCode(inviteCode);
 
-    if (inviteData) {
-      Alert.alert("Success", "Invite code is valid. Your details have been pre-filled.");
-      setVerifiedInvite(inviteData);
-      setEmail(inviteData.email || '');
-      setFullName(inviteData.full_name || '');
-    } else {
-      Alert.alert("Error", "Invalid or expired invite code. Please check the code and try again.");
+      if (result.ok) {
+        Alert.alert("Success", "Invite code is valid. Your details have been pre-filled.");
+        setVerifiedInvite(result.invite);
+        setEmail(result.invite.email || '');
+        setFullName(result.invite.full_name || '');
+      } else {
+        const diagnosticSuffix = result.expiresAt
+          ? `\n\nExpiry in database: ${result.expiresAt}`
+          : '';
+        const statusSuffix = result.status
+          ? `\nCurrent status: ${result.status}`
+          : '';
+        Alert.alert("Invite verification failed", `${result.message}${statusSuffix}${diagnosticSuffix}`);
+      }
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -56,9 +88,48 @@ export default function Auth() {
   const handleLogin = async () => {
     setLoading(true);
     try {
-      await signIn({ email, password });
+      const session = await signIn({ email, password });
+      const availability = await getBiometricAvailability();
+      if (
+        availability.isAvailable &&
+        session?.access_token &&
+        session?.refresh_token &&
+        !(await hasStoredBiometricSession())
+      ) {
+        Alert.alert(
+          'Enable biometric sign-in?',
+          'Use fingerprint or face unlock for faster sign-in on this device.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            {
+              text: 'Enable',
+              onPress: async () => {
+                try {
+                  await saveBiometricSession(session.access_token, session.refresh_token);
+                  setBiometricAvailable(true);
+                  setBiometricEnabled(true);
+                  Alert.alert('Enabled', 'Biometric sign-in is now available on this device.');
+                } catch (error: any) {
+                  Alert.alert('Biometric setup failed', error?.message || 'Could not enable biometric sign-in.');
+                }
+              },
+            },
+          ]
+        );
+      }
     } catch (error: any) {
       Alert.alert("Login Failed", error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBiometricLogin = async () => {
+    setLoading(true);
+    try {
+      await signInWithBiometricSession();
+    } catch (error: any) {
+      Alert.alert('Biometric Sign-In Failed', error?.message || 'Could not sign in with biometrics.');
     } finally {
       setLoading(false);
     }
@@ -81,6 +152,11 @@ export default function Auth() {
         {mode === 'signUp' && renderSignUpForm()}
         {mode === 'signIn' && (<><TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" placeholderTextColor="#94a3b8" /><TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry placeholderTextColor="#94a3b8" /></>)}
         <TouchableOpacity style={styles.button} onPress={mode === 'signIn' ? handleLogin : handleSignUp} disabled={loading}>{loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue</Text>}</TouchableOpacity>
+        {mode === 'signIn' && biometricAvailable && biometricEnabled && (
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleBiometricLogin} disabled={loading}>
+            <Text style={styles.secondaryButtonText}>Sign in with biometrics</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}><Text style={styles.switch}>{mode === 'signIn' ? "Don't have an account? Sign Up" : 'Already have an account? Sign In'}</Text></TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -98,6 +174,8 @@ const styles = StyleSheet.create({
   inputDisabled: { backgroundColor: '#475569' },
   button: { backgroundColor: '#2563eb', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 10 },
   buttonText: { color: 'white', fontWeight: '600' },
+  secondaryButton: { backgroundColor: '#0f172a', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 10, borderWidth: 1, borderColor: '#475569' },
+  secondaryButtonText: { color: 'white', fontWeight: '600' },
   switch: { color: '#94a3b8', textAlign: 'center', marginTop: 12 },
   toggleContainer: { flexDirection: 'row', backgroundColor: '#334155', borderRadius: 8, marginBottom: 16, padding: 4 },
   toggleButton: { flex: 1, paddingVertical: 10, borderRadius: 6 },

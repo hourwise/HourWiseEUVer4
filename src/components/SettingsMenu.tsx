@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../providers/AuthProvider';
 import { useNavigation } from '@react-navigation/native';
 import SoloQualificationsModal from './SoloQualificationsModal';
+import FleetQualificationsModal from './FleetQualificationsModal';
 
 interface SettingsMenuProps {
   onOpenDriverSetup: () => void;
@@ -23,7 +24,7 @@ export default function SettingsMenu({
 }: SettingsMenuProps) {
   const { t } = useTranslation();
   const { signOut, profile } = useAuth();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const [isOpen, setIsOpen] = useState(false);
   const [showQuals, setShowQuals] = useState(false);
 
@@ -44,6 +45,7 @@ export default function SettingsMenu({
   };
 
   const isSolo = profile?.account_type === 'solo';
+  const isFleet = profile?.account_type === 'fleet';
 
   return (
     <View>
@@ -51,11 +53,22 @@ export default function SettingsMenu({
         <Settings size={24} color="white" />
       </TouchableOpacity>
 
-      <SoloQualificationsModal
-        visible={showQuals}
-        onClose={() => setShowQuals(false)}
-        userId={profile?.id || ''}
-      />
+      {isSolo && (
+        <SoloQualificationsModal
+          visible={showQuals}
+          onClose={() => setShowQuals(false)}
+          userId={profile?.id || ''}
+        />
+      )}
+
+      {isFleet && (
+        <FleetQualificationsModal
+          visible={showQuals}
+          onClose={() => setShowQuals(false)}
+          userId={profile?.id || ''}
+          companyId={profile?.company_id || ''}
+        />
+      )}
 
       <Modal visible={isOpen} transparent animationType="fade" onRequestClose={() => setIsOpen(false)}>
         <TouchableOpacity className="flex-1" activeOpacity={1} onPressOut={() => setIsOpen(false)}>
@@ -79,6 +92,13 @@ export default function SettingsMenu({
                   <Text className="text-slate-200 font-medium">Qualifications</Text>
                 </TouchableOpacity>
               </>
+            )}
+
+            {isFleet && (
+              <TouchableOpacity onPress={() => handlePress(() => setShowQuals(true))} className="flex-row items-center gap-3 p-4 border-b border-slate-700 active:bg-slate-700">
+                <Award size={20} color="#fbbf24" />
+                <Text className="text-slate-200 font-medium">Qualifications & Docs</Text>
+              </TouchableOpacity>
             )}
 
             <TouchableOpacity onPress={() => handlePress(onOpenDriverSetup)} className="flex-row items-center gap-3 p-4 border-b border-slate-700 active:bg-slate-700"><User size={20} color="#94a3b8" /><Text className="text-slate-200 font-medium">{t('settingsMenu.driverSettings')}</Text></TouchableOpacity>

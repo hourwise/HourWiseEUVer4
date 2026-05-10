@@ -160,6 +160,22 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
                 if (payConfigError) throw payConfigError;
             }
 
+            // ✨ Mark setup as completed (only set once in DB)
+            const { error: setupCompleteError } = await supabase
+                .from('profiles')
+                .update({
+                    first_time_setup_completed_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', session.user.id)
+                .is('first_time_setup_completed_at', null); // Only update if not already set
+
+            if (setupCompleteError) {
+                console.warn('Failed to mark setup complete:', setupCompleteError.message);
+            } else {
+                console.log('[DriverSetup] Setup marked as complete');
+            }
+
             await refreshProfile();
             if (onClose) onClose();
 

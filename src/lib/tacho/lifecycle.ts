@@ -1,4 +1,4 @@
-import { MAX_DRIVE, MAX_WEEKLY_DRIVE, SPREADOVER_13H } from './constants';
+import { MAX_DRIVE, MAX_WEEKLY_DRIVE, MAX_SHIFT_TIME_13H } from './constants';
 import { getMaxWorkSeconds } from './timing';
 import type { DisplayState, ShiftLifecycleState } from './types';
 
@@ -11,7 +11,7 @@ export const createInitialDisplayState = (): DisplayState => ({
   shift: 0,
   workTimeRemaining: getMaxWorkSeconds('6h'),
   drivingTimeRemaining: MAX_DRIVE,
-  spreadoverRemaining: SPREADOVER_13H,
+  maxShiftTimeRemaining: MAX_SHIFT_TIME_13H,
   breakDuration: 0,
   poaDuration: 0,
   weeklyDrivingRemaining: MAX_WEEKLY_DRIVE,
@@ -48,7 +48,7 @@ export const createStartedShiftState = (
   prevWorkRemaining: getMaxWorkSeconds('6h'),
   prevDriveRemaining: MAX_DRIVE,
   prevWeeklyDriveRemaining: MAX_WEEKLY_DRIVE,
-  prevSpreadRemaining: SPREADOVER_13H,
+  prevMaxShiftTimeRemaining: MAX_SHIFT_TIME_13H,
 });
 
 export const createFailedStartRollbackState = (): Pick<
@@ -86,5 +86,5 @@ export const createEndedShiftResetState = (nowMs: number): ShiftLifecycleState =
   prevWorkRemaining: getMaxWorkSeconds('6h'),
   prevDriveRemaining: MAX_DRIVE,
   prevWeeklyDriveRemaining: MAX_WEEKLY_DRIVE,
-  prevSpreadRemaining: SPREADOVER_13H,
+  prevMaxShiftTimeRemaining: MAX_SHIFT_TIME_13H,
 });

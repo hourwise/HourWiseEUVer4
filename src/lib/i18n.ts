@@ -1,4 +1,4 @@
-import i18n from 'i18next';
+import i18n, { type InitOptions } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import HttpBackend from 'i18next-http-backend';
 import ChainedBackend from 'i18next-chained-backend';
@@ -49,42 +49,54 @@ const languageDetector = {
   },
 };
 
-i18n
-  .use(ChainedBackend)
-  .use(languageDetector)
-  .use(initReactI18next)
-  .init({
-    debug: __DEV__,
-    fallbackLng: 'en-GB',
-    supportedLngs: supportedLanguages,
-    load: 'currentOnly',
-    ns: ['translation'],
-    defaultNS: 'translation',
-    keySeparator: '.',
-    interpolation: {
-      escapeValue: false,
-      formatSeparator: ',',
-    },
-    backend: {
-      backends: [
-        HttpBackend,
-        resourcesToBackend({
-          'en-GB': { translation: enTranslations },
-          'en': { translation: enTranslations }
-        })
-      ],
-      backendOptions: [
-        {
-          loadPath: getLoadPath,
-          queryStringParams: { v: '1.0.2' },
-          requestOptions: { cache: 'no-store' }
-        },
-        {}
-      ],
-    },
-    react: {
-      useSuspense: false,
-    },
-  });
+export const i18nConfig: InitOptions = {
+  debug: __DEV__,
+  fallbackLng: 'en-GB',
+  supportedLngs: supportedLanguages,
+  load: 'currentOnly',
+  ns: ['translation'],
+  defaultNS: 'translation',
+  keySeparator: '.',
+  interpolation: {
+    escapeValue: false,
+    formatSeparator: ',',
+  },
+  backend: {
+    backends: [
+      HttpBackend,
+      resourcesToBackend({
+        'en-GB': { translation: enTranslations },
+        en: { translation: enTranslations }
+      })
+    ],
+    backendOptions: [
+      {
+        loadPath: getLoadPath,
+        queryStringParams: { v: '1.0.2' },
+        requestOptions: { cache: 'no-store' }
+      },
+      {}
+    ],
+  },
+  react: {
+    useSuspense: false,
+  },
+};
+
+let initPromise: Promise<typeof i18n> | null = null;
+
+export const ensureI18nInitialized = () => {
+  if (i18n.isInitialized) return Promise.resolve(i18n);
+  if (initPromise) return initPromise;
+
+  initPromise = i18n
+    .use(ChainedBackend)
+    .use(languageDetector)
+    .use(initReactI18next)
+    .init(i18nConfig)
+    .then(() => i18n);
+
+  return initPromise;
+};
 
 export default i18n;

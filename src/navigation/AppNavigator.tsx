@@ -16,6 +16,8 @@ import DriverSetup from '../components/DriverSetup';
 import PaywallScreen from '../screens/PaywallScreen';
 import AccountManagementScreen from '../screens/AccountManagementScreen';
 import MessagesScreen from '../screens/MessagesScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import MyScheduleScreen from '../screens/MyScheduleScreen';
 import CalendarView from '../components/CalendarView';
 
 const Stack = createNativeStackNavigator();
@@ -85,12 +87,12 @@ export default function AppNavigator() {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!session ? (
           <Stack.Screen name="Auth" component={Auth} />
+        ) : areAllGranted !== true ? (
+          <Stack.Screen name="Permissions" component={PermissionsScreen} />
         ) : needsSetup ? (
           <Stack.Screen name="Setup" component={SetupStack} />
         ) : needsLastShiftEntry ? (
           <Stack.Screen name="OnboardingCalendar" component={OnboardingCalendar} />
-        ) : areAllGranted !== true ? (
-          <Stack.Screen name="Permissions" component={PermissionsScreen} />
         ) : !isSubscribed ? (
           <Stack.Screen name="Paywall" component={PaywallScreen} />
         ) : (
@@ -100,6 +102,8 @@ export default function AppNavigator() {
             </Stack.Screen>
             <Stack.Screen name="AccountManagement" component={AccountManagementScreen} />
             <Stack.Screen name="Messages" component={MessagesScreen} />
+            <Stack.Screen name="Subscription" component={SettingsScreen} />
+            <Stack.Screen name="MySchedule" component={MyScheduleScreen} />
           </>
         )}
       </Stack.Navigator>

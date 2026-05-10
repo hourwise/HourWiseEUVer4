@@ -30,6 +30,18 @@ export const getDisplayedBreakSeconds = (seconds: number) => {
   return seconds;
 };
 
+export const getLegalBreakContributionSeconds = (
+  seconds: number,
+  hasPrior15minBreak: boolean,
+) => {
+  if (hasPrior15minBreak) {
+    if (seconds < TACHO_30_MIN) return 0;
+    return seconds;
+  }
+
+  return getDisplayedBreakSeconds(seconds);
+};
+
 export const getMaxWorkSeconds = (timerMode: TimerMode) =>
   timerMode === '6h' ? MAX_WORK_6H : MAX_WORK_9H;
 

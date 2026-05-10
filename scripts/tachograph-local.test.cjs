@@ -21,6 +21,8 @@ const sessionPayloadsSource = read('src/lib/tacho/sessionPayloads.ts');
 const lifecycleSource = read('src/lib/tacho/lifecycle.ts');
 const endShiftSource = read('src/lib/tacho/endShift.ts');
 const drivingDetectionSource = read('src/lib/tacho/drivingDetection.ts');
+const alertsSource = read('src/lib/tacho/alerts.ts');
+const runtimeStorageSource = read('src/lib/tacho/runtimeStorage.ts');
 const enSource = read('src/lib/i18n/en.json');
 
 test('useWorkTimer keeps separate work and driving cycle counters', () => {
@@ -30,7 +32,8 @@ test('useWorkTimer keeps separate work and driving cycle counters', () => {
   assert.match(useWorkTimerSource, /deriveLiveDisplayState\(/);
   assert.match(displaySource, /drivingTimeRemaining: maxDriveSeconds - nextDrivingCycle/);
   assert.match(displaySource, /workTimeRemaining: maxWork - nextWorkCycle/);
-  assert.match(useWorkTimerSource, /const currentDriving = drivingCycleRef\.current \+ inFlightDriving/);
+  assert.match(useWorkTimerSource, /let inFlightDriving = 0;/);
+  assert.match(useWorkTimerSource, /if \(isDrivingRef\.current\) inFlightDriving = inFlightSec; else inFlightWork = inFlightSec;/);
 });
 
 test('qualifying breaks reset cycle counters but do not reset full totals', () => {
@@ -49,6 +52,14 @@ test('break qualification uses a stable break start timestamp', () => {
   assert.match(useWorkTimerSource, /breakStartTimeRef\.current = transition\.nextBreakStartMs;/);
   assert.match(snapshotSource, /const breakStartedMs = breakStartMs \|\| segmentStartMs/);
   assert.match(transitionsSource, /const breakStartedMs = breakStartMs \|\| segmentStartMs/);
+});
+
+test('refreshSession prefers fresher local session state over stale DB status', () => {
+  assert.match(useWorkTimerSource, /const shouldPreferLocalState =/);
+  assert.match(useWorkTimerSource, /localSessionId === data\.id/);
+  assert.match(useWorkTimerSource, /const effectiveStatus = shouldPreferLocalState \? localStatus : \(data\.status as WorkStatus\)/);
+  assert.match(useWorkTimerSource, /const effectiveTimerMode = shouldPreferLocalState \? localTimerMode : dbTimerMode/);
+  assert.match(useWorkTimerSource, /const effectiveHas15minBreak = shouldPreferLocalState \? localHas15minBreak : dbHas15minBreak/);
 });
 
 test('dashboard break summary uses tachograph-style displayed break total, not raw break total', () => {
@@ -80,6 +91,7 @@ test('session update payloads are derived in pure helpers', () => {
   assert.match(useWorkTimerSource, /buildStatusUpdatePayload\(/);
   assert.match(useWorkTimerSource, /buildPeriodicCheckpointPayload\(/);
   assert.match(sessionPayloadsSource, /export const buildSessionOtherData =/);
+  assert.match(sessionPayloadsSource, /timerMode,/);
   assert.match(sessionPayloadsSource, /export const buildDriveStopUpdatePayload =/);
   assert.match(sessionPayloadsSource, /export const buildStatusUpdatePayload =/);
   assert.match(sessionPayloadsSource, /export const buildPeriodicCheckpointPayload =/);
@@ -132,36 +144,43 @@ test('end-shift teardown suppresses drive-stop sync writes', () => {
 });
 
 test('work notifications use corrected message keys and text', () => {
-  assert.match(useWorkTimerSource, /workWarn30mRemaining: \{ speechKey: 'audioWork30minLeft'/);
+  assert.match(alertsSource, /workWarn30mRemaining: \{ speechKey: 'audioWork30minLeft'/);
   assert.match(useWorkTimerSource, /scheduleAtThreshold\(remainingWork, 30 \* 60, 'workWarn30mRemaining'\)/);
   assert.match(useWorkTimerSource, /scheduleAtThreshold\(remainingWork, 15 \* 60, 'workWarn15mRemaining'\)/);
+  assert.match(useWorkTimerSource, /saveScheduledComplianceNotificationIds\(scheduledComplianceIdsRef\.current\)/);
   assert.match(enSource, /"workTime5minLeft": "5 minutes remaining in your work cycle\."/);
   assert.match(enSource, /"audioWork30minLeft": "30 minutes remaining in your work cycle\."/);
   assert.doesNotMatch(enSource, /"workTime45minLeft":/);
 });
 
-test('4.5h driving notifications only schedule while actively driving', () => {
-  assert.match(useWorkTimerSource, /if \(st === 'working' && isDrivingRef\.current\) \{/);
-  assert.doesNotMatch(useWorkTimerSource, /if \(currentDriving > 0 \|\| currentWeeklyDriving > 0\) \{/);
-  assert.match(useWorkTimerSource, /if \(currentWeeklyDriving > 0\) \{/);
+test('scheduled work notifications are cancelled, persisted, and cleared across shift lifecycle changes', () => {
+  assert.match(useWorkTimerSource, /const cancelScheduledComplianceNotifications = useCallback\(async \(isEndingShift = false\) => \{/);
+  assert.match(useWorkTimerSource, /const persistedIds = await loadScheduledComplianceNotificationIds\(\)/);
+  assert.match(useWorkTimerSource, /await clearScheduledComplianceNotificationIds\(\)/);
+  assert.match(useWorkTimerSource, /await Notifications\.cancelAllScheduledNotificationsAsync\(\)/);
+  assert.match(useWorkTimerSource, /await cancelScheduledComplianceNotifications\(\);/);
+  assert.match(useWorkTimerSource, /await cancelScheduledComplianceNotifications\(true\);/);
+  assert.match(runtimeStorageSource, /SCHEDULED_COMPLIANCE_NOTIFICATION_IDS_KEY/);
 });
 
-test('driving notification model includes continuous 4.5h and 10h extension ladders', () => {
-  assert.match(useWorkTimerSource, /scheduleAtThreshold\(remainingDrive, 30 \* 60, 'driveCycleWarn30mRemaining'\)/);
-  assert.match(useWorkTimerSource, /scheduleAtThreshold\(remainingDrive, 15 \* 60, 'driveCycleWarn15mRemaining'\)/);
-  assert.match(useWorkTimerSource, /scheduleAtThreshold\(remainingDrive, 5 \* 60, 'driveCycleWarn5mRemaining'\)/);
-  assert.match(useWorkTimerSource, /scheduleAtThreshold\(remainingDriveExtension, 30 \* 60, 'driveExtensionWarn30mRemaining'\)/);
-  assert.match(useWorkTimerSource, /scheduleAtThreshold\(remainingDriveExtension, 15 \* 60, 'driveExtensionWarn15mRemaining'\)/);
-  assert.match(useWorkTimerSource, /scheduleAtThreshold\(remainingDriveExtension, 5 \* 60, 'driveExtensionWarn5mRemaining'\)/);
+test('driving notifications are live and handled through active and background threshold crossing', () => {
+  assert.doesNotMatch(useWorkTimerSource, /scheduleAtThreshold\(remainingDrive,/);
+  assert.match(useWorkTimerSource, /if \(status === 'working' && isDriving\) \{/);
   assert.match(useWorkTimerSource, /const currentDriveExtension = MAX_DAILY_DRIVE_EXTENDED - display\.driving/);
+  assert.match(indexSource, /alertKeys\.push\('driveCycleWarn30mRemaining'\)/);
+  assert.match(indexSource, /alertKeys\.push\('driveExtensionWarn30mRemaining'\)/);
+  assert.match(indexSource, /alertKeys\.push\('weeklyDriveWarn1hRemaining'\)/);
+  assert.match(indexSource, /await scheduleBackgroundAlert\(alertKey\);/);
   assert.match(enSource, /"audioDrivingExtension30minLeft": "30 minutes remaining in your 10-hour driving extension\."/);
 });
 
 test('background speed task and hook use the same storage key', () => {
   assert.match(indexSource, /BACKGROUND_SPEED_KEY = 'bg_last_speed_v1'/);
   assert.match(useWorkTimerSource, /BG_SPEED_KEY/);
-  assert.match(indexSource, /JSON\.stringify\(\{ speedKmh: speed, ts: Date\.now\(\) \}\)/);
+  assert.match(indexSource, /JSON\.stringify\(\{ speedKmh: speed, ts: nowMs \}\)/);
   assert.match(useWorkTimerSource, /const \{ speedKmh, ts \} = JSON\.parse\(raw\)/);
+  assert.match(indexSource, /const persistedState = await loadActiveTimerState\(\)/);
+  assert.match(indexSource, /await saveActiveTimerState\(persistedState\)/);
 });
 
 test('reports read driving time from other_data', () => {

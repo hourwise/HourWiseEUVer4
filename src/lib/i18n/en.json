@@ -21,7 +21,13 @@
     "gotIt": "Got It!",
     "logout": "Logout",
     "openSettings": "Open Settings",
-    "retry": "Retry"
+    "retry": "Retry",
+    "camera": "Camera",
+    "gallery": "Gallery",
+    "takePhoto": "Take Photo",
+    "fromLibrary": "From Library",
+    "clear": "Clear",
+    "ready": "Ready"
   },
   "permissions": {
     "notificationsTitle": "Notifications Permission",
@@ -111,6 +117,19 @@
     "incomplete": "Answer all items.",
     "missingDefectDetails": "Describe the issue.",
     "hintLabel": "Hint",
+    "photoLimitTitle": "Photo Limit",
+    "photoLimitMessage": "You can attach a maximum of 3 photos per defect report.",
+    "defectPhotosCount": "Defect Photos ({{count}}/3)",
+    "openingOdo": "Opening Odometer",
+    "closingOdo": "Closing Odometer",
+    "odoError": "Closing odometer cannot be less than opening odometer.",
+    "driverConfirmation": "Driver Confirmation",
+    "tapToSign": "Tap to provide digital signature",
+    "signTitle": "Digital Signature",
+    "signDescription": "Please sign above",
+    "inspecting": "Inspecting...",
+    "timerActiveTitle": "Inspection in Progress",
+    "timerActiveMessage": "A thorough safety inspection requires at least 15 minutes. Please ensure you have completed all checks correctly before submitting.",
     "items": {
       "mirrors": "Mirrors and Glass",
       "mirrorsHint": "Check for cracks/stickers; ensure mirrors are aligned.",
@@ -220,6 +239,34 @@
       "saveError": "Failed to save vehicle details"
     }
   },
+  "expenses": {
+    "title": "Add Expense",
+    "amount": "Amount",
+    "currency": "Currency",
+    "merchant": "Merchant",
+    "category": "Category",
+    "notes": "Notes",
+    "optionalNotes": "Optional notes...",
+    "saveExpense": "Save Expense",
+    "scanResult": "Scan Result",
+    "scanError": "Image uploaded, but could not automatically read details. You can still fill the form manually.",
+    "cameraError": "Camera Error",
+    "cameraErrorMessage": "Could not open the camera. Please try selecting from your library instead.",
+    "libraryError": "Library Error",
+    "libraryErrorMessage": "Could not open the photo library.",
+    "invalidAmount": "Invalid amount",
+    "invalidAmountMessage": "Please enter a valid amount.",
+    "saveFailed": "Save failed",
+    "categories": {
+      "Fuel": "Fuel",
+      "Tolls": "Tolls",
+      "Parking": "Parking",
+      "Meals": "Meals",
+      "Accommodation": "Accommodation",
+      "Supplies": "Supplies",
+      "Other": "Other"
+    }
+  },
   "shiftSummary": {
     "title": "Current Shift",
     "totalWork": "Total Work",
@@ -242,8 +289,13 @@
     "tachoGuide": "Tacho Guide",
     "compliance": "Compliance",
     "workHistory": "Work History",
+    "mySchedule": "My Schedule",
     "addExpense": "Add Expenses",
     "downloadReport": "Download Report"
+  },
+  "schedule": {
+    "title": "My Schedule",
+    "emptyState": "No upcoming shifts assigned. Please check back later or contact your manager."
   },
   "workHistory": {
     "title": "Work History",
@@ -725,8 +777,8 @@
   "workTime5minLeft": "5 minutes remaining in your work cycle.",
   "workTimeLimitReached": "Work time limit reached.",
   "drivingTime30minLeft": "30 minutes remaining in your driving cycle.",
-  "drivingTime15minLeft": "15 minutes of driving remaining.",
-  "drivingTime5minLeft": "5 minutes of driving remaining.",
+  "drivingTime15minLeft": "15 minutes remaining in your driving cycle.",
+  "drivingTime5minLeft": "5 minutes remaining in your driving cycle.",
   "drivingTimeLimitReached": "Driving time limit reached.",
   "drivingExtension30minLeft": "30 minutes remaining in your 10-hour driving extension.",
   "drivingExtension15minLeft": "15 minutes remaining in your 10-hour driving extension.",
@@ -739,9 +791,9 @@
   "audioPoaStarted": "P. O. A. started.",
   "audioDrivingTimeReset": "Driving time reset.",
   "audioDrivingLimitReached": "Driving limit reached.",
-  "audioDriving5minLeft": "5 minutes of driving remaining.",
-  "audioDriving15minLeft": "15 minutes of driving remaining.",
-  "audioDriving30minLeft": "30 minutes of driving remaining.",
+  "audioDriving5minLeft": "5 minutes remaining in your driving cycle.",
+  "audioDriving15minLeft": "15 minutes remaining in your driving cycle.",
+  "audioDriving30minLeft": "30 minutes remaining in your driving cycle.",
   "audioDrivingExtension5minLeft": "5 minutes remaining in your 10-hour driving extension.",
   "audioDrivingExtension15minLeft": "15 minutes remaining in your 10-hour driving extension.",
   "audioDrivingExtension30minLeft": "30 minutes remaining in your 10-hour driving extension.",
@@ -966,9 +1018,17 @@
       "title": "10-Hour Driving Extension Used",
       "tip": "You have used one of your two weekly 10-hour driving extensions."
     },
+    "USED_15H_SHIFT_EXTENSION": {
+      "title": "15-Hour Shift Extension Used",
+      "tip": "You exceeded 13 hours spread-over and used one of your limited weekly 15-hour shift extensions."
+    },
     "EXCEEDED_WEEKLY_DRIVING_LIMIT": {
       "title": "Exceeded Weekly Driving Limit",
       "tip": "The maximum weekly driving time is 56 hours. Plan your weeks carefully to stay within this limit."
+    },
+    "EXCEEDED_SHIFT_SPREAD_LIMIT": {
+      "title": "Exceeded Shift Spread-Over Limit",
+      "tip": "A shift may normally run to 13 hours, extendable to 15 hours only a limited number of times each week."
     },
     "EXCEEDED_WEEKLY_WORK_LIMIT": {
       "title": "Exceeded Weekly Work Limit",
@@ -1006,9 +1066,12 @@
     "reducedRestWarning": "Warning: You have had less than 11 hours rest. This will count as a reduced daily rest.",
     "spreadTitle": "Shift Limit Warning",
     "spread30m": "30 minutes remaining before you reach your 13-hour shift limit.",
-    "weeklyDriveTitle": "Weekly Driving Warning",
+    "spread13hReached": "You have reached your 13-hour shift limit. Only use the 15-hour extension if you still have one available this week.",
+    "spread15h30m": "30 minutes remaining before you reach your 15-hour extended shift limit.",
+    "spread15hReached": "You have reached your 15-hour extended shift limit.",
     "weeklyDrive1h": "1 hour remaining of your 56-hour weekly driving limit.",
-    "weeklyDriveLimit": "Weekly driving limit of 56 hours reached."
+    "weeklyDriveLimit": "Weekly driving limit of 56 hours reached.",
+    "weeklyDriveTitle": "Weekly Driving Warning"
   },
   "digitalClock": {
     "title": "Current Time",

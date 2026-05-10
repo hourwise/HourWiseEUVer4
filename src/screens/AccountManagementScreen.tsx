@@ -21,7 +21,7 @@ const SectionHeader = ({ title }: { title: string }) => (
 
 export default function AccountManagementScreen() {
   const { t } = useTranslation();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { session, profile, isFleetDriver, refreshProfile, signOut } = useAuth();
 
   const [isReportModalVisible, setIsReportModalVisible] = useState(false);

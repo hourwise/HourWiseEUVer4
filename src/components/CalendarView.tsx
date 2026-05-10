@@ -28,6 +28,11 @@ interface PayConfig {
   additional_overtime_tiers: any[];
 }
 
+type EditableSession = Pick<
+  WorkSession,
+  'id' | 'date' | 'start_time' | 'end_time' | 'total_break_minutes' | 'total_poa_minutes'
+>;
+
 // --- Custom Hooks ---
 
 const usePayConfig = (userId: string) => {
@@ -194,7 +199,7 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [periodView, setPeriodView] = useState<PeriodView>('monthly');
 
-  const [editingSession, setEditingSession] = useState<WorkSession | null>(null);
+  const [editingSession, setEditingSession] = useState<EditableSession | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [newShiftDate, setNewShiftDate] = useState<string | null>(null);
   const [vehicleEvents, setVehicleEvents] = useState<any[]>([]);
@@ -248,8 +253,9 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
     const year = currentDate.getFullYear(), month = currentDate.getMonth();
     const firstDay = new Date(year, month, 1), lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate(), startingDayOfWeek = (firstDay.getDay() + 6) % 7;
-    const days = Array.from({ length: startingDayOfWeek }, () => null).concat(Array.from({ length: daysInMonth }, (_, i) => i + 1));
-    const grid = [];
+    const days: Array<number | null> = Array.from({ length: startingDayOfWeek }, () => null);
+    days.push(...Array.from({ length: daysInMonth }, (_, i) => i + 1));
+    const grid: Array<Array<number | null>> = [];
     for (let i = 0; i < days.length; i += 7) grid.push(days.slice(i, i + 7));
     if (grid[grid.length - 1].length < 7) {
       grid[grid.length - 1] = grid[grid.length - 1].concat(Array(7 - grid[grid.length - 1].length).fill(null));

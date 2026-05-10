@@ -13,6 +13,7 @@ export const buildSessionOtherData = ({
   has15minBreak,
   workCycle,
   drivingCycle,
+  timerMode,
   existingOtherData,
 }: SessionCounterSnapshotInput): SessionOtherData => ({
   ...(existingOtherData || {}),
@@ -21,6 +22,7 @@ export const buildSessionOtherData = ({
   has15minBreak,
   workCycle: toMins(workCycle),
   drivingCycle: toMins(drivingCycle),
+  timerMode,
 });
 
 export const buildDriveStopUpdatePayload = ({
@@ -29,6 +31,7 @@ export const buildDriveStopUpdatePayload = ({
   has15minBreak,
   workCycle,
   drivingCycle,
+  timerMode,
   existingOtherData,
   currentSegmentStart,
 }: SessionCounterSnapshotInput & { currentSegmentStart: string | null }) => ({
@@ -38,6 +41,7 @@ export const buildDriveStopUpdatePayload = ({
     has15minBreak,
     workCycle,
     drivingCycle,
+    timerMode,
     existingOtherData,
   }),
   current_segment_start: currentSegmentStart,
@@ -50,6 +54,7 @@ export const buildStatusUpdatePayload = ({
   has15minBreak,
   workCycle,
   drivingCycle,
+  timerMode,
   existingOtherData,
   currentSegmentStart,
   currentBreakStart,
@@ -65,6 +70,7 @@ export const buildStatusUpdatePayload = ({
     has15minBreak,
     workCycle,
     drivingCycle,
+    timerMode,
     existingOtherData,
   }),
   current_break_start: currentBreakStart,
@@ -78,6 +84,7 @@ export const buildPeriodicCheckpointPayload = ({
   has15minBreak,
   workCycle,
   drivingCycle,
+  timerMode,
   existingOtherData,
   currentSegmentStart,
   status,
@@ -93,6 +100,7 @@ export const buildPeriodicCheckpointPayload = ({
     has15minBreak,
     workCycle,
     drivingCycle,
+    timerMode,
     existingOtherData,
   }),
   current_segment_start: currentSegmentStart,

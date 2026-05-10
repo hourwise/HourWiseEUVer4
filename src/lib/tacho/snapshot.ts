@@ -1,4 +1,9 @@
 import { evaluateBreakCompletion } from './timing';
+import {
+  exceededShiftSpreadLimit,
+  getShiftDurationSeconds,
+  usedShiftExtension,
+} from './spread';
 import type { EndShiftSnapshot, EndShiftSnapshotInput } from './types';
 
 const toMins = (seconds: number) => Math.max(0, Math.floor(seconds / 60));
@@ -39,6 +44,10 @@ export const buildEndShiftSnapshot = ({
     effectiveHas15minBreak = breakEvaluation.nextHas15minBreak;
   }
 
+  const shiftDurationSeconds = getShiftDurationSeconds(workStartIso, nowMs);
+  const usedSpreadExtension = usedShiftExtension(shiftDurationSeconds);
+  const exceededSpreadLimit = exceededShiftSpreadLimit(shiftDurationSeconds);
+
   return {
     finalTotals,
     effectiveWorkCycle,
@@ -55,6 +64,9 @@ export const buildEndShiftSnapshot = ({
         has15minBreak: effectiveHas15minBreak,
         workCycle: toMins(effectiveWorkCycle),
         drivingCycle: toMins(effectiveDrivingCycle),
+        shiftDurationMinutes: toMins(shiftDurationSeconds),
+        usedShiftExtension: usedSpreadExtension,
+        exceededShiftSpreadLimit: exceededSpreadLimit,
       },
     },
   };

@@ -16,6 +16,7 @@ export type BreakTracker = {
 export type PersistedState = {
   status: WorkStatus;
   sessionId: string | null;
+  userStorageKey?: string | null;
   timerMode: TimerMode;
   workStartTime: string | null;
   currentSegmentStart: string | null;
@@ -27,6 +28,10 @@ export type PersistedState = {
   isDriving: boolean;
   lastTickMs: number;
   weeklyDrivingAccumulator: number;
+  shiftExtensionsUsedThisWeek?: number;
+  maxShiftTimeSeconds?: number;
+  dailyRestSecondsBeforeShift?: number;
+  reducedDailyRestTaken?: boolean;
   breakStartMs?: number;
 };
 
@@ -59,7 +64,9 @@ export type DisplayState = {
   shift: number;
   workTimeRemaining: number;
   drivingTimeRemaining: number;
-  spreadoverRemaining: number;
+  maxShiftTimeRemaining: number;
+  // Alias for backward compatibility
+  spreadoverRemaining?: number;
   breakDuration: number;
   poaDuration: number;
   weeklyDrivingRemaining: number;
@@ -80,11 +87,14 @@ export type LiveDisplayInput = {
   timerMode: TimerMode;
   weeklyDrivingAccumulator: number;
   breakStartMs: number;
+  has15minBreak: boolean;
   lastBreakDuration: number;
   lastBreakEndTime: number;
   maxDriveSeconds: number;
   maxWeeklyDriveSeconds: number;
-  spreadOverSeconds: number;
+  maxShiftTimeSeconds: number;
+  // Alias for backward compatibility
+  spreadOverSeconds?: number;
 };
 
 export type EndShiftSnapshot = {
@@ -103,6 +113,11 @@ export type EndShiftSnapshot = {
       has15minBreak: boolean;
       workCycle: number;
       drivingCycle: number;
+      shiftDurationMinutes?: number;
+      usedShiftExtension?: boolean;
+      exceededShiftSpreadLimit?: boolean;
+      dailyRestSecondsBeforeShift?: number;
+      reducedDailyRestTaken?: boolean;
     };
   };
 };
@@ -164,6 +179,12 @@ export type SessionOtherData = Record<string, any> & {
   workCycle?: number;
   drivingCycle?: number;
   legalBreakDisplay?: number;
+  timerMode?: TimerMode;
+  shiftDurationMinutes?: number;
+  usedShiftExtension?: boolean;
+  exceededShiftSpreadLimit?: boolean;
+  dailyRestSecondsBeforeShift?: number;
+  reducedDailyRestTaken?: boolean;
 };
 
 export type SessionCounterSnapshotInput = {
@@ -172,6 +193,7 @@ export type SessionCounterSnapshotInput = {
   has15minBreak: boolean;
   workCycle: number;
   drivingCycle: number;
+  timerMode: TimerMode;
   existingOtherData?: SessionOtherData | null;
 };
 
@@ -214,7 +236,9 @@ export type ShiftLifecycleState = {
   prevWorkRemaining: number;
   prevDriveRemaining: number;
   prevWeeklyDriveRemaining: number;
-  prevSpreadRemaining: number;
+  prevMaxShiftTimeRemaining: number;
+  // Alias for backward compatibility
+  prevSpreadRemaining?: number;
 };
 
 export type EndShiftSummaryInput = {
@@ -235,6 +259,7 @@ export type EndSessionRequestInput = {
   effectiveHas15minBreak: boolean;
   effectiveWorkCycle: number;
   effectiveDrivingCycle: number;
+  shiftMetadata?: SessionOtherData;
   existingOtherData?: SessionOtherData | null;
   latitude?: number;
   longitude?: number;
@@ -263,6 +288,8 @@ export type BackgroundSpeedDecisionInput = {
   isDriving: boolean;
   drivingThresholdKmh: number;
   stillThresholdKmh: number;
+  immediateStartThresholdKmh: number;
+  lowSpeedStopThresholdKmh: number;
   staleThresholdMs: number;
 };
 
@@ -275,10 +302,16 @@ export type LocationSampleDecisionInput = {
   nowMs: number;
   accuracy: number;
   speedKmh: number;
+  lastSpeedKmh: number;
+  lastSpeedTs: number;
   isDriving: boolean;
+  movingSinceMs: number;
   stationarySinceMs: number;
   stillThresholdKmh: number;
+  lowSpeedStopThresholdKmh: number;
   drivingThresholdKmh: number;
+  immediateStartThresholdKmh: number;
+  movingConfirmMs: number;
   stationaryConfirmMs: number;
   accelScoreMax: number;
 };
@@ -286,6 +319,7 @@ export type LocationSampleDecisionInput = {
 export type LocationSampleDecision = {
   shouldIgnore: boolean;
   nextDriving: boolean | null;
+  nextMovingSinceMs: number;
   nextStationarySinceMs: number;
   nextDrivingScore: number | null;
   lastSpeedKmh: number;

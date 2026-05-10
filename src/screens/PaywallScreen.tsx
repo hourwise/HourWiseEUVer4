@@ -3,14 +3,25 @@ import { View, Text, TouchableOpacity, Alert, ActivityIndicator } from 'react-na
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import Purchases from 'react-native-purchases';
 import { useTranslation } from 'react-i18next';
+import { isRevenueCatReady } from '../lib/revenuecat';
+import { useAuth } from '../providers/AuthProvider';
 
 const PaywallScreen = () => {
   const { t, ready } = useTranslation();
+  const { signOut } = useAuth();
   const [loadingPaywall, setLoadingPaywall] = useState(false);
   const [loadingRestore, setLoadingRestore] = useState(false);
+  const revenueCatReady = isRevenueCatReady();
 
   const presentPaywall = useCallback(async () => {
     if (loadingPaywall || loadingRestore) return;
+    if (!revenueCatReady) {
+      Alert.alert(
+        t('common.error'),
+        'Subscriptions are not configured in this build yet.'
+      );
+      return;
+    }
 
     try {
       setLoadingPaywall(true);
@@ -57,10 +68,17 @@ const PaywallScreen = () => {
     } finally {
       setLoadingPaywall(false);
     }
-  }, [loadingPaywall, loadingRestore, t]);
+  }, [loadingPaywall, loadingRestore, revenueCatReady, t]);
 
   const restorePurchases = useCallback(async () => {
     if (loadingPaywall || loadingRestore) return;
+    if (!revenueCatReady) {
+      Alert.alert(
+        t('common.error'),
+        'Subscriptions are not configured in this build yet.'
+      );
+      return;
+    }
 
     try {
       setLoadingRestore(true);
@@ -89,7 +107,7 @@ const PaywallScreen = () => {
     } finally {
       setLoadingRestore(false);
     }
-  }, [loadingPaywall, loadingRestore, t]);
+  }, [loadingPaywall, loadingRestore, revenueCatReady, t]);
 
   if (!ready) {
     return (
@@ -113,10 +131,18 @@ const PaywallScreen = () => {
         )}
       </Text>
 
+      {!revenueCatReady && (
+        <View className="w-full mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <Text className="text-amber-300 text-center">
+            Subscriptions are not configured in this build yet.
+          </Text>
+        </View>
+      )}
+
       <TouchableOpacity
         onPress={presentPaywall}
-        disabled={isBusy}
-        className={`w-full py-4 rounded-xl ${isBusy ? 'bg-blue-600/60' : 'bg-blue-600'}`}
+        disabled={isBusy || !revenueCatReady}
+        className={`w-full py-4 rounded-xl ${isBusy || !revenueCatReady ? 'bg-blue-600/60' : 'bg-blue-600'}`}
       >
         {loadingPaywall ? (
           <View className="flex-row justify-center items-center gap-2">
@@ -134,7 +160,7 @@ const PaywallScreen = () => {
 
       <TouchableOpacity
         onPress={restorePurchases}
-        disabled={isBusy}
+        disabled={isBusy || !revenueCatReady}
         className="mt-6"
       >
         {loadingRestore ? (
@@ -149,6 +175,16 @@ const PaywallScreen = () => {
             {t('paywall.restorePurchases')}
           </Text>
         )}
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={signOut}
+        disabled={isBusy}
+        className="mt-8"
+      >
+        <Text className={`text-slate-500 ${isBusy ? 'opacity-60' : ''}`}>
+          Sign out
+        </Text>
       </TouchableOpacity>
     </View>
   );

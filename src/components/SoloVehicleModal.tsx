@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,17 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Linking,
+  KeyboardAvoidingView,
 } from 'react-native';
-import { X, Save, Truck, Calendar, Shield, Tool, Activity, Info, RefreshCw } from 'react-native-feather';
+import { X, Save, Truck, Calendar, Shield, Tool, Activity, Info, RefreshCw, Camera, FileText as ImageIcon } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, addYears, parseISO } from 'date-fns';
+import * as ImagePicker from 'expo-image-picker';
+import { ocrService } from '../services/ocrService';
+import { vehicleDocumentService } from '../services/vehicleDocumentService';
 
 interface SoloVehicleModalProps {
   visible: boolean;
@@ -26,6 +31,11 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const regInputRef = useRef<TextInput>(null);
+  const makeInputRef = useRef<TextInput>(null);
+  const modelInputRef = useRef<TextInput>(null);
+  const odoInputRef = useRef<TextInput>(null);
 
   const [formData, setFormData] = useState({
     reg_number: '',
@@ -43,6 +53,25 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
   });
 
   const [showDatePicker, setShowDatePicker] = useState<string | null>(null);
+  const [vehicleId, setVehicleId] = useState<string | null>(null);
+  const [scanning, setScanning] = useState<string | null>(null);
+
+  // Memoized handlers to prevent keyboard dismissal on re-renders
+  const handleRegNumberChange = useCallback((text: string) => {
+    setFormData(prev => ({ ...prev, reg_number: text.toUpperCase() }));
+  }, []);
+
+  const handleMakeChange = useCallback((text: string) => {
+    setFormData(prev => ({ ...prev, make: text }));
+  }, []);
+
+  const handleModelChange = useCallback((text: string) => {
+    setFormData(prev => ({ ...prev, model: text }));
+  }, []);
+
+  const handleOdometerChange = useCallback((text: string) => {
+    setFormData(prev => ({ ...prev, current_odometer: text }));
+  }, []);
 
   useEffect(() => {
     if (visible && userId) {
@@ -62,6 +91,7 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
       if (error && error.code !== 'PGRST116') throw error;
 
       if (data) {
+        setVehicleId(data.id);
         setFormData({
           reg_number: data.reg_number || '',
           make: data.make || '',
@@ -81,6 +111,149 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
       console.error('Error loading vehicle:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOcrScan = async (field: keyof typeof formData, source: 'camera' | 'library' = 'camera') => {
+    try {
+      // 1. Check permissions first
+      if (source === 'camera') {
+        const { status: currentStatus } = await ImagePicker.getCameraPermissionsAsync();
+        if (currentStatus !== 'granted') {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert(t('permissions.cameraTitle'), t('permissions.cameraBody'), [
+              { text: t('common.cancel'), style: 'cancel' },
+              { text: t('common.openSettings'), onPress: () => Linking.openSettings() },
+            ]);
+            return;
+          }
+        }
+      } else {
+        const { status: currentStatus } = await ImagePicker.getMediaLibraryPermissionsAsync();
+        if (currentStatus !== 'granted') {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert("Permission needed", "Media library access is required to pick documents.", [
+              { text: t('common.cancel'), style: 'cancel' },
+              { text: t('common.openSettings'), onPress: () => Linking.openSettings() },
+            ]);
+            return;
+          }
+        }
+      }
+
+      // 2. Launch Camera/Library WITHOUT setting 'scanning' state first.
+      // Setting state causes a re-render which can kill the camera intent on some Android devices.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      let result;
+      if (source === 'camera') {
+        result = await ImagePicker.launchCameraAsync({
+          quality: 0.7,
+          allowsEditing: false,
+          cameraType: ImagePicker.CameraType.back,
+          exif: false,
+        });
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync({
+          quality: 0.7,
+          allowsEditing: false,
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          exif: false,
+        });
+      }
+
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        return;
+      }
+
+      // 3. Now that we have the image and are back in the app, start the scanning UI
+      setScanning(field);
+      const uri = result.assets[0].uri;
+      const text = await ocrService.parseImage(uri);
+
+      const extractedDate = ocrService.extractDate(text);
+      const extractedRef = ocrService.extractReferenceNumber(text, field);
+      const extractedReg = ocrService.extractRegistration(text);
+
+      if (extractedReg && !formData.reg_number) {
+        setFormData(prev => ({ ...prev, reg_number: extractedReg }));
+      }
+
+      if (extractedDate) {
+        setFormData(prev => ({ ...prev, [field]: extractedDate }));
+      }
+
+      if (vehicleId) {
+        try {
+          const storagePath = await vehicleDocumentService.uploadVehicleDocumentFile(
+            uri,
+            vehicleId,
+            null,
+            field
+          );
+
+          await vehicleDocumentService.addVehicleDocumentMetadata({
+            vehicle_id: vehicleId,
+            company_id: null,
+            document_type: field,
+            storage_path: storagePath,
+            expiry_date: extractedDate || null,
+            id_number: extractedRef,
+            uploaded_by: userId,
+          });
+        } catch (uploadError) {
+          console.error('Document upload failed:', uploadError);
+        }
+      }
+
+      if (extractedDate) {
+        Alert.alert(
+          t('common.success'),
+          `Extracted date: ${format(parseISO(extractedDate), 'dd/MM/yyyy')}${extractedRef ? `\nRef: ${extractedRef}` : ''}`
+        );
+      } else {
+        Alert.alert(
+          t('common.success'),
+          "Document scanned and saved, but no clear expiry date found. Please check and set it manually if needed."
+        );
+      }
+    } catch (error: any) {
+      console.error('OCR failed:', error);
+      Alert.alert(t('common.error'), error.message || "Failed to scan document");
+    } finally {
+      setScanning(null);
+    }
+  };
+
+  const handleViewDocument = async (field: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('vehicle_documents')
+        .select('storage_path')
+        .eq('vehicle_id', vehicleId)
+        .eq('document_type', field)
+        .order('uploaded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        Alert.alert("Not Found", "No document image found for this field.");
+        return;
+      }
+
+      const { data: urlData } = await supabase.storage
+        .from('vehicle-documents')
+        .createSignedUrl(data.storage_path, 3600);
+
+      if (urlData?.signedUrl) {
+        await Linking.openURL(urlData.signedUrl);
+      }
+    } catch (error) {
+      console.error('View doc error:', error);
+      Alert.alert("Error", "Could not retrieve document image.");
     }
   };
 
@@ -120,7 +293,8 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
       if (error) throw error;
 
       Alert.alert(t('common.success'), t('vehicleManagement.alerts.saveSuccess'));
-      onClose();
+      // Reload vehicle to get ID if it was a new creation
+      loadVehicle();
     } catch (error: any) {
       console.error('Save failed:', error?.message || error);
       Alert.alert(
@@ -162,11 +336,13 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
     <View className="mb-4">
       <View className="flex-row justify-between items-center mb-1.5">
         <Text className="text-slate-400 text-xs font-bold uppercase">{label}</Text>
-        {formData[field] && (
-          <TouchableOpacity onPress={() => setFormData(prev => ({ ...prev, [field]: null }))}>
-            <Text className="text-red-500 text-[10px] font-bold uppercase">Clear</Text>
-          </TouchableOpacity>
-        )}
+        <View className="flex-row gap-3">
+          {formData[field] && (
+            <TouchableOpacity onPress={() => setFormData(prev => ({ ...prev, [field]: null }))}>
+              <Text className="text-red-500 text-[10px] font-bold uppercase">Clear</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
       <View className="flex-row gap-2">
         <TouchableOpacity
@@ -182,6 +358,35 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
           <Calendar size={18} color="#64748b" />
         </TouchableOpacity>
 
+        <TouchableOpacity
+          onPress={() => handleOcrScan(field, 'camera')}
+          disabled={scanning !== null}
+          className={`w-10 items-center justify-center rounded-xl border ${scanning === field ? 'bg-blue-600/40 border-blue-500' : 'bg-slate-800 border-slate-700'}`}
+        >
+          {scanning === field ? (
+            <ActivityIndicator size="small" color="#60a5fa" />
+          ) : (
+            <Camera size={18} color={scanning === field ? "#fff" : "#94a3b8"} />
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => handleOcrScan(field, 'library')}
+          disabled={scanning !== null}
+          className={`w-10 items-center justify-center rounded-xl border bg-slate-800 border-slate-700`}
+        >
+          <ImageIcon size={18} color="#94a3b8" />
+        </TouchableOpacity>
+
+        {formData[field] && (
+          <TouchableOpacity
+            onPress={() => handleViewDocument(field)}
+            className="w-10 items-center justify-center rounded-xl border bg-slate-800 border-slate-700"
+          >
+            <Info size={18} color="#60a5fa" />
+          </TouchableOpacity>
+        )}
+
         {canRenew && formData[field] && (
           <TouchableOpacity
             onPress={() => renewDate(field, field === 'tacho_calibration_due' ? 2 : 1)}
@@ -192,6 +397,9 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
           </TouchableOpacity>
         )}
       </View>
+      {!vehicleId && (
+        <Text className="text-slate-500 text-[9px] mt-1 italic">Save vehicle first to permanently store document images</Text>
+      )}
     </View>
   );
 
@@ -214,7 +422,12 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
               <ActivityIndicator size="large" color="#60a5fa" />
             </View>
           ) : (
-            <ScrollView className="flex-1 p-6">
+            <ScrollView
+              ref={scrollViewRef}
+              className="flex-1 p-6"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
               <View className="space-y-6">
                 <View>
                   <Text className="text-blue-500 text-[10px] font-black uppercase mb-4 border-b border-blue-900/30 pb-2">{t('vehicleManagement.sections.identity')}</Text>
@@ -222,11 +435,15 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
                   <View className="mb-4">
                     <Text className="text-slate-400 text-xs font-bold uppercase mb-1.5">{t('vehicleManagement.fields.registration.label')}</Text>
                     <TextInput
+                      ref={regInputRef}
                       className="bg-slate-800 text-white p-3.5 rounded-xl border border-slate-700 font-bold uppercase"
                       placeholder={t('vehicleManagement.fields.registration.placeholder')}
                       placeholderTextColor="#475569"
                       value={formData.reg_number}
-                      onChangeText={text => setFormData({ ...formData, reg_number: text.toUpperCase() })}
+                      onChangeText={handleRegNumberChange}
+                      blurOnSubmit={false}
+                      returnKeyType="next"
+                      onSubmitEditing={() => makeInputRef.current?.focus()}
                     />
                   </View>
 
@@ -234,21 +451,29 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
                     <View className="flex-1">
                       <Text className="text-slate-400 text-xs font-bold uppercase mb-1.5">{t('vehicleManagement.fields.make.label')}</Text>
                       <TextInput
+                        ref={makeInputRef}
                         className="bg-slate-800 text-white p-3.5 rounded-xl border border-slate-700"
                         placeholder={t('vehicleManagement.fields.make.placeholder')}
                         placeholderTextColor="#475569"
                         value={formData.make}
-                        onChangeText={text => setFormData({ ...formData, make: text })}
+                        onChangeText={handleMakeChange}
+                        blurOnSubmit={false}
+                        returnKeyType="next"
+                        onSubmitEditing={() => modelInputRef.current?.focus()}
                       />
                     </View>
                     <View className="flex-1">
                       <Text className="text-slate-400 text-xs font-bold uppercase mb-1.5">{t('vehicleManagement.fields.model.label')}</Text>
                       <TextInput
+                        ref={modelInputRef}
                         className="bg-slate-800 text-white p-3.5 rounded-xl border border-slate-700"
                         placeholder={t('vehicleManagement.fields.model.placeholder')}
                         placeholderTextColor="#475569"
                         value={formData.model}
-                        onChangeText={text => setFormData({ ...formData, model: text })}
+                        onChangeText={handleModelChange}
+                        blurOnSubmit={false}
+                        returnKeyType="next"
+                        onSubmitEditing={() => odoInputRef.current?.focus()}
                       />
                     </View>
                   </View>
@@ -273,12 +498,14 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
                     <View className="flex-row items-center bg-slate-800 rounded-xl border border-slate-700">
                       <View className="pl-4"><Activity size={18} color="#60a5fa" /></View>
                       <TextInput
+                        ref={odoInputRef}
                         className="flex-1 text-white p-3.5 font-bold"
                         placeholder="0"
                         placeholderTextColor="#475569"
                         keyboardType="numeric"
                         value={formData.current_odometer}
-                        onChangeText={text => setFormData({ ...formData, current_odometer: text })}
+                        onChangeText={handleOdometerChange}
+                        blurOnSubmit={true}
                       />
                       <Text className="pr-4 text-slate-500 font-bold">{t('vehicleManagement.fields.odometer.unit')}</Text>
                     </View>

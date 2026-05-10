@@ -5,6 +5,7 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as IntentLauncher from 'expo-intent-launcher';
+import { setupNotificationChannels } from '../lib/notifications';
 
 export interface PermissionStatus {
   isGranted: boolean;
@@ -33,60 +34,6 @@ const withTimeout = async <T,>(p: Promise<T>, ms = 5000): Promise<T> => {
     p,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
   ]);
-};
-
-const setupNotificationChannels = async () => {
-  if (Platform.OS !== 'android') return;
-
-  // 1. Standard Messages
-  await Notifications.setNotificationChannelAsync('messages', {
-    name: 'Messages',
-    importance: Notifications.AndroidImportance.DEFAULT,
-  });
-
-  // 2. Default Compliance Alerts (Fallback)
-  await Notifications.setNotificationChannelAsync('compliance-alerts-v6', {
-    name: 'Compliance Alerts',
-    importance: Notifications.AndroidImportance.MAX,
-    sound: 'default',
-    enableVibrate: true,
-    vibrationPattern: [0, 250, 250, 250, 500, 250, 250, 250],
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    bypassDnd: true,
-  });
-
-  // 3. 15 Minute Warning
-  await Notifications.setNotificationChannelAsync('channel-15min-v6', {
-    name: '15 Minute Warning',
-    importance: Notifications.AndroidImportance.MAX,
-    sound: 'default',
-    enableVibrate: true,
-    vibrationPattern: [0, 500, 200, 500, 200, 500],
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    bypassDnd: true,
-  });
-
-  // 4. 30 Minute Warning
-  await Notifications.setNotificationChannelAsync('channel-30min-v6', {
-    name: '30 Minute Warning',
-    importance: Notifications.AndroidImportance.MAX,
-    sound: 'default',
-    enableVibrate: true,
-    vibrationPattern: [0, 500, 200, 500, 200, 500],
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    bypassDnd: true,
-  });
-
-  // 5. Critical Warning
-  await Notifications.setNotificationChannelAsync('channel-critical-v6', {
-    name: 'Critical Warning',
-    importance: Notifications.AndroidImportance.MAX,
-    sound: 'default',
-    enableVibrate: true,
-    vibrationPattern: [0, 500, 100, 500, 100, 500, 100, 1000],
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    bypassDnd: true,
-  });
 };
 
 const getPermissions = async (): Promise<PermissionState> => {

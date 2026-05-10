@@ -19,7 +19,7 @@ interface Session {
   id: string;
   date: string;
   start_time: string;
-  end_time: string;
+  end_time: string | null;
   total_break_minutes: number;
   total_poa_minutes: number;
 }

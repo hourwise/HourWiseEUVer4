@@ -16,17 +16,28 @@ export const evaluateBackgroundSpeedDecision = ({
   isDriving,
   drivingThresholdKmh,
   stillThresholdKmh,
+  immediateStartThresholdKmh,
+  lowSpeedStopThresholdKmh,
   staleThresholdMs,
 }: BackgroundSpeedDecisionInput): BackgroundSpeedDecision => {
   if (nowMs - sampleTs > staleThresholdMs) {
     return { shouldApply: false, nextDriving: null };
   }
 
-  if (speedKmh >= drivingThresholdKmh && !isDriving) {
+  const effectiveStartThreshold = Math.max(
+    drivingThresholdKmh,
+    immediateStartThresholdKmh
+  );
+  const effectiveStopThreshold = Math.max(
+    stillThresholdKmh,
+    lowSpeedStopThresholdKmh
+  );
+
+  if (speedKmh >= effectiveStartThreshold && !isDriving) {
     return { shouldApply: true, nextDriving: true };
   }
 
-  if (speedKmh <= stillThresholdKmh && isDriving) {
+  if (speedKmh <= effectiveStopThreshold && isDriving) {
     return { shouldApply: true, nextDriving: false };
   }
 
@@ -37,10 +48,16 @@ export const evaluateLocationSample = ({
   nowMs,
   accuracy,
   speedKmh,
+  lastSpeedKmh,
+  lastSpeedTs,
   isDriving,
+  movingSinceMs,
   stationarySinceMs,
   stillThresholdKmh,
+  lowSpeedStopThresholdKmh,
   drivingThresholdKmh,
+  immediateStartThresholdKmh,
+  movingConfirmMs,
   stationaryConfirmMs,
   accelScoreMax,
 }: LocationSampleDecisionInput): LocationSampleDecision => {
@@ -48,19 +65,25 @@ export const evaluateLocationSample = ({
     return {
       shouldIgnore: true,
       nextDriving: null,
+      nextMovingSinceMs: movingSinceMs,
       nextStationarySinceMs: stationarySinceMs,
       nextDrivingScore: null,
-      lastSpeedKmh: speedKmh,
-      lastSpeedTs: nowMs,
+      lastSpeedKmh,
+      lastSpeedTs,
     };
   }
 
-  if (speedKmh <= stillThresholdKmh) {
+  const stopCandidateThreshold = Math.max(stillThresholdKmh, lowSpeedStopThresholdKmh);
+  const isStopCandidate = isDriving && speedKmh <= stopCandidateThreshold;
+  const isClearlyStill = speedKmh <= stillThresholdKmh;
+
+  if (isClearlyStill || isStopCandidate) {
     const nextStationarySinceMs = stationarySinceMs === 0 ? nowMs : stationarySinceMs;
     const shouldStop = isDriving && nowMs - nextStationarySinceMs >= stationaryConfirmMs;
     return {
       shouldIgnore: false,
       nextDriving: shouldStop ? false : null,
+      nextMovingSinceMs: 0,
       nextStationarySinceMs,
       nextDrivingScore: shouldStop ? 0 : null,
       lastSpeedKmh: speedKmh,
@@ -68,12 +91,27 @@ export const evaluateLocationSample = ({
     };
   }
 
-  if (speedKmh >= drivingThresholdKmh && !isDriving) {
+  if (!isDriving && speedKmh >= immediateStartThresholdKmh) {
     return {
       shouldIgnore: false,
       nextDriving: true,
+      nextMovingSinceMs: 0,
       nextStationarySinceMs: 0,
       nextDrivingScore: accelScoreMax,
+      lastSpeedKmh: speedKmh,
+      lastSpeedTs: nowMs,
+    };
+  }
+
+  if (!isDriving && speedKmh >= drivingThresholdKmh) {
+    const nextMovingSinceMs = movingSinceMs === 0 ? nowMs : movingSinceMs;
+    const shouldStart = nowMs - nextMovingSinceMs >= movingConfirmMs;
+    return {
+      shouldIgnore: false,
+      nextDriving: shouldStart ? true : null,
+      nextMovingSinceMs: shouldStart ? 0 : nextMovingSinceMs,
+      nextStationarySinceMs: 0,
+      nextDrivingScore: shouldStart ? accelScoreMax : null,
       lastSpeedKmh: speedKmh,
       lastSpeedTs: nowMs,
     };
@@ -82,6 +120,7 @@ export const evaluateLocationSample = ({
   return {
     shouldIgnore: false,
     nextDriving: null,
+    nextMovingSinceMs: 0,
     nextStationarySinceMs: 0,
     nextDrivingScore: null,
     lastSpeedKmh: speedKmh,
@@ -132,8 +171,11 @@ export const evaluateAccelerometerDecision = ({
     nextDrivingScore = Math.max(0, nextDrivingScore - 1);
   }
 
+  const canStartFromAccel =
+    gpsIsFresh && lastSpeedKmh >= Math.max(stillThresholdKmh + 2, drivingThresholdKmh - 2);
+
   const nextDriving =
-    nextDrivingScore >= accelDriveThreshold
+    nextDrivingScore >= accelDriveThreshold && (isDriving || canStartFromAccel)
       ? true
       : nextDrivingScore <= accelStopThreshold
         ? false

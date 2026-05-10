@@ -25,7 +25,8 @@ interface ManualLineItem {
 
 export default function DownloadReportModal({ onClose, visible }: DownloadReportModalProps) {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { session } = useAuth();
+  const user = session?.user ?? null;
 
   const [reportType, setReportType] = useState<ReportType>('report');
   const [range, setRange] = useState<ReportRange>('last_week');

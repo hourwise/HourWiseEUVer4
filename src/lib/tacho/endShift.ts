@@ -23,6 +23,7 @@ export const buildEndSessionRequest = ({
   effectiveHas15minBreak,
   effectiveWorkCycle,
   effectiveDrivingCycle,
+  shiftMetadata,
   existingOtherData,
   latitude,
   longitude,
@@ -37,6 +38,7 @@ export const buildEndSessionRequest = ({
   has15minBreak: effectiveHas15minBreak,
   existingOtherData: {
     ...(existingOtherData ?? {}),
+    ...(shiftMetadata ?? {}),
     workCycle: toMins(effectiveWorkCycle),
     drivingCycle: toMins(effectiveDrivingCycle),
   },

@@ -11,11 +11,16 @@ import {
   Image,
   StyleSheet,
   Platform,
+  Linking,
 } from 'react-native';
-import { X, Camera, Save, CreditCard, Shield, Award, Trash2, Calendar } from 'react-native-feather';
+import { X, Camera, Save, CreditCard, Shield, Award, Trash2, Calendar, FileText as ImageIcon, Info } from 'react-native-feather';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ocrService } from '../services/ocrService';
+import { driverDocumentService } from '../services/driverDocumentService';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format, parseISO } from 'date-fns';
 
 interface SoloQualificationsModalProps {
   visible: boolean;
@@ -36,6 +41,8 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
   const [licence, setLicence] = useState<Qualification>({ id_number: '', expiry_date: '' });
   const [cpc, setCpc] = useState<Qualification>({ id_number: '', expiry_date: '' });
   const [tacho, setTacho] = useState<Qualification>({ id_number: '', expiry_date: '' });
+  const [scanning, setScanning] = useState<string | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState<{ type: 'licence' | 'cpc' | 'tacho' } | null>(null);
 
   useEffect(() => {
     if (visible) fetchQualifications();
@@ -52,14 +59,141 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
 
       if (error) throw error;
       if (data) {
-        setLicence({ id_number: data.driving_licence_number || '', expiry_date: data.driving_licence_expiry || '' });
-        setCpc({ id_number: data.cpc_dqc_number || '', expiry_date: data.cpc_dqc_expiry || '' });
-        setTacho({ id_number: data.tacho_card_number || '', expiry_date: data.tacho_card_expiry || '' });
+        setLicence({
+          id_number: data.driving_licence_number || '',
+          expiry_date: data.driving_licence_expiry || ''
+        });
+        setCpc({
+          id_number: data.cpc_dqc_number || '',
+          expiry_date: data.cpc_dqc_expiry || ''
+        });
+        setTacho({
+          id_number: data.tacho_card_number || '',
+          expiry_date: data.tacho_card_expiry || ''
+        });
       }
     } catch (e) {
       console.error('Fetch quals error:', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOcrScan = async (type: 'licence' | 'cpc' | 'tacho', source: 'camera' | 'library' = 'camera') => {
+    try {
+      let result;
+      if (source === 'camera') {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission needed', 'Camera access is required to scan documents.');
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({ quality: 0.7, allowsEditing: false });
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission needed', 'Media library access is required to pick documents.');
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7, allowsEditing: false });
+      }
+
+      if (result.canceled || !result.assets[0].uri) return;
+
+      setScanning(type);
+      const uri = result.assets[0].uri;
+      const text = await ocrService.parseImage(uri);
+
+      const extractedDate = ocrService.extractDate(text);
+      const extractedRef = ocrService.extractReferenceNumber(text, type);
+
+      const updateData = (prev: Qualification) => ({
+        ...prev,
+        expiry_date: extractedDate || prev.expiry_date,
+        id_number: extractedRef || prev.id_number,
+      });
+
+      if (type === 'licence') setLicence(updateData);
+      else if (type === 'cpc') setCpc(updateData);
+      else if (type === 'tacho') setTacho(updateData);
+
+      // Upload to driver_documents table as well for image storage
+      try {
+        const docTypeMap = {
+          licence: 'HGV_Licence',
+          cpc: 'CPC_Card',
+          tacho: 'Tacho_Card'
+        };
+
+        const storagePath = await driverDocumentService.uploadDocumentFile(
+          uri,
+          'solo', // Use 'solo' as company folder for solo drivers
+          userId,
+          docTypeMap[type]
+        );
+
+        await driverDocumentService.addDocumentMetadata({
+          user_id: userId,
+          company_id: null as any, // Cast as any because service might expect string, but DB allows null
+          document_type: docTypeMap[type] as any,
+          storage_path: storagePath,
+          id_number: extractedRef || '',
+          expiry_date: extractedDate || '',
+          verified_at: null
+        });
+      } catch (uploadError) {
+        console.error('Document upload failed:', uploadError);
+      }
+
+      if (extractedDate || extractedRef) {
+        Alert.alert(
+          'Scan Success',
+          `${extractedDate ? `Expiry: ${format(parseISO(extractedDate), 'dd/MM/yyyy')}` : ''}${extractedRef ? `\nRef: ${extractedRef}` : ''}`
+        );
+      } else {
+        Alert.alert('Scan Result', 'Could not extract clear information. Please check and enter manually.');
+      }
+    } catch (error: any) {
+      console.error('OCR failed:', error);
+      Alert.alert('Error', error.message || 'Failed to scan document');
+    } finally {
+      setScanning(null);
+    }
+  };
+
+  const handleViewDocument = async (type: 'licence' | 'cpc' | 'tacho') => {
+    try {
+      const docTypeMap = {
+        licence: 'HGV_Licence',
+        cpc: 'CPC_Card',
+        tacho: 'Tacho_Card'
+      };
+
+      const { data, error } = await supabase
+        .from('driver_documents')
+        .select('storage_path')
+        .eq('user_id', userId)
+        .eq('document_type', docTypeMap[type])
+        .order('uploaded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        Alert.alert("Not Found", "No document image found for this qualification.");
+        return;
+      }
+
+      const { data: urlData } = await supabase.storage
+        .from('driver-documents')
+        .createSignedUrl(data.storage_path, 3600);
+
+      if (urlData?.signedUrl) {
+        await Linking.openURL(urlData.signedUrl);
+      }
+    } catch (error) {
+      console.error('View doc error:', error);
+      Alert.alert("Error", "Could not retrieve document image.");
     }
   };
 
@@ -164,20 +298,49 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
         />
       </View>
       <View style={styles.inputGroup}>
-        <Text style={styles.label}>Expiry Date (YYYY-MM-DD)</Text>
-        <TextInput
-          style={styles.input}
-          value={data.expiry_date}
-          onChangeText={(text) => setData({ ...data, expiry_date: text })}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor="#64748b"
-          keyboardType="numeric"
-        />
+        <Text style={styles.label}>Expiry Date</Text>
+        <TouchableOpacity
+          onPress={() => setShowDatePicker({ type })}
+          style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+        >
+          <Text style={{ color: data.expiry_date ? '#fff' : '#64748b', fontWeight: 'bold' }}>
+            {data.expiry_date ? format(parseISO(data.expiry_date), 'dd/MM/yyyy') : 'Select Date'}
+          </Text>
+          <Calendar size={18} color="#64748b" />
+        </TouchableOpacity>
       </View>
-      <TouchableOpacity style={styles.photoBtn} onPress={() => takePhoto(type)}>
-        <Camera size={18} color="#fff" />
-        <Text style={styles.photoBtnText}>Scan Document</Text>
-      </TouchableOpacity>
+
+      <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+        <TouchableOpacity
+          style={[styles.photoBtn, { flex: 1 }]}
+          onPress={() => handleOcrScan(type, 'camera')}
+          disabled={scanning !== null}
+        >
+          {scanning === type ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Camera size={18} color="#fff" />
+              <Text style={styles.photoBtnText}>Scan</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.photoBtn, { width: 50, paddingHorizontal: 0 }]}
+          onPress={() => handleOcrScan(type, 'library')}
+          disabled={scanning !== null}
+        >
+          <ImageIcon size={18} color="#fff" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.photoBtn, { width: 50, paddingHorizontal: 0, backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1 }]}
+          onPress={() => handleViewDocument(type)}
+        >
+          <Info size={18} color="#60a5fa" />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -235,6 +398,31 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
           </View>
         </SafeAreaView>
       </View>
+
+      {showDatePicker && (
+        <DateTimePicker
+          value={
+            (showDatePicker.type === 'licence' ? licence.expiry_date :
+             showDatePicker.type === 'cpc' ? cpc.expiry_date :
+             tacho.expiry_date)
+            ? parseISO(showDatePicker.type === 'licence' ? licence.expiry_date :
+                       showDatePicker.type === 'cpc' ? cpc.expiry_date :
+                       tacho.expiry_date)
+            : new Date()
+          }
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(event, date) => {
+            if (event.type === 'set' && date) {
+              const dateString = format(date, 'yyyy-MM-dd');
+              if (showDatePicker.type === 'licence') setLicence({ ...licence, expiry_date: dateString });
+              else if (showDatePicker.type === 'cpc') setCpc({ ...cpc, expiry_date: dateString });
+              else if (showDatePicker.type === 'tacho') setTacho({ ...tacho, expiry_date: dateString });
+            }
+            setShowDatePicker(null);
+          }}
+        />
+      )}
     </Modal>
   );
 }
@@ -251,7 +439,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#1e293b',
   },
   headerTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  closeBtn: { p: 2 },
+  closeBtn: { padding: 2 },
   scrollContent: { padding: 20 },
   card: {
     backgroundColor: '#1e293b',

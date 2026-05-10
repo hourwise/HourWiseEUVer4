@@ -4,7 +4,7 @@ import pluginJs from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import pluginReactConfig from 'eslint-plugin-react/configs/recommended.js';
 import reactHooks from 'eslint-plugin-react-hooks';
-import reactNative from '@react-native/eslint-plugin';
+import reactNative from 'eslint-plugin-react-native';
 
 export default [
   // 1. Global Ignores
@@ -51,17 +51,22 @@ export default [
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
 
-      // React Native
-      // We manually spread these because the plugin format is slightly different
-      ...reactNative.configs.all.rules,
+      // React
+      'react/react-in-jsx-scope': 'off',
+      'react/prop-types': 'off',
 
-      // --- CRITICAL: Enable raw text checking ---
-      'react-native/no-raw-text': 'error',
+      // React Native
+      'react-native/no-raw-text': ['error', { skip: ['CustomText', 'Button'] }],
+      'react-native/no-inline-styles': 'warn',
+      'react-native/no-color-literals': 'warn',
+      'react-native/no-unused-styles': 'warn',
 
       // Turn off some strict rules that can be annoying in Expo
       'no-unused-vars': 'off',
-      '@typescript-eslint/no-unused-vars': 'warn',
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
+      'prefer-const': 'warn',
+      'no-empty': 'warn',
     },
   },
 ];

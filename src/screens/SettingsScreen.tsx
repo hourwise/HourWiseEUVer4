@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { View, TouchableOpacity, Text, Alert, ActivityIndicator } from 'react-native';
-import { presentCustomerCenter } from 'react-native-purchases-ui';
+import RevenueCatUI from 'react-native-purchases-ui';
 import { useTranslation } from 'react-i18next';
 
 const SettingsScreen = () => {
@@ -13,7 +13,7 @@ const SettingsScreen = () => {
     try {
       setLoading(true);
       // Presents RevenueCat's pre-built UI for managing subscriptions.
-      await presentCustomerCenter();
+      await RevenueCatUI.presentCustomerCenter();
     } catch (e) {
       console.error('Error opening customer center', e);
       Alert.alert(

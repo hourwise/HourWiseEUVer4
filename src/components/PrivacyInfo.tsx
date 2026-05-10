@@ -23,7 +23,7 @@ const Section = ({ icon, title, body, children }: { icon: React.ReactNode; title
 
 function PrivacyInfo({ visible, onClose }: PrivacyInfoProps) {
   const { t } = useTranslation();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const dataPoints = t('privacyDataPoints', { returnObjects: true, defaultValue: [] }) as string[];
 
   const handleManageData = () => {

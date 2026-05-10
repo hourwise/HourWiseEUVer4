@@ -10,12 +10,18 @@
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx"
+    "index.ts",
+    "app.d.ts",
+    "src/**/*.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
   ],
   "exclude": [
     "node_modules",
     "babel.config.js",
-    "metro.config.js"
+    "metro.config.js",
+    ".claude",
+    "supabase/functions",
+    "src/main.tsx"
   ]
 }

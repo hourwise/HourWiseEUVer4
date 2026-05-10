@@ -92,7 +92,7 @@ function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, set
     const month = currentDate.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    const dayArray = Array.from({ length: firstDay.getDay() }, () => null);
+    const dayArray: Array<number | null> = Array.from({ length: firstDay.getDay() }, () => null);
     for (let day = 1; day <= lastDay.getDate(); day++) { dayArray.push(day); }
     return { days: dayArray, monthName: currentDate.toLocaleString('default', { month: 'long', year: 'numeric' }) };
   }, [currentDate]);

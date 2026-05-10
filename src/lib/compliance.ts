@@ -1,5 +1,11 @@
 import i18n from '../lib/i18n';
 import { WorkSession } from './supabase';
+import {
+  exceededShiftSpreadLimit,
+  getShiftDurationSeconds,
+  getShiftExtensionAllowanceState,
+  usedShiftExtension,
+} from './tacho/spread';
 
 // ---------------------------------------------------------------------------
 // Violation keys & display metadata
@@ -22,6 +28,8 @@ export const VIOLATION_KEYS = {
   // Rest — EC 561/2006
   INSUFFICIENT_DAILY_REST:        'INSUFFICIENT_DAILY_REST',
   REDUCED_DAILY_REST_TAKEN:       'REDUCED_DAILY_REST_TAKEN',
+  USED_15H_SHIFT_EXTENSION:       'USED_15H_SHIFT_EXTENSION',
+  EXCEEDED_SHIFT_SPREAD_LIMIT:    'EXCEEDED_SHIFT_SPREAD_LIMIT',
 } as const;
 
 type ViolationKey = typeof VIOLATION_KEYS[keyof typeof VIOLATION_KEYS];
@@ -40,6 +48,8 @@ export const VIOLATION_DETAILS: Record<string, ViolationDetail> = {
   [VIOLATION_KEYS.WORK_TIME_LIMIT_EXCEEDED]:        { titleKey: 'violation.WORK_TIME_LIMIT_EXCEEDED.title',        tipKey: 'violation.WORK_TIME_LIMIT_EXCEEDED.tip' },
   [VIOLATION_KEYS.INSUFFICIENT_DAILY_REST]:         { titleKey: 'violation.INSUFFICIENT_DAILY_REST.title',         tipKey: 'violation.INSUFFICIENT_DAILY_REST.tip' },
   [VIOLATION_KEYS.REDUCED_DAILY_REST_TAKEN]:        { titleKey: 'violation.REDUCED_DAILY_REST_TAKEN.title',        tipKey: 'violation.REDUCED_DAILY_REST_TAKEN.tip' },
+  [VIOLATION_KEYS.USED_15H_SHIFT_EXTENSION]:        { titleKey: 'violation.USED_15H_SHIFT_EXTENSION.title',        tipKey: 'violation.USED_15H_SHIFT_EXTENSION.tip' },
+  [VIOLATION_KEYS.EXCEEDED_SHIFT_SPREAD_LIMIT]:     { titleKey: 'violation.EXCEEDED_SHIFT_SPREAD_LIMIT.title',     tipKey: 'violation.EXCEEDED_SHIFT_SPREAD_LIMIT.tip' },
   default: { titleKey: 'violation.default.title', tipKey: 'violation.default.tip' },
 };
 
@@ -383,6 +393,23 @@ function checkDailyRest(
   return null;
 }
 
+function checkShiftSpread(
+  today: any,
+  sessionsThisWeekExcludingToday: any[],
+): ViolationKey | null {
+  const shiftDurationSeconds = getShiftDurationSeconds(today.start_time, today.end_time);
+
+  if (!usedShiftExtension(shiftDurationSeconds)) return null;
+  if (exceededShiftSpreadLimit(shiftDurationSeconds)) {
+    return VIOLATION_KEYS.EXCEEDED_SHIFT_SPREAD_LIMIT;
+  }
+
+  const allowance = getShiftExtensionAllowanceState(sessionsThisWeekExcludingToday, new Date(today.start_time));
+  return allowance.hasRemaining
+    ? VIOLATION_KEYS.USED_15H_SHIFT_EXTENSION
+    : VIOLATION_KEYS.EXCEEDED_SHIFT_SPREAD_LIMIT;
+}
+
 // ---------------------------------------------------------------------------
 // Soft violations — informational flags that don't deduct score points
 // ---------------------------------------------------------------------------
@@ -390,6 +417,7 @@ function checkDailyRest(
 const SOFT_VIOLATIONS = new Set<string>([
   VIOLATION_KEYS.USED_10H_DRIVING_EXTENSION,
   VIOLATION_KEYS.REDUCED_DAILY_REST_TAKEN,
+  VIOLATION_KEYS.USED_15H_SHIFT_EXTENSION,
   VIOLATION_KEYS.EXCEEDED_WEEKLY_WORK_LIMIT, // 48h advisory, not the 60h hard cap
 ]);
 
@@ -493,6 +521,9 @@ export const calculateCompliance = (
 
   const dailyRest = checkDailyRest(currentShift, previousSession, sessionsThisWeek);
   if (dailyRest) violations.push(dailyRest);
+
+  const shiftSpread = checkShiftSpread(currentShift, sessionsThisWeek);
+  if (shiftSpread) violations.push(shiftSpread);
 
   // -------------------------------------------------------------------------
   // 3. Score calculation

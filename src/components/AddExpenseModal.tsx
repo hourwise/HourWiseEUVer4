@@ -16,6 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { expenseService } from '../services/expenseService';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 
 const toLocalDateString = (date: Date) => {
   const year = date.getFullYear();
@@ -150,6 +151,7 @@ export default function AddExpenseModal({
   onSaveSuccess,
   userId,
 }: Props) {
+  const { t } = useTranslation();
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [rawOcrText, setRawOcrText] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
@@ -198,8 +200,8 @@ export default function AddExpenseModal({
       if (bestMerchant) setMerchant(bestMerchant);
     } catch (e: any) {
       Alert.alert(
-        'Scan Result',
-        'Image uploaded, but could not automatically read details. You can still fill the form manually.'
+        t('expenses.scanResult'),
+        t('expenses.scanError')
       );
       console.warn('OCR Error:', e?.message);
     } finally {
@@ -219,11 +221,11 @@ export default function AddExpenseModal({
 
       if (finalStatus !== 'granted') {
         Alert.alert(
-          'Permission Required',
-          'Camera access is needed. Please enable it in settings.',
+          t('permissions.cameraTitle'),
+          t('permissions.cameraBody'),
           [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('common.openSettings'), onPress: () => Linking.openSettings() },
           ]
         );
         return;
@@ -242,8 +244,8 @@ export default function AddExpenseModal({
     } catch (error: any) {
       console.error('Camera Launch Error:', error);
       Alert.alert(
-        'Camera Error',
-        error?.message || 'Could not open the camera. Please try selecting from your library instead.'
+        t('expenses.cameraError'),
+        error?.message || t('expenses.cameraErrorMessage')
       );
     }
   };
@@ -260,11 +262,11 @@ export default function AddExpenseModal({
 
       if (finalStatus !== 'granted') {
         Alert.alert(
-          'Permission Required',
-          'Gallery access is needed. Please enable it in settings.',
+          t('permissions.mediaLibraryTitle'),
+          t('permissions.mediaLibraryBody'),
           [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('common.openSettings'), onPress: () => Linking.openSettings() },
           ]
         );
         return;
@@ -282,14 +284,14 @@ export default function AddExpenseModal({
       await handleImagePicked(result);
     } catch (error: any) {
       console.error('Library Launch Error:', error);
-      Alert.alert('Library Error', error?.message || 'Could not open the photo library.');
+      Alert.alert(t('expenses.libraryError'), error?.message || t('expenses.libraryErrorMessage'));
     }
   };
 
   const handleSave = async () => {
     const n = Number(amount);
     if (!Number.isFinite(n) || n <= 0) {
-      Alert.alert('Invalid amount', 'Please enter a valid amount.');
+      Alert.alert(t('expenses.invalidAmount'), t('expenses.invalidAmountMessage'));
       return;
     }
 
@@ -312,7 +314,7 @@ export default function AddExpenseModal({
       onSaveSuccess();
       onClose();
     } catch (e: any) {
-      Alert.alert('Save failed', e?.message ?? 'Could not save expense.');
+      Alert.alert(t('expenses.saveFailed'), e?.message ?? t('common.failedToSave'));
     } finally {
       setBusy(false);
     }
@@ -323,7 +325,7 @@ export default function AddExpenseModal({
       <View style={styles.backdrop}>
         <SafeAreaView style={styles.sheet} edges={['top', 'bottom']}>
           <ScrollView contentContainerStyle={{ paddingBottom: 30 }}>
-            <Text style={styles.title}>Add Expense</Text>
+            <Text style={styles.title}>{t('expenses.title')}</Text>
 
             <View style={styles.actionRow}>
               <TouchableOpacity
@@ -334,7 +336,7 @@ export default function AddExpenseModal({
                 {busy ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.scanBtnText}>Take Photo</Text>
+                  <Text style={styles.scanBtnText}>{t('common.takePhoto')}</Text>
                 )}
               </TouchableOpacity>
 
@@ -346,7 +348,7 @@ export default function AddExpenseModal({
                 {busy ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.scanBtnText}>From Library</Text>
+                  <Text style={styles.scanBtnText}>{t('common.fromLibrary')}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -357,7 +359,7 @@ export default function AddExpenseModal({
 
             <View style={styles.row}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Amount</Text>
+                <Text style={styles.label}>{t('expenses.amount')}</Text>
                 <TextInput
                   value={amount}
                   onChangeText={setAmount}
@@ -371,7 +373,7 @@ export default function AddExpenseModal({
               <View style={{ width: 12 }} />
 
               <View style={{ width: 110 }}>
-                <Text style={styles.label}>Currency</Text>
+                <Text style={styles.label}>{t('expenses.currency')}</Text>
                 <View style={styles.selectorRow}>
                   {CURRENCIES.map((c) => (
                     <TouchableOpacity
@@ -390,7 +392,7 @@ export default function AddExpenseModal({
               </View>
             </View>
 
-            <Text style={styles.label}>Merchant</Text>
+            <Text style={styles.label}>{t('expenses.merchant')}</Text>
             <TextInput
               value={merchant}
               onChangeText={setMerchant}
@@ -399,7 +401,7 @@ export default function AddExpenseModal({
               style={styles.input}
             />
 
-            <Text style={styles.label}>Category</Text>
+            <Text style={styles.label}>{t('expenses.category')}</Text>
             <View style={styles.selectorGrid}>
               {CATEGORIES.map((c) => (
                 <TouchableOpacity
@@ -408,17 +410,17 @@ export default function AddExpenseModal({
                   style={[styles.selectorBtn, category === c && styles.selectorBtnActive]}
                 >
                   <Text style={[styles.selectorText, category === c && styles.selectorTextActive]}>
-                    {c}
+                    {t(`expenses.categories.${c}`)}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            <Text style={styles.label}>Notes</Text>
+            <Text style={styles.label}>{t('expenses.notes')}</Text>
             <TextInput
               value={notes}
               onChangeText={setNotes}
-              placeholder="Optional notes..."
+              placeholder={t('expenses.optionalNotes')}
               placeholderTextColor="#64748b"
               style={[styles.input, { height: 80 }]}
               multiline
@@ -426,7 +428,7 @@ export default function AddExpenseModal({
 
             <View style={styles.footer}>
               <TouchableOpacity style={styles.secondary} onPress={onClose} disabled={busy}>
-                <Text style={styles.secondaryText}>Cancel</Text>
+                <Text style={styles.secondaryText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -437,7 +439,7 @@ export default function AddExpenseModal({
                 {busy ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.primaryText}>Save Expense</Text>
+                  <Text style={styles.primaryText}>{t('expenses.saveExpense')}</Text>
                 )}
               </TouchableOpacity>
             </View>
