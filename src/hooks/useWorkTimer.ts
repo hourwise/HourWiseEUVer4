@@ -619,6 +619,9 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       const localReducedDailyRestTaken = hasMatchingPersistedState
         ? !!persistedState.reducedDailyRestTaken
         : reducedDailyRestTakenRef.current;
+      const localLastTickMs = hasMatchingPersistedState
+        ? persistedState.lastTickMs
+        : lastTickMsRef.current;
 
       const { data, error } = await supabase
         .from('work_sessions')
@@ -654,42 +657,35 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       const dbReducedDailyRestTaken = !!data.other_data?.reducedDailyRestTaken;
 
        const dbSegmentStart =
-         data.status === 'break' ? (data.current_break_start || data.start_time)
-         : data.status === 'poa' ? (data.current_poa_start || data.start_time)
-         : (data.current_segment_start || data.start_time);
+          data.status === 'break' ? (data.current_break_start || data.start_time)
+          : data.status === 'poa' ? (data.current_poa_start || data.start_time)
+          : (data.current_segment_start || data.start_time);
 
-       const localSegmentMs = localSegmentStart ? new Date(localSegmentStart).getTime() : 0;
-       const dbSegmentMs = new Date(dbSegmentStart).getTime();
-       // CRITICAL FIX #7: Prevent segment start rollback during resume
-       // Always prefer the most recent segment start (higher timestamp) to avoid replaying elapsed time
-       const shouldPreferLocalState =
+       const hasMatchingLocalSession =
          localSessionId === data.id &&
-         localSegmentMs > 0 &&
-         localSegmentMs >= dbSegmentMs;
-      const effectiveStatus = shouldPreferLocalState ? localStatus : (data.status as WorkStatus);
-      const effectiveTimerMode = shouldPreferLocalState ? localTimerMode : dbTimerMode;
-      const effectiveHas15minBreak = shouldPreferLocalState ? localHas15minBreak : dbHas15minBreak;
+         localStatus !== 'idle' &&
+         isValidSegmentStart(localSegmentStart);
 
-      if (shouldPreferLocalState) {
-        statusRef.current = effectiveStatus;
-        timerModeRef.current = effectiveTimerMode;
-        breakTrackerRef.current = { has15min: effectiveHas15minBreak };
+      if (hasMatchingLocalSession) {
+        statusRef.current = localStatus;
+        timerModeRef.current = localTimerMode;
+        breakTrackerRef.current = { has15min: localHas15minBreak };
         totalsRef.current = localTotals;
         workCycleRef.current = localWorkCycle;
         drivingCycleRef.current = localDrivingCycle;
         legalBreakDisplayTotalRef.current = localLegalBreakDisplayTotal;
-        isDrivingRef.current = localIsDriving;
+        isDrivingRef.current = localStatus === 'working' ? localIsDriving : false;
         segmentStartRef.current = localSegmentStart;
         shiftExtensionsUsedThisWeekRef.current = localShiftExtensionsUsedThisWeek;
         maxShiftTimeLimitRef.current = localMaxShiftTimeSeconds;
         dailyRestSecondsBeforeShiftRef.current = localDailyRestSecondsBeforeShift;
         reducedDailyRestTakenRef.current = localReducedDailyRestTaken;
         breakStartTimeRef.current =
-          effectiveStatus === 'break' && localBreakStartMs > 0 ? localBreakStartMs : 0;
+          localStatus === 'break' && localBreakStartMs > 0 ? localBreakStartMs : 0;
       } else {
-        statusRef.current = effectiveStatus;
-        timerModeRef.current = effectiveTimerMode;
-        breakTrackerRef.current = { has15min: effectiveHas15minBreak };
+        statusRef.current = data.status as WorkStatus;
+        timerModeRef.current = dbTimerMode;
+        breakTrackerRef.current = { has15min: dbHas15minBreak };
         totalsRef.current = {
           work: dbWork,
           poa: dbPoa,
@@ -699,6 +695,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         workCycleRef.current = dbWorkCycle;
         drivingCycleRef.current = dbDrivingCycle;
         legalBreakDisplayTotalRef.current = dbLegalBreakDisplay;
+        shiftExtensionsUsedThisWeekRef.current = localShiftExtensionsUsedThisWeek;
+        maxShiftTimeLimitRef.current = localMaxShiftTimeSeconds;
         dailyRestSecondsBeforeShiftRef.current = dbDailyRestSecondsBeforeShift;
         reducedDailyRestTakenRef.current = dbReducedDailyRestTaken;
         segmentStartRef.current = dbSegmentStart;
@@ -706,19 +704,21 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
           data.status === 'break'
             ? new Date(data.current_break_start || dbSegmentStart || data.start_time).getTime()
             : 0;
+        isDrivingRef.current = false;
       }
 
        const nowMs = Date.now();
-       const effectiveSegmentStart = segmentStartRef.current;
-       if (statusRef.current !== 'idle' && effectiveSegmentStart) {
-         const segStartMs = new Date(effectiveSegmentStart).getTime();
-         const lastTickMs = lastTickMsRef.current;
-         // CRITICAL FIX #5: Only apply catch-up time if segment actually elapsed since last tick
-         // This prevents double-counting when persistFromRefs already applied elapsed time
-         const timeSinceLastTick = Math.max(0, Math.floor((nowMs - lastTickMs) / 1000));
-         if (timeSinceLastTick > 0 && timeSinceLastTick < 86400) {
-           applyElapsed(timeSinceLastTick, statusRef.current, isDrivingRef.current);
-         }
+        const effectiveSegmentStart = segmentStartRef.current;
+        if (statusRef.current !== 'idle' && effectiveSegmentStart) {
+          const segStartMs = new Date(effectiveSegmentStart).getTime();
+          const lastTickMs = hasMatchingLocalSession ? localLastTickMs : segStartMs;
+          // CRITICAL FIX #5: Only apply catch-up time if segment actually elapsed since last tick
+          // This prevents double-counting when persistFromRefs already applied elapsed time
+          const referenceTickMs = Math.max(segStartMs, lastTickMs);
+          const timeSinceLastTick = Math.max(0, Math.floor((nowMs - referenceTickMs) / 1000));
+          if (timeSinceLastTick > 0 && timeSinceLastTick < 86400) {
+            applyElapsed(timeSinceLastTick, statusRef.current, isDrivingRef.current);
+          }
        }
        segmentStartRef.current = new Date(nowMs).toISOString();
        lastTickMsRef.current = nowMs;
@@ -779,6 +779,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       buildDriveAlertSchedule().catch(e => console.warn('Failed to build drive alerts:', e));
     } else {
       cancelScheduledComplianceNotifications().then(() => {
+        if (isEndingRef.current) return;
         if (statusRef.current === 'working' || statusRef.current === 'poa') {
           buildComplianceSchedule();
         }
@@ -876,7 +877,16 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     accelSubRef.current?.remove();
     locationSubRef.current = null;
     accelSubRef.current = null;
-    if (isDrivingRef.current) commitAndFlipDriving(false);
+    if (isDrivingRef.current) {
+      if (isEndingRef.current) {
+        isDrivingRef.current = false;
+        movingSinceRef.current = 0;
+        stationarySinceRef.current = 0;
+        setIsDriving(false);
+      } else {
+        commitAndFlipDriving(false);
+      }
+    }
     try { if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME); } catch {}
   }, [commitAndFlipDriving]);
 
@@ -1006,8 +1016,49 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     setStatus(newStatus);
     vibrateAlert();
 
+    if (newStatus !== 'working') {
+      isDrivingRef.current = false;
+      movingSinceRef.current = 0;
+      stationarySinceRef.current = 0;
+      setIsDriving(false);
+    }
+
     const alertKey = getStatusTransitionAlertKey(prevStatus, newStatus);
     if (alertKey) speakAlert(alertKey);
+
+    if (sessionIdRef.current) {
+      const updatePayload = buildStatusUpdatePayload({
+        status: newStatus,
+        totals: totalsRef.current,
+        legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
+        has15minBreak: breakTrackerRef.current.has15min,
+        workCycle: workCycleRef.current,
+        drivingCycle: drivingCycleRef.current,
+        timerMode: timerModeRef.current,
+        existingOtherData: sessionDataRef.current?.other_data,
+        currentBreakStart:
+          newStatus === 'break' ? new Date(breakStartTimeRef.current).toISOString() : null,
+        currentPoaStart: newStatus === 'poa' ? transition.nowIso : null,
+        currentSegmentStart: transition.nowIso,
+      });
+      const result = await updateSessionWithRetry(
+        () => supabase
+          .from('work_sessions')
+          .update(updatePayload)
+          .eq('id', sessionIdRef.current)
+          .select()
+          .single(),
+        3,
+      );
+      if (!result.success) {
+        console.warn('Status DB sync failed:', result.error);
+      } else if (result.data) {
+        setSessionData(result.data);
+        sessionDataRef.current = result.data;
+      }
+    }
+
+    await persistFromRefs();
 
     if (newStatus === 'working' || newStatus === 'poa') {
       await buildComplianceSchedule();
@@ -1015,7 +1066,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         await buildDriveAlertSchedule();
       }
     }
-  }, [applyElapsed, cancelScheduledComplianceNotifications, buildComplianceSchedule, buildDriveAlertSchedule, speakAlert, vibrateAlert]);
+  }, [applyElapsed, cancelScheduledComplianceNotifications, buildComplianceSchedule, buildDriveAlertSchedule, persistFromRefs, speakAlert, vibrateAlert]);
 
   useEffect(() => {
     const restore = async () => {
@@ -1425,6 +1476,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         try {
           await cancelScheduledComplianceNotifications(true);
           await stopTracking();
+          await cancelScheduledComplianceNotifications(true);
 
            const endedShift = createEndedShiftResetState(Date.now());
            statusRef.current = endedShift.status;
