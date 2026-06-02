@@ -1,12 +1,22 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { PersistedState, WorkStatus } from './types';
+import type {
+  PersistedState,
+  ScheduledAlertDescriptor,
+  WorkStatus,
+} from './types';
 
 export const ACTIVE_TIMER_STATE_KEY = 'active_timer_state_v1';
 export const SCHEDULED_COMPLIANCE_NOTIFICATION_IDS_KEY =
   'scheduled_compliance_notification_ids_v1';
 export const SCHEDULED_DRIVE_NOTIFICATION_IDS_KEY =
   'scheduled_drive_notification_ids_v1';
+export const SCHEDULED_COMPLIANCE_ALERTS_KEY =
+  'scheduled_compliance_alerts_v1';
+export const SCHEDULED_DRIVE_ALERTS_KEY =
+  'scheduled_drive_alerts_v1';
 export const BACKGROUND_ALERT_STATE_KEY = 'background_alert_state_v1';
+export const BACKGROUND_TASK_DIAGNOSTICS_KEY =
+  'background_task_diagnostics_v1';
 
 export type BackgroundAlertState = {
   status: WorkStatus;
@@ -14,6 +24,13 @@ export type BackgroundAlertState = {
   drivingTimeRemaining: number;
   driveExtensionRemaining: number;
   weeklyDrivingRemaining: number;
+};
+
+export type BackgroundTaskDiagnostics = {
+  lastRunAtMs: number;
+  lastSpeedKmh: number;
+  persistedStatus: WorkStatus | 'missing';
+  lastTriggeredAlertKey: string | null;
 };
 
 // Validation helper to ensure persisted state integrity
@@ -141,6 +158,70 @@ export const clearScheduledDriveNotificationIds = async () => {
   }
 };
 
+const loadScheduledAlerts = async (storageKey: string) => {
+  try {
+    const raw = await AsyncStorage.getItem(storageKey);
+    if (!raw) return [] as ScheduledAlertDescriptor[];
+    return JSON.parse(raw) as ScheduledAlertDescriptor[];
+  } catch (e) {
+    console.warn(`Failed to load scheduled alerts for ${storageKey}:`, e);
+    return [] as ScheduledAlertDescriptor[];
+  }
+};
+
+const saveScheduledAlerts = async (
+  storageKey: string,
+  alerts: ScheduledAlertDescriptor[],
+) => {
+  try {
+    await AsyncStorage.setItem(storageKey, JSON.stringify(alerts));
+  } catch (e) {
+    console.error(`Failed to save scheduled alerts for ${storageKey}:`, e);
+  }
+};
+
+const clearScheduledAlerts = async (storageKey: string) => {
+  try {
+    await AsyncStorage.removeItem(storageKey);
+  } catch (e) {
+    console.error(`Failed to clear scheduled alerts for ${storageKey}:`, e);
+  }
+};
+
+export const loadScheduledComplianceAlerts = async () =>
+  loadScheduledAlerts(SCHEDULED_COMPLIANCE_ALERTS_KEY);
+
+export const saveScheduledComplianceAlerts = async (
+  alerts: ScheduledAlertDescriptor[],
+) => {
+  await saveScheduledAlerts(SCHEDULED_COMPLIANCE_ALERTS_KEY, alerts);
+  await saveScheduledComplianceNotificationIds(alerts.map(alert => alert.identifier));
+};
+
+export const clearScheduledComplianceAlerts = async () => {
+  await Promise.all([
+    clearScheduledAlerts(SCHEDULED_COMPLIANCE_ALERTS_KEY),
+    clearScheduledComplianceNotificationIds(),
+  ]);
+};
+
+export const loadScheduledDriveAlerts = async () =>
+  loadScheduledAlerts(SCHEDULED_DRIVE_ALERTS_KEY);
+
+export const saveScheduledDriveAlerts = async (
+  alerts: ScheduledAlertDescriptor[],
+) => {
+  await saveScheduledAlerts(SCHEDULED_DRIVE_ALERTS_KEY, alerts);
+  await saveScheduledDriveNotificationIds(alerts.map(alert => alert.identifier));
+};
+
+export const clearScheduledDriveAlerts = async () => {
+  await Promise.all([
+    clearScheduledAlerts(SCHEDULED_DRIVE_ALERTS_KEY),
+    clearScheduledDriveNotificationIds(),
+  ]);
+};
+
 
 export const loadBackgroundAlertState = async () => {
   try {
@@ -166,5 +247,37 @@ export const clearBackgroundAlertState = async () => {
     await AsyncStorage.removeItem(BACKGROUND_ALERT_STATE_KEY);
   } catch (e) {
     console.error('Failed to clear background alert state:', e);
+  }
+};
+
+export const loadBackgroundTaskDiagnostics = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(BACKGROUND_TASK_DIAGNOSTICS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as BackgroundTaskDiagnostics;
+  } catch (e) {
+    console.warn('Failed to load background task diagnostics:', e);
+    return null;
+  }
+};
+
+export const saveBackgroundTaskDiagnostics = async (
+  diagnostics: BackgroundTaskDiagnostics,
+) => {
+  try {
+    await AsyncStorage.setItem(
+      BACKGROUND_TASK_DIAGNOSTICS_KEY,
+      JSON.stringify(diagnostics)
+    );
+  } catch (e) {
+    console.error('Failed to save background task diagnostics:', e);
+  }
+};
+
+export const clearBackgroundTaskDiagnostics = async () => {
+  try {
+    await AsyncStorage.removeItem(BACKGROUND_TASK_DIAGNOSTICS_KEY);
+  } catch (e) {
+    console.error('Failed to clear background task diagnostics:', e);
   }
 };

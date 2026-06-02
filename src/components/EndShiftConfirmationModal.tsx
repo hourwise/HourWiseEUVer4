@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Modal, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, Modal, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { AlertTriangle, CheckCircle, Shield, Award, AlertCircle } from 'react-native-feather';
 import { useTranslation } from 'react-i18next';
 import { getViolationInfo } from '../lib/compliance';
@@ -14,10 +14,11 @@ interface ShiftTotals {
 interface EndShiftConfirmationModalProps {
   visible: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   violations: string[];
   shiftTotals: ShiftTotals;
   score: number;
+  isConfirming?: boolean;
 }
 
 const formatTime = (seconds: number) => {
@@ -35,8 +36,10 @@ const EndShiftConfirmationModal = ({
   violations,
   shiftTotals,
   score,
+  isConfirming = false,
 }: EndShiftConfirmationModalProps) => {
   const { t } = useTranslation();
+  const totalWork = shiftTotals.work + shiftTotals.driving;
 
   const getScoreColor = () => {
     if (score >= 95) return 'text-green-400';
@@ -54,7 +57,9 @@ const EndShiftConfirmationModal = ({
   const iconColor = score >= 95 ? '#4ade80' : score >= 80 ? '#fbbf24' : '#f87171';
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => {
+      if (!isConfirming) onClose();
+    }}>
       <View className="flex-1 justify-center items-center bg-black/70 p-4">
         <View className="bg-slate-800 rounded-2xl w-full max-w-sm p-6 border border-slate-700">
           <Text className="text-white text-2xl font-bold mb-4">{t('endShiftConfirmation.title')}</Text>
@@ -77,7 +82,7 @@ const EndShiftConfirmationModal = ({
             <Text className="text-white font-bold mb-3 text-lg border-b border-slate-700 pb-2">
               {t('endShiftConfirmation.shiftSummary')}
             </Text>
-            <View className="flex-row justify-between py-1"><Text className="text-slate-400">{t('shiftSummary.totalWork')}</Text><Text className="text-white font-semibold">{formatTime(shiftTotals.work)}</Text></View>
+            <View className="flex-row justify-between py-1"><Text className="text-slate-400">{t('shiftSummary.totalWork')}</Text><Text className="text-white font-semibold">{formatTime(totalWork)}</Text></View>
             <View className="flex-row justify-between py-1"><Text className="text-slate-400">{t('shiftSummary.totalDriving')}</Text><Text className="text-white font-semibold">{formatTime(shiftTotals.driving)}</Text></View>
             <View className="flex-row justify-between py-1"><Text className="text-slate-400">{t('shiftSummary.totalBreaks')}</Text><Text className="text-white font-semibold">{formatTime(shiftTotals.break)}</Text></View>
             <View className="flex-row justify-between py-1"><Text className="text-slate-400">{t('shiftSummary.totalPOA')}</Text><Text className="text-white font-semibold">{formatTime(shiftTotals.poa)}</Text></View>
@@ -110,11 +115,14 @@ const EndShiftConfirmationModal = ({
           )}
 
           <View className="flex-row gap-4 mt-4">
-            <TouchableOpacity onPress={onClose} className="flex-1 bg-slate-600 py-3 rounded-lg">
+            <TouchableOpacity disabled={isConfirming} onPress={onClose} className={`flex-1 bg-slate-600 py-3 rounded-lg ${isConfirming ? 'opacity-50' : ''}`}>
               <Text className="text-white text-center font-bold">{t('common.cancel')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={onConfirm} className="flex-1 bg-compliance-danger py-3 rounded-lg">
-              <Text className="text-white text-center font-bold">{t('endShiftConfirmation.confirmEnd')}</Text>
+            <TouchableOpacity disabled={isConfirming} onPress={onConfirm} className={`flex-1 bg-compliance-danger py-3 rounded-lg flex-row items-center justify-center ${isConfirming ? 'opacity-70' : ''}`}>
+              {isConfirming ? <ActivityIndicator color="white" style={{ marginRight: 8 }} /> : null}
+              <Text className="text-white text-center font-bold">
+                {isConfirming ? t('common.loading', 'Saving...') : t('endShiftConfirmation.confirmEnd')}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

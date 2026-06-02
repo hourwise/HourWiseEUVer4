@@ -28,16 +28,15 @@ export const evaluateBackgroundSpeedDecision = ({
     drivingThresholdKmh,
     immediateStartThresholdKmh
   );
-  const effectiveStopThreshold = Math.max(
-    stillThresholdKmh,
-    lowSpeedStopThresholdKmh
-  );
 
   if (speedKmh >= effectiveStartThreshold && !isDriving) {
     return { shouldApply: true, nextDriving: true };
   }
 
-  if (speedKmh <= effectiveStopThreshold && isDriving) {
+  // On resume, a single low-speed sample from crawling traffic should not
+  // immediately drop an active driving segment. Only stop if the sample is
+  // clearly still; the live location stream can make the more nuanced call.
+  if (speedKmh <= stillThresholdKmh && isDriving) {
     return { shouldApply: true, nextDriving: false };
   }
 

@@ -140,7 +140,7 @@ export default function Auth() {
       <View style={styles.toggleContainer}><TouchableOpacity style={[styles.toggleButton, accountType === 'solo' && styles.toggleButtonActive]} onPress={() => setAccountType('solo')}><Text style={[styles.toggleButtonText, accountType === 'solo' && styles.toggleButtonTextActive]}>Solo Driver</Text></TouchableOpacity><TouchableOpacity style={[styles.toggleButton, accountType === 'fleet' && styles.toggleButtonActive]} onPress={() => setAccountType('fleet')}><Text style={[styles.toggleButtonText, accountType === 'fleet' && styles.toggleButtonTextActive]}>Fleet Member</Text></TouchableOpacity></View>
       {accountType === 'solo' ? (<TextInput style={styles.input} placeholder="Full Name" value={fullName} onChangeText={setFullName} placeholderTextColor="#94a3b8" />) : (<><View style={styles.inviteContainer}><TextInput style={[styles.input, styles.inviteInput]} placeholder="Invite Code" value={inviteCode} onChangeText={setInviteCode} autoCapitalize="characters" editable={!verifiedInvite} placeholderTextColor="#94a3b8" /><TouchableOpacity style={styles.verifyButton} onPress={handleVerifyCode} disabled={verifying || !!verifiedInvite}>{verifying ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Verify</Text>}</TouchableOpacity></View>{verifiedInvite && <Text style={styles.verifiedText}>✓ Verified: Welcome, {fullName}!</Text>}</>)}
       <TextInput style={[styles.input, verifiedInvite && styles.inputDisabled]} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" editable={!verifiedInvite} placeholderTextColor="#94a3b8" />
-      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry placeholderTextColor="#94a3b8" />
+      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} autoCapitalize="none" autoCorrect={false} secureTextEntry placeholderTextColor="#94a3b8" />
     </>
   );
 
@@ -150,7 +150,7 @@ export default function Auth() {
       <View style={styles.card}>
         <Text style={styles.title}>{mode === 'signIn' ? 'Sign In' : 'Create Account'}</Text>
         {mode === 'signUp' && renderSignUpForm()}
-        {mode === 'signIn' && (<><TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" placeholderTextColor="#94a3b8" /><TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry placeholderTextColor="#94a3b8" /></>)}
+        {mode === 'signIn' && (<><TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" placeholderTextColor="#94a3b8" /><TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} autoCapitalize="none" autoCorrect={false} secureTextEntry placeholderTextColor="#94a3b8" /></>)}
         <TouchableOpacity style={styles.button} onPress={mode === 'signIn' ? handleLogin : handleSignUp} disabled={loading}>{loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue</Text>}</TouchableOpacity>
         {mode === 'signIn' && biometricAvailable && biometricEnabled && (
           <TouchableOpacity style={styles.secondaryButton} onPress={handleBiometricLogin} disabled={loading}>

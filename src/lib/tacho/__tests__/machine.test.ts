@@ -1,0 +1,162 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  createTachoStateFromPersisted,
+  createTachoStateFromSessionRow,
+  createTachoStateFromSnapshot,
+  toPersistedTachoState,
+} from '../machine';
+
+test('createTachoStateFromPersisted maps persisted timer state into canonical machine state', () => {
+  const machineState = createTachoStateFromPersisted({
+    status: 'working',
+    sessionId: 'session-1',
+    timerMode: '9h',
+    workStartTime: '2026-05-14T08:00:00.000Z',
+    currentSegmentStart: '2026-05-14T09:00:00.000Z',
+    totals: { work: 1200, poa: 0, break: 300, driving: 1800 },
+    legalBreakDisplayTotal: 900,
+    workCycleTotal: 3000,
+    drivingCycleTotal: 1800,
+    breakTracker: { has15min: true },
+    isDriving: true,
+    lastTickMs: 1000,
+    weeklyDrivingAccumulator: 7200,
+    shiftExtensionsUsedThisWeek: 1,
+    maxShiftTimeSeconds: 15 * 3600,
+    dailyRestSecondsBeforeShift: 11 * 3600,
+    reducedDailyRestTaken: false,
+    breakStartMs: 0,
+  });
+
+  assert.equal(machineState.timerMode, '9h');
+  assert.equal(machineState.has15minBreak, true);
+  assert.equal(machineState.drivingCycle, 1800);
+  assert.equal(machineState.maxShiftTimeSeconds, 15 * 3600);
+  assert.equal(machineState.motion.lastSpeedKmh, 0);
+});
+
+test('createTachoStateFromSnapshot preserves runtime fields and round-trips to persisted state', () => {
+  const machineState = createTachoStateFromSnapshot({
+    status: 'poa',
+    sessionId: 'session-2',
+    timerMode: '6h',
+    workStartTime: '2026-05-14T08:00:00.000Z',
+    currentSegmentStart: '2026-05-14T10:00:00.000Z',
+    totals: { work: 1000, poa: 200, break: 100, driving: 300 },
+    legalBreakDisplayTotal: 100,
+    workCycle: 1300,
+    drivingCycle: 300,
+    has15minBreak: false,
+    isDriving: false,
+    breakStartMs: 0,
+    weeklyDrivingAccumulator: 4000,
+    shiftExtensionsUsedThisWeek: 0,
+    maxShiftTimeSeconds: 13 * 3600,
+    dailyRestSecondsBeforeShift: 10 * 3600,
+    reducedDailyRestTaken: true,
+    lastTickMs: 5000,
+    lastBreakDuration: 0,
+    lastBreakEndTime: 0,
+    motion: {
+      lastSpeedKmh: 12,
+      drivingScore: 3,
+    },
+  });
+
+  const persistedState = toPersistedTachoState(machineState, 'timerState_user-1');
+
+  assert.equal(machineState.motion.lastSpeedKmh, 12);
+  assert.equal(machineState.motion.drivingScore, 3);
+  assert.equal(persistedState.userStorageKey, 'timerState_user-1');
+  assert.equal(persistedState.breakTracker.has15min, false);
+  assert.equal(persistedState.drivingCycleTotal, 300);
+  assert.equal(persistedState.motionState?.lastSpeedKmh, 12);
+  assert.equal(persistedState.alertWindow?.prevRemaining.work, machineState.alerts.prevRemaining.work);
+});
+
+test('createTachoStateFromSessionRow maps database session fields while preserving runtime-only state', () => {
+  const fallbackState = createTachoStateFromSnapshot({
+    status: 'working',
+    sessionId: 'local-session',
+    timerMode: '6h',
+    workStartTime: '2026-05-14T08:00:00.000Z',
+    currentSegmentStart: '2026-05-14T09:00:00.000Z',
+    totals: { work: 600, poa: 60, break: 120, driving: 180 },
+    legalBreakDisplayTotal: 120,
+    workCycle: 780,
+    drivingCycle: 180,
+    has15minBreak: false,
+    isDriving: true,
+    breakStartMs: 0,
+    weeklyDrivingAccumulator: 8000,
+    shiftExtensionsUsedThisWeek: 1,
+    maxShiftTimeSeconds: 15 * 3600,
+    dailyRestSecondsBeforeShift: 9 * 3600,
+    reducedDailyRestTaken: true,
+    lastTickMs: 1234,
+    lastBreakDuration: 45,
+    lastBreakEndTime: 1000,
+    motion: {
+      lastSpeedKmh: 44,
+      lastSpeedTs: 5678,
+      drivingScore: 4,
+      movingSinceMs: 100,
+      stationarySinceMs: 0,
+    },
+  });
+
+  const machineState = createTachoStateFromSessionRow({
+    id: 'db-session',
+    user_id: 'user-1',
+    date: '2026-05-14',
+    start_time: '2026-05-14T08:15:00.000Z',
+    end_time: null,
+    total_work_minutes: 30,
+    total_break_minutes: 15,
+    total_poa_minutes: 10,
+    status: 'break',
+    timezone: 'Europe/London',
+    created_at: '2026-05-14T08:15:00.000Z',
+    updated_at: null,
+    compliance_score: null,
+    compliance_violations: null,
+    current_break_start: '2026-05-14T09:30:00.000Z',
+    current_poa_start: null,
+    drop_count: null,
+    empty_miles: null,
+    end_lat: null,
+    end_lng: null,
+    is_manual_entry: null,
+    job_reference: null,
+    loaded_miles: null,
+    notes: null,
+    other_data: {
+      driving: 25,
+      legalBreakDisplay: 10,
+      has15minBreak: true,
+      workCycle: 40,
+      drivingCycle: 25,
+      timerMode: '9h',
+      dailyRestSecondsBeforeShift: 39600,
+      reducedDailyRestTaken: false,
+    },
+    start_lat: null,
+    start_lng: null,
+    client_id: null,
+    waiting_minutes: null,
+  }, fallbackState);
+
+  assert.equal(machineState.sessionId, 'db-session');
+  assert.equal(machineState.status, 'break');
+  assert.equal(machineState.timerMode, '9h');
+  assert.deepEqual(machineState.totals, { work: 1800, poa: 600, break: 900, driving: 1500 });
+  assert.equal(machineState.workCycle, 2400);
+  assert.equal(machineState.drivingCycle, 1500);
+  assert.equal(machineState.legalBreakDisplayTotal, 600);
+  assert.equal(machineState.isDriving, false);
+  assert.equal(machineState.weeklyDrivingAccumulator, fallbackState.weeklyDrivingAccumulator);
+  assert.equal(machineState.motion.lastSpeedKmh, fallbackState.motion.lastSpeedKmh);
+  assert.equal(machineState.alerts.prevRemaining.work, fallbackState.alerts.prevRemaining.work);
+});

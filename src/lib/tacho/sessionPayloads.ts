@@ -3,9 +3,23 @@ import type {
   SessionCounterSnapshotInput,
   SessionOtherData,
   SessionStatusUpdatePayloadInput,
+  WorkStatus,
 } from './types';
 
 const toMins = (seconds: number) => Math.floor(seconds / 60);
+const toIso = (ts: number) => new Date(ts).toISOString();
+
+export type SessionSyncReason = 'drive_stop' | 'status_change' | 'checkpoint';
+
+export type SessionSyncPayloadInput = SessionCounterSnapshotInput & {
+  reason: SessionSyncReason;
+  status: WorkStatus;
+  currentSegmentStart: string | null;
+  currentPoaStart?: string | null;
+  currentBreakStart?: string | null;
+  breakStartMs?: number;
+  nowMs?: number;
+};
 
 export const buildSessionOtherData = ({
   totals,
@@ -25,7 +39,7 @@ export const buildSessionOtherData = ({
   timerMode,
 });
 
-export const buildDriveStopUpdatePayload = ({
+const buildCounterPayload = ({
   totals,
   legalBreakDisplayTotal,
   has15minBreak,
@@ -33,8 +47,10 @@ export const buildDriveStopUpdatePayload = ({
   drivingCycle,
   timerMode,
   existingOtherData,
-  currentSegmentStart,
-}: SessionCounterSnapshotInput & { currentSegmentStart: string | null }) => ({
+}: SessionCounterSnapshotInput) => ({
+  total_work_minutes: toMins(totals.work),
+  total_break_minutes: toMins(totals.break),
+  total_poa_minutes: toMins(totals.poa),
   other_data: buildSessionOtherData({
     totals,
     legalBreakDisplayTotal,
@@ -44,8 +60,79 @@ export const buildDriveStopUpdatePayload = ({
     timerMode,
     existingOtherData,
   }),
-  current_segment_start: currentSegmentStart,
 });
+
+const deriveBreakStartIso = ({
+  currentBreakStart,
+  breakStartMs,
+  currentSegmentStart,
+  nowMs = Date.now(),
+}: Pick<SessionSyncPayloadInput, 'currentBreakStart' | 'breakStartMs' | 'currentSegmentStart' | 'nowMs'>) => {
+  if (currentBreakStart) return currentBreakStart;
+  if (breakStartMs && breakStartMs > 0) return toIso(breakStartMs);
+  if (currentSegmentStart) return toIso(new Date(currentSegmentStart).getTime());
+  return toIso(nowMs);
+};
+
+export const buildSessionSyncPayload = ({
+  reason,
+  status,
+  currentSegmentStart,
+  currentPoaStart,
+  currentBreakStart,
+  breakStartMs,
+  nowMs = Date.now(),
+  ...counterState
+}: SessionSyncPayloadInput) => {
+  if (reason === 'drive_stop') {
+    return {
+      other_data: buildSessionOtherData(counterState),
+    };
+  }
+
+  if (reason === 'status_change') {
+    return {
+      status,
+      ...buildCounterPayload(counterState),
+      current_break_start: status === 'break'
+        ? deriveBreakStartIso({ currentBreakStart, breakStartMs, currentSegmentStart, nowMs })
+        : null,
+      current_poa_start: status === 'poa' ? (currentPoaStart ?? currentSegmentStart) : null,
+    };
+  }
+
+  return {
+    ...buildCounterPayload(counterState),
+    current_break_start:
+      status === 'break'
+        ? deriveBreakStartIso({ currentBreakStart, breakStartMs, currentSegmentStart, nowMs })
+        : null,
+    current_poa_start: status === 'poa' ? (currentPoaStart ?? currentSegmentStart) : null,
+  };
+};
+
+export const buildDriveStopUpdatePayload = ({
+  totals,
+  legalBreakDisplayTotal,
+  has15minBreak,
+  workCycle,
+  drivingCycle,
+  timerMode,
+  existingOtherData,
+  currentSegmentStart,
+}: SessionCounterSnapshotInput & { currentSegmentStart: string | null }) =>
+  buildSessionSyncPayload({
+    reason: 'drive_stop',
+    status: 'working',
+    totals,
+    legalBreakDisplayTotal,
+    has15minBreak,
+    workCycle,
+    drivingCycle,
+    timerMode,
+    existingOtherData,
+    currentSegmentStart,
+  });
 
 export const buildStatusUpdatePayload = ({
   status,
@@ -59,12 +146,10 @@ export const buildStatusUpdatePayload = ({
   currentSegmentStart,
   currentBreakStart,
   currentPoaStart,
-}: SessionStatusUpdatePayloadInput) => ({
-  status,
-  total_work_minutes: toMins(totals.work),
-  total_break_minutes: toMins(totals.break),
-  total_poa_minutes: toMins(totals.poa),
-  other_data: buildSessionOtherData({
+}: SessionStatusUpdatePayloadInput) =>
+  buildSessionSyncPayload({
+    reason: 'status_change',
+    status,
     totals,
     legalBreakDisplayTotal,
     has15minBreak,
@@ -72,11 +157,10 @@ export const buildStatusUpdatePayload = ({
     drivingCycle,
     timerMode,
     existingOtherData,
-  }),
-  current_break_start: currentBreakStart,
-  current_poa_start: currentPoaStart,
-  current_segment_start: currentSegmentStart,
-});
+    currentSegmentStart,
+    currentBreakStart,
+    currentPoaStart,
+  });
 
 export const buildPeriodicCheckpointPayload = ({
   totals,
@@ -90,11 +174,10 @@ export const buildPeriodicCheckpointPayload = ({
   status,
   breakStartMs,
   currentPoaStart,
-}: SessionCheckpointPayloadInput) => ({
-  total_work_minutes: toMins(totals.work),
-  total_break_minutes: toMins(totals.break),
-  total_poa_minutes: toMins(totals.poa),
-  other_data: buildSessionOtherData({
+}: SessionCheckpointPayloadInput) =>
+  buildSessionSyncPayload({
+    reason: 'checkpoint',
+    status,
     totals,
     legalBreakDisplayTotal,
     has15minBreak,
@@ -102,11 +185,7 @@ export const buildPeriodicCheckpointPayload = ({
     drivingCycle,
     timerMode,
     existingOtherData,
-  }),
-  current_segment_start: currentSegmentStart,
-  current_break_start:
-    status === 'break'
-      ? new Date(breakStartMs || new Date(currentSegmentStart || Date.now()).getTime()).toISOString()
-      : null,
-  current_poa_start: status === 'poa' ? currentPoaStart : null,
-});
+    currentSegmentStart,
+    breakStartMs,
+    currentPoaStart,
+  });

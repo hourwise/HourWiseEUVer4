@@ -2,12 +2,14 @@ export const BASE_STORAGE_KEY = 'timerState_v11';
 export const LOCATION_TASK_NAME = 'background-location-task';
 export const BG_SPEED_KEY = 'bg_last_speed_v1';
 
-export const DRIVING_SPEED_THRESHOLD_KMH = 10;
-export const DRIVING_IMMEDIATE_START_THRESHOLD_KMH = 14;
+export const DRIVING_SPEED_THRESHOLD_KMH = 8;
+export const DRIVING_IMMEDIATE_START_THRESHOLD_KMH = 12;
 export const STILL_SPEED_THRESHOLD_KMH = 4;
 export const LOW_SPEED_STOP_THRESHOLD_KMH = 6;
 export const MOVING_CONFIRM_MS = 1200;
-export const STATIONARY_CONFIRM_MS = 1500;
+// Keep driving "sticky" through normal traffic pauses without lowering
+// the start threshold enough for brisk walking to trigger.
+export const STATIONARY_CONFIRM_MS = 8000;
 export const GPS_STALE_THRESHOLD_MS = 10000;
 export const MOTION_MAGNITUDE_THRESHOLD = 0.12;
 export const ACCEL_SCORE_MAX = 8;

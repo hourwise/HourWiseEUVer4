@@ -29,8 +29,6 @@ import {
   STILL_SPEED_THRESHOLD_KMH,
 } from '../lib/tacho/constants';
 import {
-  applyElapsedToCounters,
-  getDisplayedBreakSeconds,
   getMaxWorkSeconds,
   toLocalDateString,
 } from '../lib/tacho/timing';
@@ -39,33 +37,50 @@ import { ensureNotificationChannelsInitialized } from '../lib/notifications';
 import {
   clearActiveTimerState,
   clearBackgroundAlertState,
-  clearScheduledComplianceNotificationIds,
-  clearScheduledDriveNotificationIds,
+  clearScheduledComplianceAlerts,
   loadActiveTimerState,
+  clearScheduledDriveAlerts,
+  loadBackgroundTaskDiagnostics,
+  loadScheduledComplianceAlerts,
   loadScheduledComplianceNotificationIds,
+  loadScheduledDriveAlerts,
   loadScheduledDriveNotificationIds,
   saveActiveTimerState,
-  saveScheduledComplianceNotificationIds,
-  saveScheduledDriveNotificationIds,
+  saveScheduledComplianceAlerts,
+  saveScheduledDriveAlerts,
 } from '../lib/tacho/runtimeStorage';
 import { deriveLiveDisplayState } from '../lib/tacho/display';
 import {
-  evaluateAccelerometerDecision,
-  evaluateBackgroundSpeedDecision,
-  evaluateLocationSample,
-} from '../lib/tacho/drivingDetection';
-import { buildEndSessionRequest, buildEndShiftSummary } from '../lib/tacho/endShift';
+  createInitialTachoState,
+  createTachoStateFromPersisted,
+  createTachoStateFromSessionRow,
+  createTachoStateFromSnapshot,
+  toPersistedTachoState,
+  type TachoCommand,
+  type TachoState,
+} from '../lib/tacho/machine';
 import {
-  createEndedShiftResetState,
+  processAccelerometerMotionSample,
+  processLocationMotionSample,
+  type MotionDetectorConfig,
+} from '../lib/tacho/motionDetector';
+import { reduceTachoEvent } from '../lib/tacho/reducer';
+import { deriveDisplayFromTachoState } from '../lib/tacho/selectors';
+import {
+  buildEndSessionRequest,
+  createEndShiftSummaryState,
+  getEndShiftConfirmationError,
+  setEndShiftSummaryConfirming,
+} from '../lib/tacho/endShift';
+import {
   createFailedStartRollbackState,
   createInitialDisplayState,
   createStartedShiftState,
 } from '../lib/tacho/lifecycle';
 import { buildEndShiftSnapshot } from '../lib/tacho/snapshot';
 import {
-  buildDriveStopUpdatePayload,
-  buildPeriodicCheckpointPayload,
-  buildStatusUpdatePayload,
+  buildSessionSyncPayload,
+  type SessionSyncReason,
 } from '../lib/tacho/sessionPayloads';
 import {
   countReducedDailyRestsThisWeek,
@@ -75,14 +90,14 @@ import {
   type SpreadSessionLike,
 } from '../lib/tacho/spread';
 import {
-  deriveDrivingTransition,
-  deriveStatusTransition,
-  getStatusTransitionAlertKey,
 } from '../lib/tacho/transitions';
 import type {
   BreakTracker,
   DisplayState,
+  EndShiftSummaryState,
   PersistedState,
+  ScheduledAlertDescriptor,
+  ScheduledAlertScope,
   TimerMode,
   Totals,
   WorkStatus,
@@ -102,6 +117,20 @@ async function ensureNotificationSetup() {
 }
 
 const BATTERY_PROMPT_KEY = 'battery_prompt_dismissed';
+const MOTION_DETECTOR_CONFIG: MotionDetectorConfig = {
+  stillThresholdKmh: STILL_SPEED_THRESHOLD_KMH,
+  lowSpeedStopThresholdKmh: LOW_SPEED_STOP_THRESHOLD_KMH,
+  drivingThresholdKmh: DRIVING_SPEED_THRESHOLD_KMH,
+  immediateStartThresholdKmh: DRIVING_IMMEDIATE_START_THRESHOLD_KMH,
+  movingConfirmMs: MOVING_CONFIRM_MS,
+  stationaryConfirmMs: STATIONARY_CONFIRM_MS,
+  accelScoreMax: ACCEL_SCORE_MAX,
+  gpsStaleThresholdMs: GPS_STALE_THRESHOLD_MS,
+  motionMagnitudeThreshold: MOTION_MAGNITUDE_THRESHOLD,
+  accelDriveThreshold: ACCEL_DRIVE_THRESHOLD,
+  accelStopThreshold: ACCEL_STOP_THRESHOLD,
+};
+
 async function promptBatteryOptimisationIfNeeded() {
   if (Platform.OS !== 'android') return;
   const dismissed = await AsyncStorage.getItem(BATTERY_PROMPT_KEY);
@@ -154,6 +183,8 @@ interface DBUpdateResult {
   error?: any;
 }
 
+type DesiredScheduledAlert = Omit<ScheduledAlertDescriptor, 'identifier' | 'scheduledAtMs'>;
+
 export const updateSessionWithRetry = async (
   update: () => PromiseLike<any>,
   maxRetries: number = 3,
@@ -197,6 +228,10 @@ const isValidSegmentStart = (iso: string | null): boolean => {
   }
 };
 
+type ShiftSummaryModalState = EndShiftSummaryState & {
+  onConfirm: () => Promise<void>;
+};
+
 export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const userStorageKey = userId ? `${BASE_STORAGE_KEY}_${userId}` : null;
 
@@ -207,12 +242,13 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const [workStartTime, setWorkStartTime] = useState<string | null>(null);
   const [currentSegmentStart, setCurrentSegmentStart] = useState<string | null>(null);
   const [isDriving, setIsDriving] = useState(false);
+  const [isDrivingDetectionPaused, setIsDrivingDetectionPaused] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [display, setDisplay] = useState<DisplayState>({
     ...createInitialDisplayState(),
   });
-  const [shiftSummaryData, setShiftSummaryData] = useState<any>(null);
+  const [shiftSummaryData, setShiftSummaryData] = useState<ShiftSummaryModalState | null>(null);
 
   const statusRef = useRef<WorkStatus>('idle');
   const sessionIdRef = useRef<string | null>(null);
@@ -232,19 +268,19 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const reducedDailyRestTakenRef = useRef<boolean>(false);
   const lastTickMsRef = useRef<number>(Date.now());
   const isDrivingRef = useRef<boolean>(false);
+  const isDrivingDetectionPausedRef = useRef<boolean>(false);
   const isStartingRef = useRef<boolean>(false);
   const isEndingRef = useRef<boolean>(false);
   const isPersistingRef = useRef<boolean>(false);
   const isRefreshingSessionRef = useRef<boolean>(false);
   const suppressDriveStopSyncRef = useRef<boolean>(false);
   const appStateRef = useRef(AppState.currentState);
-   const prevStatusRef = useRef<WorkStatus>('idle');
    const lastBreakDurationUiRef = useRef<number>(0);
    const lastBreakEndTimeRef = useRef<number>(0);
    const breakStartTimeRef = useRef<number>(0); // Track actual break start time for accurate duration calculation
 
-   const scheduledComplianceIdsRef = useRef<string[]>([]);
-  const scheduledDriveIdsRef = useRef<string[]>([]);
+   const scheduledComplianceAlertsRef = useRef<ScheduledAlertDescriptor[]>([]);
+  const scheduledDriveAlertsRef = useRef<ScheduledAlertDescriptor[]>([]);
   const ukVoiceIdentifierRef = useRef<string | null>(null);
   const locationSubRef = useRef<Location.LocationSubscription | null>(null);
   const accelSubRef = useRef<any>(null);
@@ -271,23 +307,87 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     setWorkStartTime(workStartRef.current);
     setCurrentSegmentStart(segmentStartRef.current);
     setIsDriving(isDrivingRef.current);
-  }, []);
-
-  const syncPrevRemainingFromDisplay = useCallback((nextDisplay: DisplayState) => {
-    prevShiftElapsedRef.current = nextDisplay.shift;
-    prevRemainingRef.current = {
-      work: nextDisplay.workTimeRemaining,
-      drive: nextDisplay.drivingTimeRemaining,
-      driveExtension: MAX_DAILY_DRIVE_EXTENDED - nextDisplay.driving,
-      weeklyDrive: nextDisplay.weeklyDrivingRemaining,
-      maxShiftTime: nextDisplay.maxShiftTimeRemaining,
-    };
+    setIsDrivingDetectionPaused(isDrivingDetectionPausedRef.current);
   }, []);
 
   const syncShiftAllowanceState = useCallback((sessions: SpreadSessionLike[], forDate: Date) => {
     const shiftAllowance = getShiftExtensionAllowanceState(sessions, forDate);
     shiftExtensionsUsedThisWeekRef.current = shiftAllowance.used;
     maxShiftTimeLimitRef.current = shiftAllowance.maxShiftTimeSeconds;
+  }, []);
+
+  const applyMachineStateToRefs = useCallback((machineState: TachoState) => {
+    statusRef.current = machineState.status;
+    sessionIdRef.current = machineState.sessionId;
+    timerModeRef.current = machineState.timerMode;
+    workStartRef.current = machineState.workStartTime;
+    segmentStartRef.current = machineState.currentSegmentStart;
+    totalsRef.current = machineState.totals;
+    legalBreakDisplayTotalRef.current = machineState.legalBreakDisplayTotal;
+    workCycleRef.current = machineState.workCycle;
+    drivingCycleRef.current = machineState.drivingCycle;
+    breakTrackerRef.current = { has15min: machineState.has15minBreak };
+    isDrivingRef.current = machineState.isDriving;
+    weeklyDrivingAccumulatorRef.current = machineState.weeklyDrivingAccumulator;
+    shiftExtensionsUsedThisWeekRef.current = machineState.shiftExtensionsUsedThisWeek;
+    maxShiftTimeLimitRef.current = machineState.maxShiftTimeSeconds;
+    dailyRestSecondsBeforeShiftRef.current = machineState.dailyRestSecondsBeforeShift;
+    reducedDailyRestTakenRef.current = machineState.reducedDailyRestTaken;
+    breakStartTimeRef.current = machineState.breakStartMs;
+    lastTickMsRef.current = machineState.lastTickMs;
+    lastBreakDurationUiRef.current = machineState.lastBreakDuration;
+    lastBreakEndTimeRef.current = machineState.lastBreakEndTime;
+    lastSpeedKmhRef.current = machineState.motion.lastSpeedKmh;
+    lastSpeedTsRef.current = machineState.motion.lastSpeedTs;
+    drivingScoreRef.current = machineState.motion.drivingScore;
+    movingSinceRef.current = machineState.motion.movingSinceMs;
+    stationarySinceRef.current = machineState.motion.stationarySinceMs;
+    prevShiftElapsedRef.current = machineState.alerts.prevShiftElapsed;
+    prevRemainingRef.current = machineState.alerts.prevRemaining;
+  }, []);
+
+  const createMachineStateFromRefs = useCallback((nowMs: number = Date.now()): TachoState =>
+    createTachoStateFromSnapshot({
+      status: statusRef.current,
+      sessionId: sessionIdRef.current,
+      timerMode: timerModeRef.current,
+      workStartTime: workStartRef.current,
+      currentSegmentStart: segmentStartRef.current,
+      totals: totalsRef.current,
+      legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
+      workCycle: workCycleRef.current,
+      drivingCycle: drivingCycleRef.current,
+      has15minBreak: breakTrackerRef.current.has15min,
+      isDriving: isDrivingRef.current,
+      breakStartMs: breakStartTimeRef.current,
+      weeklyDrivingAccumulator: weeklyDrivingAccumulatorRef.current,
+      shiftExtensionsUsedThisWeek: shiftExtensionsUsedThisWeekRef.current,
+      maxShiftTimeSeconds: maxShiftTimeLimitRef.current,
+      dailyRestSecondsBeforeShift: dailyRestSecondsBeforeShiftRef.current,
+      reducedDailyRestTaken: reducedDailyRestTakenRef.current,
+      lastTickMs: lastTickMsRef.current || nowMs,
+      lastBreakDuration: lastBreakDurationUiRef.current,
+      lastBreakEndTime: lastBreakEndTimeRef.current,
+      motion: {
+        lastSpeedKmh: lastSpeedKmhRef.current,
+        lastSpeedTs: lastSpeedTsRef.current,
+        drivingScore: drivingScoreRef.current,
+        movingSinceMs: movingSinceRef.current,
+        stationarySinceMs: stationarySinceRef.current,
+      },
+      alerts: {
+        prevShiftElapsed: prevShiftElapsedRef.current,
+        prevRemaining: prevRemainingRef.current,
+      },
+    }),
+  []);
+
+  const resetDrivingMotionState = useCallback(() => {
+    drivingScoreRef.current = 0;
+    movingSinceRef.current = 0;
+    stationarySinceRef.current = 0;
+    lastSpeedKmhRef.current = 0;
+    lastSpeedTsRef.current = 0;
   }, []);
 
   useEffect(() => {
@@ -328,27 +428,18 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
           priority: Notifications.AndroidNotificationPriority.MAX,
           categoryIdentifier: 'alarm',
           channelId: cfg.channelId,
+          vibrationPattern: [0, 250, 250, 250],
+          data: {
+            hourwiseAlert: true,
+            alertKey,
+            kind: 'immediate',
+            channelId: cfg.channelId,
+          },
         } as any,
         trigger: null,
       });
     } catch (e) { console.error('Immediate notification failed:', e); }
   }, [speakAlert, vibrateAlert]);
-
-  const applyElapsed = useCallback((elapsedSec: number, lastStatus: WorkStatus, lastDriving: boolean) => {
-    const nextState = applyElapsedToCounters(
-      {
-        totals: totalsRef.current,
-        workCycle: workCycleRef.current,
-        drivingCycle: drivingCycleRef.current,
-      },
-      elapsedSec,
-      lastStatus,
-      lastDriving,
-    );
-    totalsRef.current = nextState.totals;
-    workCycleRef.current = nextState.workCycle;
-    drivingCycleRef.current = nextState.drivingCycle;
-  }, []);
 
   const fetchHistory = useCallback(async () => {
     if (!userId) return;
@@ -359,152 +450,385 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     if (data) setHistory(data.filter((s: any) => s.end_time !== null));
   }, [userId]);
 
-   const cancelScheduledComplianceNotifications = useCallback(async (isEndingShift = false) => {
-     const persistedComplianceIds = await loadScheduledComplianceNotificationIds();
-     const persistedDriveIds = await loadScheduledDriveNotificationIds();
-     const ids = [...new Set([...scheduledComplianceIdsRef.current, ...scheduledDriveIdsRef.current, ...persistedComplianceIds, ...persistedDriveIds])];
-     scheduledComplianceIdsRef.current = [];
-     scheduledDriveIdsRef.current = [];
-     await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id).catch(() => {})));
-     await clearScheduledComplianceNotificationIds();
-     await clearScheduledDriveNotificationIds();
-     if (isEndingShift) {
-       await Notifications.cancelAllScheduledNotificationsAsync();
-       await clearBackgroundAlertState();
-     }
-   }, []);
+  const buildScheduleKey = useCallback((
+    scope: ScheduledAlertScope,
+    alertKey: AlertKey,
+    fireDateMs: number,
+  ) => `${scope}:${alertKey}:${Math.floor(fireDateMs / 1000)}`, []);
 
-   const buildDriveAlertSchedule = useCallback(async () => {
-     // ========== ALERT FIX: Schedule drive alerts for background firing ==========
-     // Only schedule if actively driving (not POA, not working without driving)
-     const st = statusRef.current;
-     if (st !== 'working' || !isDrivingRef.current) return;
+  const extractScheduledAlertDescriptor = useCallback((request: any) => {
+    const data = request?.content?.data as Record<string, any> | undefined;
+    if (!data?.hourwiseAlert) return null;
+    if (data.scope !== 'compliance' && data.scope !== 'drive') return null;
+    if (!data.alertKey || !data.scheduleKey || !data.channelId) return null;
 
-     let inFlightDriving = 0;
-     if (segmentStartRef.current) {
-       const nowMs = Date.now();
-       const segStartMs = new Date(segmentStartRef.current).getTime();
-       inFlightDriving = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
-     }
+    const fireDateMs = Number(data.fireDateMs);
+    if (!Number.isFinite(fireDateMs)) return null;
 
-     const currentDrivingCycle = drivingCycleRef.current + inFlightDriving;
-     const remainingDrive = MAX_DRIVE - currentDrivingCycle;
-     const totalDriving = totalsRef.current.driving + inFlightDriving;
-     const remainingDriveExtension = MAX_DAILY_DRIVE_EXTENDED - totalDriving;
-     const totalWeeklyDrive = weeklyDrivingAccumulatorRef.current + totalDriving;
-     const remainingWeeklyDrive = MAX_WEEKLY_DRIVE - totalWeeklyDrive;
+    const secondsFromNow = Number(data.secondsFromNow);
+    const scheduledAtMs = Number(data.scheduledAtMs);
 
-     // Helper to schedule alert if remaining time is positive
-     const scheduleIfNeeded = async (remaining: number, threshold: number, alertKey: AlertKey) => {
-       const inSeconds = remaining - threshold;
-       if (inSeconds <= 0 || inSeconds > 86400) return; // Don't schedule if already past or > 24h
+    return {
+      identifier: request.identifier,
+      scope: data.scope as ScheduledAlertScope,
+      alertKey: data.alertKey as AlertKey,
+      scheduleKey: data.scheduleKey as string,
+      fireDateMs,
+      secondsFromNow: Number.isFinite(secondsFromNow)
+        ? secondsFromNow
+        : Math.max(0, Math.floor((fireDateMs - Date.now()) / 1000)),
+      channelId: data.channelId as string,
+      scheduledAtMs: Number.isFinite(scheduledAtMs) ? scheduledAtMs : Date.now(),
+    } satisfies ScheduledAlertDescriptor;
+  }, []);
 
-       const cfg = ALERT_TEXT[alertKey];
-       try {
-         await ensureNotificationSetup();
-         const id = await Notifications.scheduleNotificationAsync({
-           content: {
-             title: i18n.t(cfg.titleKey),
-             body: i18n.t(cfg.bodyKey),
-             sound: 'default',
-             priority: Notifications.AndroidNotificationPriority.MAX,
-             categoryIdentifier: 'alarm',
-             channelId: cfg.channelId,
-             vibrationPattern: [0, 250, 250, 250],
-           } as any,
-           trigger: { seconds: Math.floor(inSeconds), channelId: cfg.channelId } as any,
-         });
-         scheduledDriveIdsRef.current.push(id);
-         console.log(`Scheduled drive alert "${alertKey}" for ${Math.floor(inSeconds)}s`);
-       } catch (e) { console.warn(`Failed to schedule drive alert ${alertKey}:`, e); }
-     };
+  const setScopeScheduledAlerts = useCallback((
+    scope: ScheduledAlertScope,
+    alerts: ScheduledAlertDescriptor[],
+  ) => {
+    if (scope === 'compliance') {
+      scheduledComplianceAlertsRef.current = alerts;
+      return;
+    }
+    scheduledDriveAlertsRef.current = alerts;
+  }, []);
 
-     // Schedule drive cycle alerts
-     await scheduleIfNeeded(remainingDrive, 30 * 60, 'driveCycleWarn30mRemaining');
-     await scheduleIfNeeded(remainingDrive, 15 * 60, 'driveCycleWarn15mRemaining');
-     await scheduleIfNeeded(remainingDrive, 5 * 60, 'driveCycleWarn5mRemaining');
-     await scheduleIfNeeded(remainingDrive, 0, 'driveCycleLimitReached');
+  const saveScopeScheduledAlerts = useCallback(async (
+    scope: ScheduledAlertScope,
+    alerts: ScheduledAlertDescriptor[],
+  ) => {
+    setScopeScheduledAlerts(scope, alerts);
+    if (scope === 'compliance') {
+      await saveScheduledComplianceAlerts(alerts);
+      return;
+    }
+    await saveScheduledDriveAlerts(alerts);
+  }, [setScopeScheduledAlerts]);
 
-     // Schedule drive extension alerts
-     await scheduleIfNeeded(remainingDriveExtension, 30 * 60, 'driveExtensionWarn30mRemaining');
-     await scheduleIfNeeded(remainingDriveExtension, 15 * 60, 'driveExtensionWarn15mRemaining');
-     await scheduleIfNeeded(remainingDriveExtension, 5 * 60, 'driveExtensionWarn5mRemaining');
-     await scheduleIfNeeded(remainingDriveExtension, 0, 'driveExtensionLimitReached');
+  const clearScopeScheduledAlerts = useCallback(async (scope: ScheduledAlertScope) => {
+    setScopeScheduledAlerts(scope, []);
+    if (scope === 'compliance') {
+      await clearScheduledComplianceAlerts();
+      return;
+    }
+    await clearScheduledDriveAlerts();
+  }, [setScopeScheduledAlerts]);
 
-     // Schedule weekly drive alerts
-     await scheduleIfNeeded(remainingWeeklyDrive, 60 * 60, 'weeklyDriveWarn1hRemaining');
-     await scheduleIfNeeded(remainingWeeklyDrive, 0, 'weeklyDriveLimitReached');
+  const logNotificationDiagnostics = useCallback(async (context: string) => {
+    try {
+      const [
+        permissions,
+        scheduledRequests,
+        persistedComplianceAlerts,
+        persistedDriveAlerts,
+        backgroundDiagnostics,
+        channels,
+      ] = await Promise.all([
+        Notifications.getPermissionsAsync(),
+        Notifications.getAllScheduledNotificationsAsync().catch(() => [] as any[]),
+        loadScheduledComplianceAlerts(),
+        loadScheduledDriveAlerts(),
+        loadBackgroundTaskDiagnostics(),
+        Platform.OS === 'android'
+          ? Notifications.getNotificationChannelsAsync().catch(() => [] as any[])
+          : Promise.resolve([] as any[]),
+      ]);
 
-     await saveScheduledDriveNotificationIds(scheduledDriveIdsRef.current);
-   }, []);
+      console.log(`[notifications:${context}]`, JSON.stringify({
+        permissionStatus: permissions.status,
+        permissionGranted: permissions.granted,
+        canAskAgain: permissions.canAskAgain,
+        scheduledNotificationCount: scheduledRequests.length,
+        persistedComplianceCount: persistedComplianceAlerts.length,
+        persistedDriveCount: persistedDriveAlerts.length,
+        channelCount: channels.length,
+        channels: channels.map((channel: any) => ({
+          id: channel.id,
+          importance: channel.importance,
+          bypassDnd: channel.bypassDnd,
+          sound: channel.sound,
+        })),
+        lastBackgroundTaskRunAtMs: backgroundDiagnostics?.lastRunAtMs ?? null,
+        lastBackgroundTaskSpeedKmh: backgroundDiagnostics?.lastSpeedKmh ?? null,
+        lastBackgroundAlertKey: backgroundDiagnostics?.lastTriggeredAlertKey ?? null,
+        lastBackgroundPersistedStatus: backgroundDiagnostics?.persistedStatus ?? null,
+      }));
+    } catch (e) {
+      console.warn(`Notification diagnostics failed (${context}):`, e);
+    }
+  }, []);
 
-  const buildComplianceSchedule = useCallback(async () => {
-    await cancelScheduledComplianceNotifications();
+  const cancelScheduledAlertsForScope = useCallback(async (scope: ScheduledAlertScope) => {
+    const [persistedAlerts, legacyIds, scheduledRequests] = await Promise.all([
+      scope === 'compliance' ? loadScheduledComplianceAlerts() : loadScheduledDriveAlerts(),
+      scope === 'compliance'
+        ? loadScheduledComplianceNotificationIds()
+        : loadScheduledDriveNotificationIds(),
+      Notifications.getAllScheduledNotificationsAsync().catch(() => [] as any[]),
+    ]);
+
+    const currentAlerts = scope === 'compliance'
+      ? scheduledComplianceAlertsRef.current
+      : scheduledDriveAlertsRef.current;
+
+    const scheduledScopeAlerts = scheduledRequests
+      .map(request => extractScheduledAlertDescriptor(request))
+      .filter((alert): alert is ScheduledAlertDescriptor => !!alert && alert.scope === scope);
+
+    const identifiers = new Set([
+      ...legacyIds,
+      ...persistedAlerts.map(alert => alert.identifier),
+      ...currentAlerts.map(alert => alert.identifier),
+      ...scheduledScopeAlerts.map(alert => alert.identifier),
+    ]);
+
+    await Promise.all(
+      [...identifiers].map(identifier =>
+        Notifications.cancelScheduledNotificationAsync(identifier).catch(() => {})
+      )
+    );
+
+    await clearScopeScheduledAlerts(scope);
+  }, [clearScopeScheduledAlerts, extractScheduledAlertDescriptor]);
+
+  const cancelAllScheduledAlertNotifications = useCallback(async (
+    options?: { clearBackgroundState?: boolean },
+  ) => {
+    await cancelScheduledAlertsForScope('compliance');
+    await cancelScheduledAlertsForScope('drive');
+    if (options?.clearBackgroundState) {
+      await clearBackgroundAlertState();
+    }
+  }, [cancelScheduledAlertsForScope]);
+
+  const scheduleDesiredAlert = useCallback(async (
+    desiredAlert: DesiredScheduledAlert,
+  ) => {
+    const cfg = ALERT_TEXT[desiredAlert.alertKey];
+    const scheduledAtMs = Date.now();
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: i18n.t(cfg.titleKey),
+        body: i18n.t(cfg.bodyKey),
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        categoryIdentifier: 'alarm',
+        channelId: cfg.channelId,
+        vibrationPattern: [0, 250, 250, 250],
+        data: {
+          hourwiseAlert: true,
+          scope: desiredAlert.scope,
+          alertKey: desiredAlert.alertKey,
+          scheduleKey: desiredAlert.scheduleKey,
+          fireDateMs: desiredAlert.fireDateMs,
+          secondsFromNow: desiredAlert.secondsFromNow,
+          scheduledAtMs,
+          channelId: desiredAlert.channelId,
+        },
+      } as any,
+      trigger: {
+        seconds: Math.max(1, Math.floor(desiredAlert.secondsFromNow)),
+        channelId: desiredAlert.channelId,
+      } as any,
+    });
+
+    return {
+      ...desiredAlert,
+      identifier,
+      scheduledAtMs,
+    } satisfies ScheduledAlertDescriptor;
+  }, []);
+
+  const reconcileScheduledAlerts = useCallback(async (
+    scope: ScheduledAlertScope,
+    desiredAlerts: DesiredScheduledAlert[],
+    context: string,
+  ) => {
+    await ensureNotificationSetup();
+
+    const scheduledRequests = await Notifications.getAllScheduledNotificationsAsync()
+      .catch(() => [] as any[]);
+    const scheduledScopeAlerts = scheduledRequests
+      .map(request => extractScheduledAlertDescriptor(request))
+      .filter((alert): alert is ScheduledAlertDescriptor => !!alert && alert.scope === scope);
+
+    const desiredKeys = new Set(desiredAlerts.map(alert => alert.scheduleKey));
+    const scheduledByKey = new Map<string, ScheduledAlertDescriptor[]>();
+    for (const alert of scheduledScopeAlerts) {
+      const bucket = scheduledByKey.get(alert.scheduleKey) ?? [];
+      bucket.push(alert);
+      scheduledByKey.set(alert.scheduleKey, bucket);
+    }
+
+    const staleAlerts = scheduledScopeAlerts.filter(alert => !desiredKeys.has(alert.scheduleKey));
+    await Promise.all(
+      staleAlerts.map(alert =>
+        Notifications.cancelScheduledNotificationAsync(alert.identifier).catch(() => {})
+      )
+    );
+
+    for (const alerts of scheduledByKey.values()) {
+      if (alerts.length <= 1) continue;
+      const [, ...duplicates] = alerts;
+      await Promise.all(
+        duplicates.map(alert =>
+          Notifications.cancelScheduledNotificationAsync(alert.identifier).catch(() => {})
+        )
+      );
+    }
+
+    const nextPersistedAlerts: ScheduledAlertDescriptor[] = [];
+    for (const desiredAlert of desiredAlerts) {
+      const activeScheduledAlerts = (scheduledByKey.get(desiredAlert.scheduleKey) ?? [])
+        .filter(alert => desiredKeys.has(alert.scheduleKey));
+      if (activeScheduledAlerts.length > 0) {
+        nextPersistedAlerts.push(activeScheduledAlerts[0]);
+        continue;
+      }
+
+      try {
+        nextPersistedAlerts.push(await scheduleDesiredAlert(desiredAlert));
+      } catch (e) {
+        console.warn(`Failed to schedule ${scope} alert ${desiredAlert.alertKey}:`, e);
+      }
+    }
+
+    await saveScopeScheduledAlerts(scope, nextPersistedAlerts);
+    await logNotificationDiagnostics(context);
+  }, [
+    extractScheduledAlertDescriptor,
+    logNotificationDiagnostics,
+    saveScopeScheduledAlerts,
+    scheduleDesiredAlert,
+  ]);
+
+  const buildDriveAlertPlans = useCallback(() => {
     const st = statusRef.current;
-    if (st !== 'working' && st !== 'poa') return;
+    if (st !== 'working' || !isDrivingRef.current || isDrivingDetectionPausedRef.current) {
+      return [] as DesiredScheduledAlert[];
+    }
 
+    const nowMs = Date.now();
+    let inFlightDriving = 0;
+    if (segmentStartRef.current) {
+      const segStartMs = new Date(segmentStartRef.current).getTime();
+      inFlightDriving = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
+    }
+
+    const currentDrivingCycle = drivingCycleRef.current + inFlightDriving;
+    const remainingDrive = MAX_DRIVE - currentDrivingCycle;
+    const totalDriving = totalsRef.current.driving + inFlightDriving;
+    const remainingDriveExtension = MAX_DAILY_DRIVE_EXTENDED - totalDriving;
+    const totalWeeklyDrive = weeklyDrivingAccumulatorRef.current + totalDriving;
+    const remainingWeeklyDrive = MAX_WEEKLY_DRIVE - totalWeeklyDrive;
+    const plannedAlerts: DesiredScheduledAlert[] = [];
+
+    const pushIfNeeded = (remaining: number, threshold: number, alertKey: AlertKey) => {
+      const secondsFromNow = remaining - threshold;
+      if (secondsFromNow <= 0 || secondsFromNow > 86400) return;
+
+      const cfg = ALERT_TEXT[alertKey];
+      const fireDateMs = nowMs + Math.floor(secondsFromNow) * 1000;
+      plannedAlerts.push({
+        scope: 'drive',
+        alertKey,
+        scheduleKey: buildScheduleKey('drive', alertKey, fireDateMs),
+        fireDateMs,
+        secondsFromNow: Math.floor(secondsFromNow),
+        channelId: cfg.channelId,
+      });
+    };
+
+    pushIfNeeded(remainingDrive, 30 * 60, 'driveCycleWarn30mRemaining');
+    pushIfNeeded(remainingDrive, 15 * 60, 'driveCycleWarn15mRemaining');
+    pushIfNeeded(remainingDrive, 5 * 60, 'driveCycleWarn5mRemaining');
+    pushIfNeeded(remainingDrive, 0, 'driveCycleLimitReached');
+    pushIfNeeded(remainingDriveExtension, 30 * 60, 'driveExtensionWarn30mRemaining');
+    pushIfNeeded(remainingDriveExtension, 15 * 60, 'driveExtensionWarn15mRemaining');
+    pushIfNeeded(remainingDriveExtension, 5 * 60, 'driveExtensionWarn5mRemaining');
+    pushIfNeeded(remainingDriveExtension, 0, 'driveExtensionLimitReached');
+    pushIfNeeded(remainingWeeklyDrive, 60 * 60, 'weeklyDriveWarn1hRemaining');
+    pushIfNeeded(remainingWeeklyDrive, 0, 'weeklyDriveLimitReached');
+
+    return plannedAlerts;
+  }, [buildScheduleKey]);
+
+  const buildComplianceAlertPlans = useCallback(() => {
+    const st = statusRef.current;
+    if (st !== 'working' && st !== 'poa') return [] as DesiredScheduledAlert[];
+
+    const nowMs = Date.now();
     let inFlightWork = 0;
     let inFlightDriving = 0;
     if (st === 'working' && segmentStartRef.current) {
-      const nowMs = Date.now();
       const segStartMs = new Date(segmentStartRef.current).getTime();
       const inFlightSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
-      if (isDrivingRef.current) inFlightDriving = inFlightSec; else inFlightWork = inFlightSec;
+      if (isDrivingRef.current) {
+        inFlightDriving = inFlightSec;
+      } else {
+        inFlightWork = inFlightSec;
+      }
     }
 
-    const currentWork = workCycleRef.current + inFlightWork;
+    const currentWork = workCycleRef.current + inFlightWork + inFlightDriving;
     const maxWork = getMaxWorkSeconds(timerModeRef.current);
     const remainingWork = maxWork - currentWork;
+    const plannedAlerts: DesiredScheduledAlert[] = [];
 
-    const scheduleAtThreshold = async (remaining: number, threshold: number, alertKey: AlertKey) => {
-      const inSeconds = remaining - threshold;
-      if (inSeconds <= 0) return;
+    const pushIfNeeded = (remaining: number, threshold: number, alertKey: AlertKey) => {
+      const secondsFromNow = remaining - threshold;
+      if (secondsFromNow <= 0) return;
+
       const cfg = ALERT_TEXT[alertKey];
-      try {
-        await ensureNotificationSetup();
-        const id = await Notifications.scheduleNotificationAsync({
-          content: {
-            title: i18n.t(cfg.titleKey),
-            body: i18n.t(cfg.bodyKey),
-            sound: 'default',
-            priority: Notifications.AndroidNotificationPriority.MAX,
-            categoryIdentifier: 'alarm',
-            channelId: cfg.channelId,
-          } as any,
-          trigger: { seconds: Math.floor(inSeconds), channelId: cfg.channelId } as any,
-        });
-        scheduledComplianceIdsRef.current.push(id);
-      } catch (e) { console.warn('Failed to schedule notification:', e); }
+      const fireDateMs = nowMs + Math.floor(secondsFromNow) * 1000;
+      plannedAlerts.push({
+        scope: 'compliance',
+        alertKey,
+        scheduleKey: buildScheduleKey('compliance', alertKey, fireDateMs),
+        fireDateMs,
+        secondsFromNow: Math.floor(secondsFromNow),
+        channelId: cfg.channelId,
+      });
     };
 
-    // Work time notifications only fire when actively working — not during POA
-    // POA freezes work time so scheduling from now would fire at wrong wall-clock time
     if (st === 'working') {
-      await scheduleAtThreshold(remainingWork, 30 * 60, 'workWarn30mRemaining');
-      await scheduleAtThreshold(remainingWork, 15 * 60, 'workWarn15mRemaining');
-      await scheduleAtThreshold(remainingWork, 5 * 60, 'workWarn5mRemaining');
-      await scheduleAtThreshold(remainingWork, 0, 'workLimitReached');
+      pushIfNeeded(remainingWork, 30 * 60, 'workWarn30mRemaining');
+      pushIfNeeded(remainingWork, 15 * 60, 'workWarn15mRemaining');
+      pushIfNeeded(remainingWork, 5 * 60, 'workWarn5mRemaining');
+      pushIfNeeded(remainingWork, 0, 'workLimitReached');
     }
 
     if (workStartRef.current) {
       const startMs = new Date(workStartRef.current).getTime();
-      const nowMs = Date.now();
       const regularRemaining = (startMs + MAX_SHIFT_TIME_13H * 1000 - nowMs) / 1000;
-      await scheduleAtThreshold(regularRemaining, 30 * 60, 'shift13hLimitSoon');
-      await scheduleAtThreshold(regularRemaining, 0, 'shift13hLimitReached');
+      pushIfNeeded(regularRemaining, 30 * 60, 'shift13hLimitSoon');
+      pushIfNeeded(regularRemaining, 0, 'shift13hLimitReached');
 
       if (maxShiftTimeLimitRef.current > MAX_SHIFT_TIME_13H) {
         const extendedRemaining = (startMs + MAX_SHIFT_TIME_15H * 1000 - nowMs) / 1000;
-        await scheduleAtThreshold(extendedRemaining, 30 * 60, 'shift15hLimitSoon');
-        await scheduleAtThreshold(extendedRemaining, 0, 'shift15hLimitReached');
+        pushIfNeeded(extendedRemaining, 30 * 60, 'shift15hLimitSoon');
+        pushIfNeeded(extendedRemaining, 0, 'shift15hLimitReached');
       }
     }
 
-    await saveScheduledComplianceNotificationIds(scheduledComplianceIdsRef.current);
-  }, [cancelScheduledComplianceNotifications]);
+    return plannedAlerts;
+  }, [buildScheduleKey]);
 
-   const persistFromRefs = useCallback(async () => {
+  const buildDriveAlertSchedule = useCallback(async () => {
+    await reconcileScheduledAlerts('drive', buildDriveAlertPlans(), 'reconcile:drive');
+  }, [buildDriveAlertPlans, reconcileScheduledAlerts]);
+
+  const buildComplianceSchedule = useCallback(async () => {
+    await reconcileScheduledAlerts(
+      'compliance',
+      buildComplianceAlertPlans(),
+      'reconcile:compliance',
+    );
+  }, [buildComplianceAlertPlans, reconcileScheduledAlerts]);
+
+  const persistFromRefs = useCallback(async () => {
      if (!userStorageKey || isPersistingRef.current || isRefreshingSessionRef.current) return;
+     if (isEndingRef.current && statusRef.current !== 'idle') return;
      isPersistingRef.current = true;
      try {
        const nowMs = Date.now();
@@ -515,41 +839,17 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
            segmentStartRef.current = new Date(nowMs).toISOString();
            return;
          }
-
-         const segStartMs = new Date(segmentStartRef.current).getTime();
-         const elapsedSinceSegment = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
-
-         // Sanity check: elapsed time should be reasonable (< 1 day)
-         if (elapsedSinceSegment > 0 && elapsedSinceSegment < 86400) {
-           applyElapsed(elapsedSinceSegment, statusRef.current, isDrivingRef.current);
-           segmentStartRef.current = new Date(nowMs).toISOString();
-         } else if (elapsedSinceSegment >= 86400) {
-           console.warn('Abnormal elapsed time detected (>24h), possible clock issue');
-           segmentStartRef.current = new Date(nowMs).toISOString();
-         }
        }
-      lastTickMsRef.current = nowMs;
-      const state: PersistedState = {
-        status: statusRef.current,
-        sessionId: sessionIdRef.current,
-        userStorageKey,
-        timerMode: timerModeRef.current,
-        workStartTime: workStartRef.current,
-        currentSegmentStart: segmentStartRef.current,
-        totals: totalsRef.current,
-        legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
-        workCycleTotal: workCycleRef.current,
-        drivingCycleTotal: drivingCycleRef.current,
-        breakTracker: breakTrackerRef.current,
-        isDriving: isDrivingRef.current,
-        lastTickMs: nowMs,
-        weeklyDrivingAccumulator: weeklyDrivingAccumulatorRef.current,
-        shiftExtensionsUsedThisWeek: shiftExtensionsUsedThisWeekRef.current,
-        maxShiftTimeSeconds: maxShiftTimeLimitRef.current,
-        dailyRestSecondsBeforeShift: dailyRestSecondsBeforeShiftRef.current,
-        reducedDailyRestTaken: reducedDailyRestTakenRef.current,
-        breakStartMs: breakStartTimeRef.current,
-      };
+       const machineState = createMachineStateFromRefs(nowMs);
+       const normalizedState = statusRef.current === 'idle'
+         ? machineState
+         : reduceTachoEvent(machineState, { type: 'TIMER_TICK', nowMs }).state;
+
+       applyMachineStateToRefs(normalizedState);
+       const state: PersistedState = {
+         ...toPersistedTachoState(normalizedState, userStorageKey),
+         drivingDetectionPaused: isDrivingDetectionPausedRef.current,
+       };
       if (state.status !== 'idle') {
         await saveActiveTimerState(state);
       } else {
@@ -559,7 +859,123 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     } finally {
       isPersistingRef.current = false;
     }
-  }, [applyElapsed, userStorageKey]);
+  }, [applyMachineStateToRefs, createMachineStateFromRefs, userStorageKey]);
+
+  const syncSessionToDb = useCallback(async (
+    reason: SessionSyncReason,
+    options?: { maxRetries?: number; logLabel?: string },
+  ) => {
+    if (!sessionIdRef.current) return null;
+    if (
+      reason === 'drive_stop' &&
+      (suppressDriveStopSyncRef.current || statusRef.current !== 'working')
+    ) {
+      return null;
+    }
+
+    const nowMs = Date.now();
+    const normalizedState =
+      statusRef.current !== 'idle' && segmentStartRef.current
+        ? reduceTachoEvent(createMachineStateFromRefs(nowMs), { type: 'TIMER_TICK', nowMs }).state
+        : createMachineStateFromRefs(nowMs);
+
+    applyMachineStateToRefs(normalizedState);
+
+    const payload = buildSessionSyncPayload({
+      reason,
+      status: normalizedState.status,
+      totals: normalizedState.totals,
+      legalBreakDisplayTotal: normalizedState.legalBreakDisplayTotal,
+      has15minBreak: normalizedState.has15minBreak,
+      workCycle: normalizedState.workCycle,
+      drivingCycle: normalizedState.drivingCycle,
+      timerMode: normalizedState.timerMode,
+      existingOtherData: sessionDataRef.current?.other_data,
+      currentSegmentStart: normalizedState.currentSegmentStart,
+      currentPoaStart: normalizedState.currentSegmentStart,
+      breakStartMs: normalizedState.breakStartMs,
+      nowMs,
+    });
+
+    const result = await updateSessionWithRetry(
+      () => supabase
+        .from('work_sessions')
+        .update(payload)
+        .eq('id', sessionIdRef.current)
+        .select()
+        .single(),
+      options?.maxRetries ?? 3,
+    );
+
+    if (!result.success) {
+      console.warn(options?.logLabel ?? `Session ${reason} DB sync failed:`, result.error);
+    } else if (result.data) {
+      setSessionData(result.data);
+      sessionDataRef.current = result.data;
+    }
+
+    return result;
+  }, [applyMachineStateToRefs, createMachineStateFromRefs]);
+
+  const executeReducerCommands = useCallback(async (
+    commands: TachoCommand[],
+    options?: { skipPersist?: boolean; skipSyncSession?: boolean },
+  ) => {
+    for (const command of commands) {
+      switch (command.type) {
+        case 'persist':
+          if (options?.skipPersist) break;
+          await persistFromRefs();
+          break;
+        case 'cancel_alerts':
+          if (command.target === 'all' || command.target === 'compliance') {
+            await cancelScheduledAlertsForScope('compliance');
+          }
+          if (command.target === 'all' || command.target === 'drive') {
+            await cancelScheduledAlertsForScope('drive');
+          }
+          break;
+        case 'schedule_alerts':
+          if (isEndingRef.current) break;
+          if (
+            (command.target === 'all' || command.target === 'compliance') &&
+            (statusRef.current === 'working' || statusRef.current === 'poa')
+          ) {
+            await buildComplianceSchedule();
+          }
+          if (
+            (command.target === 'all' || command.target === 'drive') &&
+            statusRef.current === 'working' &&
+            isDrivingRef.current
+          ) {
+            await buildDriveAlertSchedule();
+          }
+          break;
+        case 'trigger_alert':
+          await triggerImmediateAlert(command.alertKey);
+          break;
+        case 'speak_alert':
+          speakAlert(command.speechKey);
+          break;
+        case 'sync_session':
+          if (options?.skipSyncSession) break;
+          if (command.reason !== 'end_shift') {
+            await syncSessionToDb(command.reason);
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  }, [
+    persistFromRefs,
+    cancelScheduledAlertsForScope,
+    buildComplianceSchedule,
+    buildDriveAlertSchedule,
+    triggerImmediateAlert,
+    speakAlert,
+    syncSessionToDb,
+  ]);
 
   const refreshSession = useCallback(async () => {
     if (!userId || isStartingRef.current || isRefreshingSessionRef.current) return;
@@ -573,55 +989,14 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       const hasMatchingPersistedState =
         !!persistedState &&
         persistedState.userStorageKey === userStorageKey;
-
-      const localSessionId = hasMatchingPersistedState
-        ? persistedState.sessionId
-        : sessionIdRef.current;
-      const localStatus = hasMatchingPersistedState
-        ? persistedState.status
-        : statusRef.current;
-      const localTimerMode = hasMatchingPersistedState
-        ? persistedState.timerMode
-        : timerModeRef.current;
-      const localHas15minBreak = hasMatchingPersistedState
-        ? persistedState.breakTracker.has15min
-        : breakTrackerRef.current.has15min;
-      const localSegmentStart = hasMatchingPersistedState
-        ? persistedState.currentSegmentStart
-        : segmentStartRef.current;
-      const localBreakStartMs = hasMatchingPersistedState
-        ? (persistedState.breakStartMs || 0)
-        : breakStartTimeRef.current;
-      const localIsDriving = hasMatchingPersistedState
-        ? persistedState.isDriving
-        : isDrivingRef.current;
-      const localTotals = hasMatchingPersistedState
-        ? persistedState.totals
-        : totalsRef.current;
-      const localWorkCycle = hasMatchingPersistedState
-        ? persistedState.workCycleTotal
-        : workCycleRef.current;
-      const localDrivingCycle = hasMatchingPersistedState
-        ? (persistedState.drivingCycleTotal ?? persistedState.totals.driving)
-        : drivingCycleRef.current;
-      const localLegalBreakDisplayTotal = hasMatchingPersistedState
-        ? (persistedState.legalBreakDisplayTotal || 0)
-        : legalBreakDisplayTotalRef.current;
-      const localShiftExtensionsUsedThisWeek = hasMatchingPersistedState
-        ? (persistedState.shiftExtensionsUsedThisWeek || 0)
-        : shiftExtensionsUsedThisWeekRef.current;
-      const localMaxShiftTimeSeconds = hasMatchingPersistedState
-        ? (persistedState.maxShiftTimeSeconds || MAX_SHIFT_TIME_13H)
-        : maxShiftTimeLimitRef.current;
-      const localDailyRestSecondsBeforeShift = hasMatchingPersistedState
-        ? (persistedState.dailyRestSecondsBeforeShift || 0)
-        : dailyRestSecondsBeforeShiftRef.current;
-      const localReducedDailyRestTaken = hasMatchingPersistedState
-        ? !!persistedState.reducedDailyRestTaken
-        : reducedDailyRestTakenRef.current;
-      const localLastTickMs = hasMatchingPersistedState
-        ? persistedState.lastTickMs
-        : lastTickMsRef.current;
+      isDrivingDetectionPausedRef.current =
+        hasMatchingPersistedState && persistedState
+          ? !!persistedState.drivingDetectionPaused
+          : false;
+      setIsDrivingDetectionPaused(isDrivingDetectionPausedRef.current);
+      const localState = hasMatchingPersistedState && persistedState
+        ? createTachoStateFromPersisted(persistedState, Date.now())
+        : createMachineStateFromRefs();
 
       const { data, error } = await supabase
         .from('work_sessions')
@@ -634,94 +1009,17 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
 
       setSessionData(data);
       sessionDataRef.current = data;
-      sessionIdRef.current = data.id;
-      workStartRef.current = data.start_time;
+      const dbState = createTachoStateFromSessionRow(data, localState);
+      const reconciledState =
+        localState.sessionId === data.id &&
+        localState.status !== 'idle' &&
+        isValidSegmentStart(localState.currentSegmentStart)
+          ? localState
+          : dbState;
 
-      const dbWork    = (data.total_work_minutes || 0) * 60;
-      const dbPoa     = (data.total_poa_minutes || 0) * 60;
-      const dbBreak   = (data.total_break_minutes || 0) * 60;
-      const dbDriving = (data.other_data?.driving || 0) * 60;
-      const dbLegalBreakDisplay = (data.other_data?.legalBreakDisplay || 0) * 60;
-      const dbHas15minBreak = !!data.other_data?.has15minBreak;
-      const dbTimerMode =
-        data.other_data?.timerMode === '9h' ? '9h' : '6h';
-      const dbWorkCycle = typeof data.other_data?.workCycle === 'number'
-        ? data.other_data.workCycle * 60
-        : dbWork + dbDriving;
-      const dbDrivingCycle = typeof data.other_data?.drivingCycle === 'number'
-        ? data.other_data.drivingCycle * 60
-        : dbDriving;
-      const dbDailyRestSecondsBeforeShift = typeof data.other_data?.dailyRestSecondsBeforeShift === 'number'
-        ? data.other_data.dailyRestSecondsBeforeShift
-        : 0;
-      const dbReducedDailyRestTaken = !!data.other_data?.reducedDailyRestTaken;
+      applyMachineStateToRefs(reconciledState);
 
-       const dbSegmentStart =
-          data.status === 'break' ? (data.current_break_start || data.start_time)
-          : data.status === 'poa' ? (data.current_poa_start || data.start_time)
-          : (data.current_segment_start || data.start_time);
-
-       const hasMatchingLocalSession =
-         localSessionId === data.id &&
-         localStatus !== 'idle' &&
-         isValidSegmentStart(localSegmentStart);
-
-      if (hasMatchingLocalSession) {
-        statusRef.current = localStatus;
-        timerModeRef.current = localTimerMode;
-        breakTrackerRef.current = { has15min: localHas15minBreak };
-        totalsRef.current = localTotals;
-        workCycleRef.current = localWorkCycle;
-        drivingCycleRef.current = localDrivingCycle;
-        legalBreakDisplayTotalRef.current = localLegalBreakDisplayTotal;
-        isDrivingRef.current = localStatus === 'working' ? localIsDriving : false;
-        segmentStartRef.current = localSegmentStart;
-        shiftExtensionsUsedThisWeekRef.current = localShiftExtensionsUsedThisWeek;
-        maxShiftTimeLimitRef.current = localMaxShiftTimeSeconds;
-        dailyRestSecondsBeforeShiftRef.current = localDailyRestSecondsBeforeShift;
-        reducedDailyRestTakenRef.current = localReducedDailyRestTaken;
-        breakStartTimeRef.current =
-          localStatus === 'break' && localBreakStartMs > 0 ? localBreakStartMs : 0;
-      } else {
-        statusRef.current = data.status as WorkStatus;
-        timerModeRef.current = dbTimerMode;
-        breakTrackerRef.current = { has15min: dbHas15minBreak };
-        totalsRef.current = {
-          work: dbWork,
-          poa: dbPoa,
-          break: dbBreak,
-          driving: dbDriving,
-        };
-        workCycleRef.current = dbWorkCycle;
-        drivingCycleRef.current = dbDrivingCycle;
-        legalBreakDisplayTotalRef.current = dbLegalBreakDisplay;
-        shiftExtensionsUsedThisWeekRef.current = localShiftExtensionsUsedThisWeek;
-        maxShiftTimeLimitRef.current = localMaxShiftTimeSeconds;
-        dailyRestSecondsBeforeShiftRef.current = dbDailyRestSecondsBeforeShift;
-        reducedDailyRestTakenRef.current = dbReducedDailyRestTaken;
-        segmentStartRef.current = dbSegmentStart;
-        breakStartTimeRef.current =
-          data.status === 'break'
-            ? new Date(data.current_break_start || dbSegmentStart || data.start_time).getTime()
-            : 0;
-        isDrivingRef.current = false;
-      }
-
-       const nowMs = Date.now();
-        const effectiveSegmentStart = segmentStartRef.current;
-        if (statusRef.current !== 'idle' && effectiveSegmentStart) {
-          const segStartMs = new Date(effectiveSegmentStart).getTime();
-          const lastTickMs = hasMatchingLocalSession ? localLastTickMs : segStartMs;
-          // CRITICAL FIX #5: Only apply catch-up time if segment actually elapsed since last tick
-          // This prevents double-counting when persistFromRefs already applied elapsed time
-          const referenceTickMs = Math.max(segStartMs, lastTickMs);
-          const timeSinceLastTick = Math.max(0, Math.floor((nowMs - referenceTickMs) / 1000));
-          if (timeSinceLastTick > 0 && timeSinceLastTick < 86400) {
-            applyElapsed(timeSinceLastTick, statusRef.current, isDrivingRef.current);
-          }
-       }
-       segmentStartRef.current = new Date(nowMs).toISOString();
-       lastTickMsRef.current = nowMs;
+      const nowMs = Date.now();
 
       const [weeklyDrivingMins, weekSessions] = await Promise.all([
         workSessionService.fetchWeeklyDrivingMinutes(userId),
@@ -730,114 +1028,78 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       weeklyDrivingAccumulatorRef.current = weeklyDrivingMins * 60;
       syncShiftAllowanceState(weekSessions, new Date());
 
-      syncPrevRemainingFromDisplay(deriveLiveDisplayState({
-        nowMs,
-        status: statusRef.current,
-        segmentStartIso: segmentStartRef.current,
-        workStartIso: workStartRef.current,
-        totals: totalsRef.current,
-        legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
-        workCycle: workCycleRef.current,
-        drivingCycle: drivingCycleRef.current,
-        isDriving: isDrivingRef.current,
-        timerMode: timerModeRef.current,
-        weeklyDrivingAccumulator: weeklyDrivingAccumulatorRef.current,
-        breakStartMs: breakStartTimeRef.current,
-        has15minBreak: breakTrackerRef.current.has15min,
-        lastBreakDuration: lastBreakDurationUiRef.current,
-        lastBreakEndTime: lastBreakEndTimeRef.current,
-        maxDriveSeconds: MAX_DRIVE,
-        maxWeeklyDriveSeconds: MAX_WEEKLY_DRIVE,
-        maxShiftTimeSeconds: maxShiftTimeLimitRef.current,
-      }));
+      const refreshedState = createMachineStateFromRefs(nowMs);
+      const tickResult = reduceTachoEvent(refreshedState, { type: 'TIMER_TICK', nowMs });
+      applyMachineStateToRefs(tickResult.state);
 
       syncStateFromRefs();
     } catch (e) { console.warn('refreshSession failed:', e); }
     finally { isRefreshingSessionRef.current = false; }
-  }, [userId, userStorageKey, syncStateFromRefs, syncPrevRemainingFromDisplay, applyElapsed, syncShiftAllowanceState]);
+  }, [userId, userStorageKey, syncStateFromRefs, syncShiftAllowanceState, createMachineStateFromRefs, applyMachineStateToRefs]);
 
-  const commitAndFlipDriving = useCallback((nextDriving: boolean, onFlipped?: () => void) => {
-    const drivingTransition = deriveDrivingTransition({
-      nowMs: Date.now(),
-      status: statusRef.current,
-      segmentStartIso: segmentStartRef.current,
-      currentDriving: isDrivingRef.current,
+  const commitAndFlipDriving = useCallback((
+    nextDriving: boolean,
+    onFlipped?: () => void,
+    source: 'location' | 'accelerometer' | 'background' = 'location',
+    options?: { bypassPause?: boolean },
+  ) => {
+    if (nextDriving && isDrivingDetectionPausedRef.current && !options?.bypassPause) return;
+
+    const nowMs = Date.now();
+    const machineState = createMachineStateFromRefs(nowMs);
+    const result = reduceTachoEvent(machineState, {
+      type: 'DRIVING_DECISION_RECEIVED',
+      nowMs,
       nextDriving,
+      source,
     });
-    if (!drivingTransition.shouldFlip) return;
-    if (drivingTransition.elapsedSecToApply > 0) {
-      applyElapsed(drivingTransition.elapsedSecToApply, 'working', isDrivingRef.current);
-      segmentStartRef.current = drivingTransition.nextSegmentStartIso;
-    }
-    isDrivingRef.current = nextDriving;
-    movingSinceRef.current = 0;
-    stationarySinceRef.current = 0;
-    setIsDriving(nextDriving);
+    if (result.state.isDriving === machineState.isDriving && result.commands.length === 0) return;
+
+    applyMachineStateToRefs(result.state);
+    syncStateFromRefs();
     onFlipped?.();
 
-    if (nextDriving) {
-      buildDriveAlertSchedule().catch(e => console.warn('Failed to build drive alerts:', e));
-    } else {
-      cancelScheduledComplianceNotifications().then(() => {
-        if (isEndingRef.current) return;
-        if (statusRef.current === 'working' || statusRef.current === 'poa') {
-          buildComplianceSchedule();
-        }
-      });
+    executeReducerCommands(result.commands)
+      .catch(e => console.warn('Driving command execution failed:', e));
+  }, [applyMachineStateToRefs, createMachineStateFromRefs, executeReducerCommands, syncStateFromRefs]);
+
+  const toggleDrivingDetectionPause = useCallback(async () => {
+    const nextPaused = !isDrivingDetectionPausedRef.current;
+    isDrivingDetectionPausedRef.current = nextPaused;
+    setIsDrivingDetectionPaused(nextPaused);
+    resetDrivingMotionState();
+
+    if (nextPaused) {
+      if (statusRef.current === 'working' && isDrivingRef.current) {
+        commitAndFlipDriving(false);
+        return;
+      }
+      await persistFromRefs();
+      return;
     }
 
-    if (!suppressDriveStopSyncRef.current && !nextDriving && sessionIdRef.current && statusRef.current === 'working') {
-      // ========== CRITICAL FIX #3: Implement retry logic with exponential backoff ==========
-      updateSessionWithRetry(
-        () => supabase
-          .from('work_sessions')
-          .update(buildDriveStopUpdatePayload({
-            totals: totalsRef.current,
-            legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
-            has15minBreak: breakTrackerRef.current.has15min,
-            workCycle: workCycleRef.current,
-            drivingCycle: drivingCycleRef.current,
-            timerMode: timerModeRef.current,
-            existingOtherData: sessionDataRef.current?.other_data,
-            currentSegmentStart: segmentStartRef.current,
-          }))
-          .eq('id', sessionIdRef.current)
-          .select()
-          .single(),
-        3, // max retries
-      )
-        .catch((e: unknown) => console.warn('Drive stop DB sync failed:', e));
+    if (statusRef.current === 'working' && !isDrivingRef.current) {
+      commitAndFlipDriving(true, undefined, 'location', { bypassPause: true });
+      return;
     }
-  }, [applyElapsed]);
+
+    await persistFromRefs();
+  }, [commitAndFlipDriving, persistFromRefs, resetDrivingMotionState]);
 
    useEffect(() => {
      const sub = AppState.addEventListener('change', async (next) => {
        const prev = appStateRef.current;
        appStateRef.current = next;
 
-       if ((next === 'inactive' || next === 'background') && statusRef.current !== 'idle') {
+        if ((next === 'inactive' || next === 'background') && statusRef.current !== 'idle') {
          // CRITICAL FIX #8: Ensure driving state is synced before backgrounding
          // This prevents stale driving state from being replayed on resume
          if (isDrivingRef.current && sessionIdRef.current) {
            try {
-             await updateSessionWithRetry(
-               () => supabase
-                 .from('work_sessions')
-                 .update(buildDriveStopUpdatePayload({
-                   totals: totalsRef.current,
-                   legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
-                   has15minBreak: breakTrackerRef.current.has15min,
-                   workCycle: workCycleRef.current,
-                   drivingCycle: drivingCycleRef.current,
-                   timerMode: timerModeRef.current,
-                   existingOtherData: sessionDataRef.current?.other_data,
-                   currentSegmentStart: segmentStartRef.current,
-                 }))
-                 .eq('id', sessionIdRef.current)
-                 .select()
-                 .single(),
-               2, // Quick sync before background
-             );
+             await syncSessionToDb('drive_stop', {
+               maxRetries: 2,
+               logLabel: 'Background driving state sync failed:',
+             });
            } catch (e) { console.warn('Background driving state sync failed:', e); }
          }
          await persistFromRefs();
@@ -845,32 +1107,41 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
        }
 
        if (next !== 'active' || prev === 'active') return;
-       if (statusRef.current !== 'idle') await refreshSession();
-       if (statusRef.current !== 'working') return;
-       try {
-         const raw = await AsyncStorage.getItem(BG_SPEED_KEY);
-         if (!raw) return;
-         const { speedKmh, ts } = JSON.parse(raw);
-         // CRITICAL FIX #6: Use shorter stale threshold when resuming to avoid stale speed data
-         // Default is 10 seconds - older data is considered too stale for accurate state
-         const decision = evaluateBackgroundSpeedDecision({
-           nowMs: Date.now(),
-           sampleTs: ts,
-           speedKmh,
-           isDriving: isDrivingRef.current,
-           drivingThresholdKmh: DRIVING_SPEED_THRESHOLD_KMH,
-           stillThresholdKmh: STILL_SPEED_THRESHOLD_KMH,
-           immediateStartThresholdKmh: DRIVING_IMMEDIATE_START_THRESHOLD_KMH,
-           lowSpeedStopThresholdKmh: LOW_SPEED_STOP_THRESHOLD_KMH,
-           staleThresholdMs: 10000,  // Reduced from 30s to 10s to ignore stale data
-         });
-         if (decision.shouldApply && decision.nextDriving !== null) {
-           commitAndFlipDriving(decision.nextDriving);
+       if (statusRef.current !== 'idle') {
+         await refreshSession();
+         await buildComplianceSchedule();
+         if (statusRef.current === 'working' && isDrivingRef.current && !isDrivingDetectionPausedRef.current) {
+           await buildDriveAlertSchedule();
+         } else {
+           await cancelScheduledAlertsForScope('drive');
          }
-       } catch (e) { console.warn('BG speed reconciliation failed:', e); }
+       } else {
+         await cancelAllScheduledAlertNotifications();
+       }
+       await logNotificationDiagnostics('resume');
+       if (statusRef.current !== 'working') return;
+       if (isDrivingDetectionPausedRef.current) return;
+       try {
+        const raw = await AsyncStorage.getItem(BG_SPEED_KEY);
+        if (!raw) return;
+        const { speedKmh, ts } = JSON.parse(raw);
+        const nowMs = Date.now();
+        const machineState = createMachineStateFromRefs(nowMs);
+        const result = reduceTachoEvent(machineState, {
+          type: 'BACKGROUND_SPEED_SAMPLE_RECEIVED',
+          nowMs,
+          speedKmh,
+          sampleTs: ts,
+        });
+        if (result.state.isDriving !== machineState.isDriving || result.commands.length > 0) {
+          applyMachineStateToRefs(result.state);
+          syncStateFromRefs();
+          await executeReducerCommands(result.commands);
+        }
+      } catch (e) { console.warn('BG speed reconciliation failed:', e); }
     });
     return () => sub.remove();
-  }, [commitAndFlipDriving, persistFromRefs, refreshSession]);
+  }, [applyMachineStateToRefs, buildComplianceSchedule, buildDriveAlertSchedule, cancelAllScheduledAlertNotifications, cancelScheduledAlertsForScope, createMachineStateFromRefs, executeReducerCommands, logNotificationDiagnostics, persistFromRefs, refreshSession, syncSessionToDb, syncStateFromRefs]);
 
   const stopTracking = useCallback(async () => {
     locationSubRef.current?.remove();
@@ -898,61 +1169,53 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       locationSubRef.current = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 2, timeInterval: 1000 },
         (loc) => {
+          if (isDrivingDetectionPausedRef.current) return;
           const speedKmh = Math.max(0, (loc.coords.speed ?? 0) * 3.6);
-          const decision = evaluateLocationSample({
+          const result = processLocationMotionSample({
             nowMs: Date.now(),
             accuracy: loc.coords.accuracy ?? 9999,
             speedKmh,
-            lastSpeedKmh: lastSpeedKmhRef.current,
-            lastSpeedTs: lastSpeedTsRef.current,
             isDriving: isDrivingRef.current,
-            movingSinceMs: movingSinceRef.current,
-            stationarySinceMs: stationarySinceRef.current,
-            stillThresholdKmh: STILL_SPEED_THRESHOLD_KMH,
-            lowSpeedStopThresholdKmh: LOW_SPEED_STOP_THRESHOLD_KMH,
-            drivingThresholdKmh: DRIVING_SPEED_THRESHOLD_KMH,
-            immediateStartThresholdKmh: DRIVING_IMMEDIATE_START_THRESHOLD_KMH,
-            movingConfirmMs: MOVING_CONFIRM_MS,
-            stationaryConfirmMs: STATIONARY_CONFIRM_MS,
-            accelScoreMax: ACCEL_SCORE_MAX,
+            motionState: {
+              lastSpeedKmh: lastSpeedKmhRef.current,
+              lastSpeedTs: lastSpeedTsRef.current,
+              drivingScore: drivingScoreRef.current,
+              movingSinceMs: movingSinceRef.current,
+              stationarySinceMs: stationarySinceRef.current,
+            },
+            config: MOTION_DETECTOR_CONFIG,
           });
-          if (decision.shouldIgnore) return;
-          lastSpeedKmhRef.current = decision.lastSpeedKmh;
-          lastSpeedTsRef.current = decision.lastSpeedTs;
-          movingSinceRef.current = decision.nextMovingSinceMs;
-          stationarySinceRef.current = decision.nextStationarySinceMs;
-          if (decision.nextDrivingScore !== null) {
-            drivingScoreRef.current = decision.nextDrivingScore;
-          }
-          if (decision.nextDriving !== null) {
-            commitAndFlipDriving(decision.nextDriving);
+          lastSpeedKmhRef.current = result.motionState.lastSpeedKmh;
+          lastSpeedTsRef.current = result.motionState.lastSpeedTs;
+          movingSinceRef.current = result.motionState.movingSinceMs;
+          stationarySinceRef.current = result.motionState.stationarySinceMs;
+          drivingScoreRef.current = result.motionState.drivingScore;
+          if (result.nextDriving !== null) {
+            commitAndFlipDriving(result.nextDriving);
           }
         }
       );
       Accelerometer.setUpdateInterval(800);
       accelSubRef.current = Accelerometer.addListener(({ x, y, z }) => {
-        const decision = evaluateAccelerometerDecision({
+        if (isDrivingDetectionPausedRef.current) return;
+        const result = processAccelerometerMotionSample({
           nowMs: Date.now(),
           x,
           y,
           z,
-          lastSpeedTs: lastSpeedTsRef.current,
-          lastSpeedKmh: lastSpeedKmhRef.current,
-          currentDrivingScore: drivingScoreRef.current,
           isDriving: isDrivingRef.current,
-          gpsStaleThresholdMs: GPS_STALE_THRESHOLD_MS,
-          drivingThresholdKmh: DRIVING_SPEED_THRESHOLD_KMH,
-          stillThresholdKmh: STILL_SPEED_THRESHOLD_KMH,
-          motionMagnitudeThreshold: MOTION_MAGNITUDE_THRESHOLD,
-          accelScoreMax: ACCEL_SCORE_MAX,
-          accelDriveThreshold: ACCEL_DRIVE_THRESHOLD,
-          accelStopThreshold: ACCEL_STOP_THRESHOLD,
+          motionState: {
+            lastSpeedKmh: lastSpeedKmhRef.current,
+            lastSpeedTs: lastSpeedTsRef.current,
+            drivingScore: drivingScoreRef.current,
+            movingSinceMs: movingSinceRef.current,
+            stationarySinceMs: stationarySinceRef.current,
+          },
+          config: MOTION_DETECTOR_CONFIG,
         });
-        if (decision.shouldIgnore) return;
-        const wasDriving = isDrivingRef.current;
-        drivingScoreRef.current = decision.nextDrivingScore;
-        if (decision.nextDriving !== wasDriving) {
-          commitAndFlipDriving(decision.nextDriving);
+        drivingScoreRef.current = result.motionState.drivingScore;
+        if (result.nextDriving !== null) {
+          commitAndFlipDriving(result.nextDriving);
         }
       });
       if (bgStatus === 'granted') {
@@ -979,94 +1242,30 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, [status]);
 
   const updateTotalsAndSwitchStatus = useCallback(async (newStatus: WorkStatus) => {
-    await cancelScheduledComplianceNotifications();
+    await cancelAllScheduledAlertNotifications();
     while (isPersistingRef.current) { await new Promise(resolve => setTimeout(resolve, 50)); }
 
     const nowMs = Date.now();
-    const prevStatus = statusRef.current;
-    const transition = deriveStatusTransition({
+    const machineState = createMachineStateFromRefs(nowMs);
+    const result = reduceTachoEvent(machineState, {
+      type: 'STATUS_CHANGE_REQUESTED',
       nowMs,
-      prevStatus,
       nextStatus: newStatus,
-      segmentStartIso: segmentStartRef.current,
-      breakStartMs: breakStartTimeRef.current,
-      has15minBreak: breakTrackerRef.current.has15min,
-      timerMode: timerModeRef.current,
-      workCycle: workCycleRef.current,
-      drivingCycle: drivingCycleRef.current,
     });
-    applyElapsed(transition.elapsedSecToApply, prevStatus, isDrivingRef.current);
-    if (prevStatus === 'break' && transition.lastBreakDuration > 0) {
-      legalBreakDisplayTotalRef.current += getDisplayedBreakSeconds(transition.lastBreakDuration);
-    }
 
-    workCycleRef.current = transition.nextWorkCycle;
-    drivingCycleRef.current = transition.nextDrivingCycle;
-    breakTrackerRef.current = { has15min: transition.nextHas15minBreak };
-    timerModeRef.current = transition.nextTimerMode;
-    setTimerMode(transition.nextTimerMode);
-
-    segmentStartRef.current = transition.nowIso;
-    statusRef.current = newStatus;
-    lastTickMsRef.current = nowMs;
-    breakStartTimeRef.current = transition.nextBreakStartMs;
-    lastBreakDurationUiRef.current = transition.lastBreakDuration;
-    lastBreakEndTimeRef.current = transition.lastBreakEndTime;
-    setCurrentSegmentStart(transition.nowIso);
-    setStatus(newStatus);
+    applyMachineStateToRefs(result.state);
+    syncStateFromRefs();
     vibrateAlert();
 
-    if (newStatus !== 'working') {
-      isDrivingRef.current = false;
-      movingSinceRef.current = 0;
-      stationarySinceRef.current = 0;
-      setIsDriving(false);
-    }
-
-    const alertKey = getStatusTransitionAlertKey(prevStatus, newStatus);
-    if (alertKey) speakAlert(alertKey);
-
-    if (sessionIdRef.current) {
-      const updatePayload = buildStatusUpdatePayload({
-        status: newStatus,
-        totals: totalsRef.current,
-        legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
-        has15minBreak: breakTrackerRef.current.has15min,
-        workCycle: workCycleRef.current,
-        drivingCycle: drivingCycleRef.current,
-        timerMode: timerModeRef.current,
-        existingOtherData: sessionDataRef.current?.other_data,
-        currentBreakStart:
-          newStatus === 'break' ? new Date(breakStartTimeRef.current).toISOString() : null,
-        currentPoaStart: newStatus === 'poa' ? transition.nowIso : null,
-        currentSegmentStart: transition.nowIso,
-      });
-      const result = await updateSessionWithRetry(
-        () => supabase
-          .from('work_sessions')
-          .update(updatePayload)
-          .eq('id', sessionIdRef.current)
-          .select()
-          .single(),
-        3,
-      );
-      if (!result.success) {
-        console.warn('Status DB sync failed:', result.error);
-      } else if (result.data) {
-        setSessionData(result.data);
-        sessionDataRef.current = result.data;
-      }
-    }
-
-    await persistFromRefs();
-
-    if (newStatus === 'working' || newStatus === 'poa') {
-      await buildComplianceSchedule();
-      if (newStatus === 'working' && isDrivingRef.current) {
-        await buildDriveAlertSchedule();
-      }
-    }
-  }, [applyElapsed, cancelScheduledComplianceNotifications, buildComplianceSchedule, buildDriveAlertSchedule, persistFromRefs, speakAlert, vibrateAlert]);
+    await executeReducerCommands(result.commands);
+  }, [
+    cancelAllScheduledAlertNotifications,
+    createMachineStateFromRefs,
+    applyMachineStateToRefs,
+    syncStateFromRefs,
+    vibrateAlert,
+    executeReducerCommands,
+  ]);
 
   useEffect(() => {
     const restore = async () => {
@@ -1075,136 +1274,50 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         const saved = await AsyncStorage.getItem(userStorageKey);
         if (saved) {
           const s: PersistedState = JSON.parse(saved);
-          statusRef.current = s.status;
-          sessionIdRef.current = s.sessionId;
-          timerModeRef.current = s.timerMode || '6h';
-          workStartRef.current = s.workStartTime;
-          segmentStartRef.current = s.currentSegmentStart;
-          totalsRef.current = s.totals || { work: 0, poa: 0, break: 0, driving: 0 };
-          legalBreakDisplayTotalRef.current = s.legalBreakDisplayTotal || 0;
-          workCycleRef.current = s.workCycleTotal || 0;
-          drivingCycleRef.current = s.drivingCycleTotal ?? s.totals?.driving ?? 0;
-          breakTrackerRef.current = s.breakTracker || { has15min: false };
-          isDrivingRef.current = !!s.isDriving;
-          weeklyDrivingAccumulatorRef.current = s.weeklyDrivingAccumulator || 0;
-          shiftExtensionsUsedThisWeekRef.current = s.shiftExtensionsUsedThisWeek || 0;
-          maxShiftTimeLimitRef.current = s.maxShiftTimeSeconds || MAX_SHIFT_TIME_13H;
-          dailyRestSecondsBeforeShiftRef.current = s.dailyRestSecondsBeforeShift || 0;
-          reducedDailyRestTakenRef.current = !!s.reducedDailyRestTaken;
-          breakStartTimeRef.current = s.breakStartMs || 0;
-          lastTickMsRef.current = s.lastTickMs || Date.now();
+          isDrivingDetectionPausedRef.current = !!s.drivingDetectionPaused;
+          setIsDrivingDetectionPaused(isDrivingDetectionPausedRef.current);
+          const machineState = createTachoStateFromPersisted(s, Date.now());
+          applyMachineStateToRefs(machineState);
           syncStateFromRefs();
         }
         await refreshSession();
         if (statusRef.current === 'idle') {
-          await cancelScheduledComplianceNotifications(true);
+          await cancelAllScheduledAlertNotifications({ clearBackgroundState: true });
         } else {
           await buildComplianceSchedule();
           if (statusRef.current === 'working' && isDrivingRef.current) {
             await buildDriveAlertSchedule();
           }
         }
+        await logNotificationDiagnostics('restore');
       } catch (e) { console.warn('restore failed:', e); }
     };
     restore();
-  }, [userId, userStorageKey, syncStateFromRefs, refreshSession, cancelScheduledComplianceNotifications, buildComplianceSchedule, buildDriveAlertSchedule]);
+  }, [userId, userStorageKey, syncStateFromRefs, refreshSession, cancelAllScheduledAlertNotifications, buildComplianceSchedule, buildDriveAlertSchedule, applyMachineStateToRefs, logNotificationDiagnostics]);
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (statusRef.current === 'idle' || !segmentStartRef.current) return;
+      if (isEndingRef.current || statusRef.current === 'idle' || !segmentStartRef.current) return;
       const nowMs = Date.now();
-      const nextDisplay = deriveLiveDisplayState({
-        nowMs,
-        status: statusRef.current,
-        segmentStartIso: segmentStartRef.current,
-        workStartIso: workStartRef.current,
-        totals: totalsRef.current,
-        legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
-        workCycle: workCycleRef.current,
-        drivingCycle: drivingCycleRef.current,
-        isDriving: isDrivingRef.current,
-        timerMode: timerModeRef.current,
-        weeklyDrivingAccumulator: weeklyDrivingAccumulatorRef.current,
-        breakStartMs: breakStartTimeRef.current,
-        has15minBreak: breakTrackerRef.current.has15min,
-        lastBreakDuration: lastBreakDurationUiRef.current,
-        lastBreakEndTime: lastBreakEndTimeRef.current,
-        maxDriveSeconds: MAX_DRIVE,
-        maxWeeklyDriveSeconds: MAX_WEEKLY_DRIVE,
-        maxShiftTimeSeconds: maxShiftTimeLimitRef.current,
-      });
+      const machineState = createMachineStateFromRefs(nowMs);
+      const result = reduceTachoEvent(machineState, { type: 'TIMER_TICK', nowMs });
+      applyMachineStateToRefs(result.state);
+      const nextDisplay = deriveDisplayFromTachoState(result.state, nowMs);
       lastBreakDurationUiRef.current = nextDisplay.lastBreakDuration;
       lastBreakEndTimeRef.current = nextDisplay.lastBreakEndTime;
-      prevStatusRef.current = statusRef.current;
       setDisplay(nextDisplay);
+      executeReducerCommands(result.commands, { skipPersist: true, skipSyncSession: true })
+        .catch(e => console.warn('Tick command execution failed:', e));
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (status !== 'working' && status !== 'poa') return;
-    const currentWork = display.workTimeRemaining;
-    const currentDrive = display.drivingTimeRemaining;
-    const currentDriveExtension = MAX_DAILY_DRIVE_EXTENDED - display.driving;
-    const currentMaxShiftTime = display.maxShiftTimeRemaining;
-    const currentWeeklyDrive = display.weeklyDrivingRemaining;
-    const currentShiftElapsed = display.shift;
-    const prevWork = prevRemainingRef.current.work;
-    const prevDrive = prevRemainingRef.current.drive;
-    const prevDriveExtension = prevRemainingRef.current.driveExtension;
-    const prevWeeklyDrive = prevRemainingRef.current.weeklyDrive;
-    const crossedDown = (current: number, prev: number, threshold: number) => current <= threshold && prev > threshold;
-    const crossedUp = (current: number, prev: number, threshold: number) => current >= threshold && prev < threshold;
-
-    if (status === 'working') {
-      if (crossedDown(currentWork, prevWork, 30 * 60)) triggerImmediateAlert('workWarn30mRemaining');
-      if (crossedDown(currentWork, prevWork, 15 * 60)) triggerImmediateAlert('workWarn15mRemaining');
-      if (crossedDown(currentWork, prevWork, 5 * 60)) triggerImmediateAlert('workWarn5mRemaining');
-      if (crossedDown(currentWork, prevWork, 0)) triggerImmediateAlert('workLimitReached');
-    }
-    if (status === 'working' && isDriving) {
-      if (crossedDown(currentDrive, prevDrive, 30 * 60)) triggerImmediateAlert('driveCycleWarn30mRemaining');
-      if (crossedDown(currentDrive, prevDrive, 15 * 60)) triggerImmediateAlert('driveCycleWarn15mRemaining');
-      if (crossedDown(currentDrive, prevDrive, 5 * 60)) triggerImmediateAlert('driveCycleWarn5mRemaining');
-      if (crossedDown(currentDrive, prevDrive, 0)) triggerImmediateAlert('driveCycleLimitReached');
-      if (crossedDown(currentDriveExtension, prevDriveExtension, 30 * 60)) triggerImmediateAlert('driveExtensionWarn30mRemaining');
-      if (crossedDown(currentDriveExtension, prevDriveExtension, 15 * 60)) triggerImmediateAlert('driveExtensionWarn15mRemaining');
-      if (crossedDown(currentDriveExtension, prevDriveExtension, 5 * 60)) triggerImmediateAlert('driveExtensionWarn5mRemaining');
-      if (crossedDown(currentDriveExtension, prevDriveExtension, 0)) triggerImmediateAlert('driveExtensionLimitReached');
-    }
-    if (crossedDown(currentWeeklyDrive, prevWeeklyDrive, 3600)) triggerImmediateAlert('weeklyDriveWarn1hRemaining');
-    if (crossedDown(currentWeeklyDrive, prevWeeklyDrive, 0)) triggerImmediateAlert('weeklyDriveLimitReached');
-    if (crossedUp(currentShiftElapsed, prevShiftElapsedRef.current, MAX_SHIFT_TIME_13H - 30 * 60)) {
-      triggerImmediateAlert('shift13hLimitSoon');
-    }
-    if (crossedUp(currentShiftElapsed, prevShiftElapsedRef.current, MAX_SHIFT_TIME_13H)) {
-      triggerImmediateAlert('shift13hLimitReached');
-    }
-    if (maxShiftTimeLimitRef.current > MAX_SHIFT_TIME_13H) {
-      if (crossedUp(currentShiftElapsed, prevShiftElapsedRef.current, MAX_SHIFT_TIME_15H - 30 * 60)) {
-        triggerImmediateAlert('shift15hLimitSoon');
-      }
-      if (crossedUp(currentShiftElapsed, prevShiftElapsedRef.current, MAX_SHIFT_TIME_15H)) {
-        triggerImmediateAlert('shift15hLimitReached');
-      }
-    }
-    prevShiftElapsedRef.current = currentShiftElapsed;
-
-    prevRemainingRef.current = {
-      work: currentWork,
-      drive: currentDrive,
-      driveExtension: currentDriveExtension,
-      weeklyDrive: currentWeeklyDrive,
-      maxShiftTime: currentMaxShiftTime,
-    };
-  }, [status, display, triggerImmediateAlert]);
+  }, [applyMachineStateToRefs, createMachineStateFromRefs, executeReducerCommands]);
 
   // 20-second local persist
   useEffect(() => {
     const interval = setInterval(() => {
-      if (statusRef.current === 'idle') return;
+      if (isEndingRef.current || statusRef.current === 'idle') return;
       persistFromRefs();
     }, 20000);
     return () => clearInterval(interval);
@@ -1214,25 +1327,13 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   useEffect(() => {
     if (!sessionId || status === 'idle') return;
     const interval = setInterval(async () => {
-    if (!sessionIdRef.current) return;
+    if (isEndingRef.current || !sessionIdRef.current) return;
       try {
-        await supabase.from('work_sessions').update(buildPeriodicCheckpointPayload({
-          totals: totalsRef.current,
-          legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
-          has15minBreak: breakTrackerRef.current.has15min,
-          workCycle: workCycleRef.current,
-          drivingCycle: drivingCycleRef.current,
-          timerMode: timerModeRef.current,
-          existingOtherData: sessionDataRef.current?.other_data,
-          currentSegmentStart: segmentStartRef.current,
-          status: statusRef.current,
-          breakStartMs: breakStartTimeRef.current,
-          currentPoaStart: segmentStartRef.current,
-        })).eq('id', sessionIdRef.current);
+        await syncSessionToDb('checkpoint', { logLabel: 'Periodic session sync failed:' });
       } catch (e) { console.warn('Periodic session sync failed:', e); }
     }, 60000);
     return () => clearInterval(interval);
-  }, [sessionId, status]);
+  }, [sessionId, status, syncSessionToDb]);
 
   const startWork = useCallback(async () => {
     if (!userId || isStartingRef.current || statusRef.current !== 'idle') return;
@@ -1253,6 +1354,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
 
       syncShiftAllowanceState(weekSessions, new Date());
       weeklyDrivingAccumulatorRef.current = weeklyDrivingMins * 60;
+      isDrivingDetectionPausedRef.current = false;
+      setIsDrivingDetectionPaused(false);
       const reducedRestsUsedThisWeek = countReducedDailyRestsThisWeek(weekSessions, new Date());
       dailyRestSecondsBeforeShiftRef.current = 0;
       reducedDailyRestTakenRef.current = false;
@@ -1332,6 +1435,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         sessionIdRef.current = rollbackState.sessionId;
         workStartRef.current = rollbackState.workStartTime;
         segmentStartRef.current = rollbackState.currentSegmentStart;
+        isDrivingDetectionPausedRef.current = false;
+        setIsDrivingDetectionPaused(false);
         legalBreakDisplayTotalRef.current = 0;
         drivingScoreRef.current = 0;
         movingSinceRef.current = 0;
@@ -1369,24 +1474,21 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       setSessionData(sessionWithRuleMetadata);
       sessionDataRef.current = sessionWithRuleMetadata;
 
-      await cancelScheduledComplianceNotifications(true);
+      await cancelAllScheduledAlertNotifications({ clearBackgroundState: true });
       await persistFromRefs();
       await buildComplianceSchedule();
       speakAlert('audioShiftStarted');
       await promptBatteryOptimisationIfNeeded();
     } catch (e) { console.error('startWork error:', e); }
     finally { isStartingRef.current = false; setIsStarting(false); }
-  }, [userId, timezone, persistFromRefs, syncStateFromRefs, buildComplianceSchedule, speakAlert, triggerImmediateAlert, syncShiftAllowanceState]);
+  }, [userId, timezone, persistFromRefs, syncStateFromRefs, buildComplianceSchedule, cancelAllScheduledAlertNotifications, speakAlert, triggerImmediateAlert, syncShiftAllowanceState]);
 
   const endWork = useCallback(async () => {
     const nowMs = Date.now();
-    if (statusRef.current !== 'idle' && segmentStartRef.current) {
-      const segStartMs = new Date(segmentStartRef.current).getTime();
-      const elapsedSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
-      if (elapsedSec > 0) {
-        applyElapsed(elapsedSec, statusRef.current, isDrivingRef.current);
-        segmentStartRef.current = new Date(nowMs).toISOString();
-      }
+    if (statusRef.current !== 'idle' && segmentStartRef.current && isValidSegmentStart(segmentStartRef.current)) {
+      const machineState = createMachineStateFromRefs(nowMs);
+      const tickResult = reduceTachoEvent(machineState, { type: 'TIMER_TICK', nowMs });
+      applyMachineStateToRefs(tickResult.state);
     }
 
     const {
@@ -1410,24 +1512,75 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     currentShift.other_data.dailyRestSecondsBeforeShift = dailyRestSecondsBeforeShiftRef.current;
     currentShift.other_data.reducedDailyRestTaken = reducedDailyRestTakenRef.current;
     const { score, violations } = calculateCompliance(history, currentShift as any);
-    const shiftSummary = buildEndShiftSummary({
+    const shiftSummary = createEndShiftSummaryState({
       finalTotals,
       score,
       violations,
     });
 
-     setShiftSummaryData({
-       ...shiftSummary,
-       onConfirm: async () => {
+      setShiftSummaryData({
+        ...shiftSummary,
+        onConfirm: async () => {
          // ========== CRITICAL FIX: Guard against concurrent executions ==========
          if (isEndingRef.current) {
            console.warn('End shift already in progress, ignoring duplicate click');
            return;
          }
-         isEndingRef.current = true;
+         setShiftSummaryData(current =>
+           current ? setEndShiftSummaryConfirming(current, true) : current,
+          );
+          isEndingRef.current = true;
+          let completed = false;
+          let alertsCancelled = false;
 
-         try {
-           if (!sessionIdRef.current) return;
+          try {
+            const confirmationError = getEndShiftConfirmationError(sessionIdRef.current);
+            if (confirmationError === 'missing_active_session') {
+              Alert.alert('End Shift Failed', 'No active shift session was found. Please try again without closing the shift summary.');
+              return;
+            }
+            const activeSessionId = sessionIdRef.current as string;
+            const confirmNowMs = Date.now();
+
+            // Cancel timer alerts before any slow GPS/DB work so they cannot fire after
+            // the user has confirmed end shift but before cleanup completes.
+            await cancelAllScheduledAlertNotifications({ clearBackgroundState: true });
+            alertsCancelled = true;
+
+            if (statusRef.current !== 'idle' && segmentStartRef.current && isValidSegmentStart(segmentStartRef.current)) {
+              const machineState = createMachineStateFromRefs(confirmNowMs);
+             const tickResult = reduceTachoEvent(machineState, { type: 'TIMER_TICK', nowMs: confirmNowMs });
+             applyMachineStateToRefs(tickResult.state);
+             const frozenDisplay = deriveDisplayFromTachoState(tickResult.state, confirmNowMs);
+             lastBreakDurationUiRef.current = frozenDisplay.lastBreakDuration;
+             lastBreakEndTimeRef.current = frozenDisplay.lastBreakEndTime;
+             setDisplay(frozenDisplay);
+           }
+
+           const {
+             finalTotals: confirmedFinalTotals,
+             effectiveWorkCycle: confirmedWorkCycle,
+             effectiveDrivingCycle: confirmedDrivingCycle,
+             effectiveHas15minBreak: confirmedHas15minBreak,
+             currentShift: confirmedCurrentShift,
+           } = buildEndShiftSnapshot({
+             nowMs: confirmNowMs,
+             status: statusRef.current,
+             segmentStartIso: segmentStartRef.current,
+             breakStartMs: breakStartTimeRef.current,
+             workStartIso: workStartRef.current,
+             totals: totalsRef.current,
+             workCycle: workCycleRef.current,
+             drivingCycle: drivingCycleRef.current,
+             has15minBreak: breakTrackerRef.current.has15min,
+             timerMode: timerModeRef.current,
+           });
+           confirmedCurrentShift.other_data.dailyRestSecondsBeforeShift = dailyRestSecondsBeforeShiftRef.current;
+           confirmedCurrentShift.other_data.reducedDailyRestTaken = reducedDailyRestTakenRef.current;
+           const {
+             score: confirmedScore,
+             violations: confirmedViolations,
+           } = calculateCompliance(history, confirmedCurrentShift as any);
 
            const loc = await Promise.race([
              Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null),
@@ -1435,17 +1588,17 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
            ]);
 
            const endSessionRequest = buildEndSessionRequest({
-             sessionId: sessionIdRef.current,
-             finalTotals,
-             effectiveHas15minBreak,
-             effectiveWorkCycle,
-             effectiveDrivingCycle,
-             shiftMetadata: currentShift.other_data,
+             sessionId: activeSessionId,
+             finalTotals: confirmedFinalTotals,
+             effectiveHas15minBreak: confirmedHas15minBreak,
+             effectiveWorkCycle: confirmedWorkCycle,
+             effectiveDrivingCycle: confirmedDrivingCycle,
+             shiftMetadata: confirmedCurrentShift.other_data,
              existingOtherData: sessionDataRef.current?.other_data,
              latitude: loc?.coords.latitude,
              longitude: loc?.coords.longitude,
-             score,
-             violations,
+             score: confirmedScore,
+             violations: confirmedViolations,
            });
 
             const { data: finalSessionData, error } = await workSessionService.endSession(
@@ -1462,83 +1615,63 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
               endSessionRequest.complianceViolations,
             );
 
-         if (error) {
-           console.error('endSession failed:', error);
-           Alert.alert('End Shift Failed', 'Could not save your shift. Please check your connection and try again.');
-           // ========== CRITICAL FIX: Reset flag on error so user can retry ==========
-           isEndingRef.current = false;
-           return;
-         }
+           if (error) {
+             console.error('endSession failed:', error);
+             Alert.alert('End Shift Failed', 'Could not save your shift. Please check your connection and try again.');
+             return;
+           }
 
-        if (finalSessionData) sessionDataRef.current = finalSessionData;
+           if (finalSessionData) sessionDataRef.current = finalSessionData;
 
-        suppressDriveStopSyncRef.current = true;
-        try {
-          await cancelScheduledComplianceNotifications(true);
-          await stopTracking();
-          await cancelScheduledComplianceNotifications(true);
+           suppressDriveStopSyncRef.current = true;
+           try {
+             await stopTracking();
+              await cancelAllScheduledAlertNotifications({ clearBackgroundState: true });
 
-           const endedShift = createEndedShiftResetState(Date.now());
-           statusRef.current = endedShift.status;
-           sessionIdRef.current = endedShift.sessionId;
-           timerModeRef.current = endedShift.timerMode;
-           workStartRef.current = endedShift.workStartTime;
-           segmentStartRef.current = endedShift.currentSegmentStart;
-           // ========== CRITICAL FIX #1: Explicitly clear break state ==========
-           breakStartTimeRef.current = 0;
-           totalsRef.current = endedShift.totals;
-          legalBreakDisplayTotalRef.current = endedShift.legalBreakDisplayTotal;
-          workCycleRef.current = endedShift.workCycle;
-          drivingCycleRef.current = endedShift.drivingCycle;
-           breakTrackerRef.current = endedShift.breakTracker;
-           breakStartTimeRef.current = endedShift.breakStartMs;
-           weeklyDrivingAccumulatorRef.current = endedShift.weeklyDrivingAccumulator;
-           shiftExtensionsUsedThisWeekRef.current = 0;
-           maxShiftTimeLimitRef.current = MAX_SHIFT_TIME_13H;
-           dailyRestSecondsBeforeShiftRef.current = 0;
-           reducedDailyRestTakenRef.current = false;
-           isDrivingRef.current = endedShift.isDriving;
-           lastTickMsRef.current = endedShift.lastTickMs;
-           drivingScoreRef.current = endedShift.drivingScore;
-           movingSinceRef.current = 0;
-           prevShiftElapsedRef.current = 0;
-           stationarySinceRef.current = endedShift.stationarySinceMs;
-          lastSpeedKmhRef.current = endedShift.lastSpeedKmh;
-          lastSpeedTsRef.current = endedShift.lastSpeedTs;
-          lastBreakDurationUiRef.current = endedShift.lastBreakDuration;
-          lastBreakEndTimeRef.current = endedShift.lastBreakEndTime;
-          prevRemainingRef.current = {
-            work: endedShift.prevWorkRemaining,
-            drive: endedShift.prevDriveRemaining,
-            driveExtension: MAX_DAILY_DRIVE_EXTENDED,
-            weeklyDrive: endedShift.prevWeeklyDriveRemaining,
-            maxShiftTime:
-              endedShift.prevMaxShiftTimeRemaining ?? endedShift.prevSpreadRemaining ?? MAX_SHIFT_TIME_13H,
-          };
+              applyMachineStateToRefs(createInitialTachoState(Date.now()));
+              isDrivingDetectionPausedRef.current = false;
+             setIsDrivingDetectionPaused(false);
+             syncStateFromRefs();
+            setSessionData(null);
+            sessionDataRef.current = null;
+            setDisplay(createInitialDisplayState());
 
-          setStatus(endedShift.status);
-          setSessionId(endedShift.sessionId);
-          setTimerMode(endedShift.timerMode);
-          setWorkStartTime(endedShift.workStartTime);
-          setCurrentSegmentStart(endedShift.currentSegmentStart);
-          setIsDriving(endedShift.isDriving);
-          setSessionData(null);
-          sessionDataRef.current = null;
-          setDisplay(endedShift.display);
-
-          await persistFromRefs();
-          await fetchHistory();
-          setShiftSummaryData(null);
-          speakAlert('audioShiftEnded');
+            await persistFromRefs();
+            await fetchHistory();
+            completed = true;
+            setShiftSummaryData(null);
+            speakAlert('audioShiftEnded');
+          } finally {
+            suppressDriveStopSyncRef.current = false;
+          }
+        } catch (e) {
+          console.error('End shift confirmation failed:', e);
+          Alert.alert('End Shift Failed', 'An unexpected error occurred while saving your shift. Please try again.');
         } finally {
-          suppressDriveStopSyncRef.current = false;
+          if (!completed && alertsCancelled && statusRef.current !== 'idle') {
+            try {
+              await buildComplianceSchedule();
+              if (
+                statusRef.current === 'working' &&
+                isDrivingRef.current &&
+                !isDrivingDetectionPausedRef.current
+              ) {
+                await buildDriveAlertSchedule();
+              }
+            } catch (scheduleError) {
+              console.warn('Failed to restore alert schedules after end shift failure:', scheduleError);
+            }
+          }
+          if (!completed) {
+            setShiftSummaryData(current =>
+              current ? setEndShiftSummaryConfirming(current, false) : current,
+            );
+          }
+          isEndingRef.current = false;
         }
-      } finally {
-        isEndingRef.current = false;
-      }
      },
    });
-  }, [history, persistFromRefs, cancelScheduledComplianceNotifications, speakAlert, applyElapsed, fetchHistory, stopTracking]);
+  }, [applyMachineStateToRefs, createMachineStateFromRefs, history, persistFromRefs, cancelAllScheduledAlertNotifications, buildComplianceSchedule, buildDriveAlertSchedule, speakAlert, fetchHistory, stopTracking, syncStateFromRefs]);
 
   const toggleBreak = useCallback(() =>
     updateTotalsAndSwitchStatus(statusRef.current === 'break' ? 'working' : 'break'),
@@ -1548,5 +1681,20 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     updateTotalsAndSwitchStatus(statusRef.current === 'poa' ? 'working' : 'poa'),
   [updateTotalsAndSwitchStatus]);
 
-  return { status, sessionId, timerMode, isDriving, isStarting, displaySeconds: display, shiftSummaryData, setShiftSummaryData, startWork, endWork, togglePOA, toggleBreak };
+  return {
+    status,
+    sessionId,
+    timerMode,
+    isDriving,
+    isDrivingDetectionPaused,
+    isStarting,
+    displaySeconds: display,
+    shiftSummaryData,
+    setShiftSummaryData,
+    startWork,
+    endWork,
+    togglePOA,
+    toggleBreak,
+    toggleDrivingDetectionPause,
+  };
 };

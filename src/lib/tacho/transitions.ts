@@ -19,6 +19,7 @@ export const deriveDrivingTransition = ({
       shouldFlip: false,
       elapsedSecToApply: 0,
       nextSegmentStartIso: segmentStartIso,
+      nextSegmentStartMs: segmentStartIso ? new Date(segmentStartIso).getTime() : null,
     };
   }
 
@@ -27,16 +28,19 @@ export const deriveDrivingTransition = ({
       shouldFlip: true,
       elapsedSecToApply: 0,
       nextSegmentStartIso: segmentStartIso,
+      nextSegmentStartMs: segmentStartIso ? new Date(segmentStartIso).getTime() : null,
     };
   }
 
   const segmentStartMs = new Date(segmentStartIso).getTime();
   const elapsedSecToApply = Math.max(0, Math.floor((nowMs - segmentStartMs) / 1000));
+  const nextSegmentStartMs = segmentStartMs + elapsedSecToApply * 1000;
 
   return {
     shouldFlip: true,
     elapsedSecToApply,
-    nextSegmentStartIso: new Date(nowMs).toISOString(),
+    nextSegmentStartIso: new Date(nextSegmentStartMs).toISOString(),
+    nextSegmentStartMs,
   };
 };
 
@@ -53,6 +57,7 @@ export const deriveStatusTransition = ({
 }: StatusTransitionInput): StatusTransitionResult => {
   const segmentStartMs = segmentStartIso ? new Date(segmentStartIso).getTime() : nowMs;
   const elapsedSecToApply = Math.max(0, Math.floor((nowMs - segmentStartMs) / 1000));
+  const nextSegmentStartMs = segmentStartMs + elapsedSecToApply * 1000;
   const nowIso = new Date(nowMs).toISOString();
 
   let nextTimerMode = timerMode;
@@ -83,16 +88,17 @@ export const deriveStatusTransition = ({
   }
 
   if (nextStatus === 'break') {
-    nextBreakStartMs = nowMs;
+    nextBreakStartMs = nextSegmentStartMs;
   } else if (prevStatus === 'break') {
-    const breakStartedMs = breakStartMs || nowMs;
-    lastBreakDuration = Math.max(0, Math.floor((nowMs - breakStartedMs) / 1000));
-    lastBreakEndTime = nowMs;
+    const breakStartedMs = breakStartMs || nextSegmentStartMs;
+    lastBreakDuration = Math.max(0, Math.floor((nextSegmentStartMs - breakStartedMs) / 1000));
+    lastBreakEndTime = nextSegmentStartMs;
   }
 
   return {
     elapsedSecToApply,
     nowIso,
+    nextSegmentStartMs,
     nextTimerMode,
     nextHas15minBreak,
     nextWorkCycle,

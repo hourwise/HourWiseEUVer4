@@ -3,6 +3,7 @@ import type {
   EndSessionRequestInput,
   EndShiftSummary,
   EndShiftSummaryInput,
+  EndShiftSummaryState,
 } from './types';
 
 const toMins = (seconds: number) => Math.max(0, Math.floor(seconds / 60));
@@ -16,6 +17,27 @@ export const buildEndShiftSummary = ({
   score,
   violations,
 });
+
+export const createEndShiftSummaryState = (
+  input: EndShiftSummaryInput,
+): EndShiftSummaryState => ({
+  ...buildEndShiftSummary(input),
+  isConfirming: false,
+});
+
+export const setEndShiftSummaryConfirming = <T extends EndShiftSummaryState>(
+  summary: T,
+  isConfirming: boolean,
+): T => ({
+  ...summary,
+  isConfirming,
+} as T);
+
+export const getEndShiftConfirmationError = (
+  sessionId: string | null,
+): 'missing_active_session' | null => (
+  sessionId ? null : 'missing_active_session'
+);
 
 export const buildEndSessionRequest = ({
   sessionId,

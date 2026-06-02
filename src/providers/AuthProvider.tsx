@@ -37,11 +37,49 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const PROFILE_QUERY_TIMEOUT_MS = 12000;
+const OPTIONAL_QUERY_TIMEOUT_MS = 6000;
+const AUTH_INIT_TIMEOUT_MS = 10000;
+const AUTH_LISTENER_GRACE_MS = 4000;
+
 const withTimeout = async <T,>(p: Promise<T>, ms = 8000): Promise<T> => {
-  return await Promise.race([
-    p,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('timeout')), ms);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
+const isTimeoutError = (error: unknown) =>
+  error instanceof Error && error.message === 'timeout';
+
+const isMissingRowError = (error: unknown) =>
+  !!error && typeof error === 'object' && 'code' in error && (error as any).code === 'PGRST116';
+
+const buildFleetPayConfigPayload = (
+  userId: string,
+  payConfigSnapshot: Record<string, any> | null | undefined,
+): (Record<string, any> & { user_id: string }) | null => {
+  if (!payConfigSnapshot) return null;
+
+  const {
+    id: _snapshotId,
+    user_id: _snapshotUserId,
+    created_at: _snapshotCreatedAt,
+    updated_at: _snapshotUpdatedAt,
+    ...payConfigFields
+  } = payConfigSnapshot;
+
+  return {
+    ...payConfigFields,
+    user_id: userId,
+  };
 };
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -54,13 +92,39 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // Use a ref to track profile presence without triggering dependency loops
   const hasProfileRef = useRef(false);
+  const profileRef = useRef<ProfileWithPay | null>(null);
+  const needsLastShiftEntryRef = useRef(true);
   const isFleetDriver = !!profile?.company_id;
+
+  const isSetupMarkedComplete = (profileData: Profile | null) =>
+    !!profileData &&
+    'first_time_setup_completed_at' in profileData &&
+    !!profileData.first_time_setup_completed_at;
 
   const applyFailClosedBootstrapState = useCallback(() => {
     setProfile(null);
+    profileRef.current = null;
     hasProfileRef.current = false;
     setNeedsSetup(true);
     setNeedsLastShiftEntry(true);
+    needsLastShiftEntryRef.current = true;
+  }, []);
+
+  const applyNeedsLastShiftEntry = useCallback((next: boolean) => {
+    setNeedsLastShiftEntry(next);
+    needsLastShiftEntryRef.current = next;
+  }, []);
+
+  const readOptionalBootstrapQuery = useCallback(async <T,>(
+    query: PromiseLike<{ data: T | null; error: any }>,
+  ): Promise<T | null> => {
+    try {
+      const { data, error } = await withTimeout(Promise.resolve(query), OPTIONAL_QUERY_TIMEOUT_MS);
+      if (error && !isMissingRowError(error)) throw error;
+      return data ?? null;
+    } catch {
+      return null;
+    }
   }, []);
 
   const fetchProfile = useCallback(async (session: Session | null, isBackground = false) => {
@@ -73,29 +137,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (shouldShowLoading) setLoading(true);
 
     try {
-      const [
-        { data: profileData, error: profileError },
-        { data: payConfig, error: payError },
-        { data: anySession, error: sessionError }
-      ] = await withTimeout(
-        Promise.all([
-          supabase.from('profiles').select('*').eq('id', session.user.id).single(),
-          supabase.from('pay_configurations').select('*').eq('user_id', session.user.id).single(),
-          supabase.from('work_sessions').select('id').eq('user_id', session.user.id).limit(1).single(),
-        ]),
-        8000
+      const { data: profileData, error: profileError } = await withTimeout(
+        Promise.resolve(supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle()),
+        PROFILE_QUERY_TIMEOUT_MS,
       );
+      if (profileError && !isMissingRowError(profileError)) throw profileError;
 
-      if (profileError && profileError.code !== 'PGRST116') throw profileError;
-      if (payError && payError.code !== 'PGRST116') throw payError;
-      if (sessionError && sessionError.code !== 'PGRST116') throw sessionError;
+      const [payConfig, anySession] = await Promise.all([
+        readOptionalBootstrapQuery(
+          supabase.from('pay_configurations').select('*').eq('user_id', session.user.id).maybeSingle(),
+        ),
+        readOptionalBootstrapQuery(
+          supabase.from('work_sessions').select('id').eq('user_id', session.user.id).limit(1).maybeSingle(),
+        ),
+      ]);
 
       // Determine setup status:
       // 1. Check persistent flag from DB
       // 2. Fallback to data presence (full_name, pay_config for solo)
-      const setupAlreadyMarkedComplete = !!profileData?.first_time_setup_completed_at;
+      const setupAlreadyMarkedComplete = isSetupMarkedComplete(profileData);
       const isSolo = profileData?.account_type === 'solo';
-      const requiredDataPresent = !!(profileData?.full_name) && (!isSolo || !!payConfig);
+      const cachedPayConfig = profileRef.current?.pay_configurations ?? null;
+      const effectivePayConfig = payConfig ?? cachedPayConfig;
+      const requiredDataPresent = !!(profileData?.full_name) && (!isSolo || !!effectivePayConfig);
 
       // Setup is complete if marked in DB OR if all data is present
       const setupComplete = setupAlreadyMarkedComplete || requiredDataPresent;
@@ -107,20 +171,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         requiredDataPresent,
         account_type: profileData?.account_type,
         has_full_name: !!profileData?.full_name,
-        has_pay_config: !!payConfig,
+        has_pay_config: !!effectivePayConfig,
         willShowSetup: !setupComplete,
       });
 
       setNeedsSetup(!setupComplete);
-      setNeedsLastShiftEntry(!anySession);
+      applyNeedsLastShiftEntry(anySession ? false : needsLastShiftEntryRef.current);
+      if (!anySession && !isBackground && !hasProfileRef.current) {
+        applyNeedsLastShiftEntry(true);
+      }
 
-      const newProfile = profileData ? { ...profileData, pay_configurations: payConfig || null } : null;
+      const newProfile = profileData ? { ...profileData, pay_configurations: effectivePayConfig || null } : null;
       setProfile(newProfile);
+      profileRef.current = newProfile;
       hasProfileRef.current = !!newProfile;
       return true;
 
     } catch (error: any) {
-      console.warn("fetchProfile failed or timed out:", error.message || error);
+      const message = error?.message || error;
+      if (!isBackground || !hasProfileRef.current || !isTimeoutError(error)) {
+        console.warn("fetchProfile failed or timed out:", message);
+      }
       // Preserve the last known-good auth/profile state during background refreshes
       // so transient network issues do not bounce the user back into setup flows.
       if (!hasProfileRef.current && !isBackground) {
@@ -130,7 +201,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } finally {
       if (shouldShowLoading) setLoading(false);
     }
-  }, [applyFailClosedBootstrapState]);
+  }, [applyFailClosedBootstrapState, applyNeedsLastShiftEntry, readOptionalBootstrapQuery]);
 
   const completeLastShiftEntry = () => setNeedsLastShiftEntry(false);
   const signOut = async () => {
@@ -156,24 +227,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (accountType === 'fleet' && invite) {
       setTransientInvite(invite);
       const payConfigSnapshot = invite.pay_config_snapshot as any;
+      const payConfigPayload = buildFleetPayConfigPayload(data.user.id, payConfigSnapshot);
 
       const profilePayload = {
           id: data.user.id, user_id: data.user.id, email: data.user.email, full_name: invite.full_name,
           account_type: 'fleet', company_id: invite.company_id, role: 'driver',
-          payroll_number: payConfigSnapshot?.payroll_number,
-          first_time_setup_completed_at: new Date().toISOString(),
+          payroll_number: payConfigPayload?.payroll_number,
       };
 
       const { error: profileError } = await supabase.from('profiles').insert(profilePayload);
       if (profileError) throw profileError;
 
-      if (payConfigSnapshot) {
-        const { error: payConfigError } = await supabase.from('pay_configurations').insert({ user_id: data.user.id, ...payConfigSnapshot });
-        if (payConfigError) console.warn("Pay config insertion failed:", payConfigError.message);
+      if (payConfigPayload) {
+        const { error: payConfigError } = await supabase.from('pay_configurations').insert(payConfigPayload);
+        if (payConfigError) {
+          console.warn('Pay config insertion failed:', payConfigError.message, {
+            inviteId: invite.id,
+            userId: data.user.id,
+          });
+        }
       }
 
       const { error: acceptError } = await supabase.rpc('accept_driver_invite', { invite_id: invite.id, user_id: data.user.id });
-      if (acceptError) console.warn("Accept invite RPC failed:", acceptError.message);
+      if (acceptError) {
+        console.warn('Accept invite RPC failed:', acceptError.message, {
+          inviteId: invite.id,
+          userId: data.user.id,
+        });
+      }
 
       finalProfile = { ...profilePayload, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), pay_configurations: payConfigSnapshot || null } as any;
 
@@ -204,38 +285,57 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     let isMounted = true;
+    let initialAuthResolved = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finishInitialAuth = () => {
+      if (!isMounted || initialAuthResolved) return;
+      initialAuthResolved = true;
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+      setLoading(false);
+    };
+
+    const applySessionBootstrap = async (
+      currentSession: Session | null,
+      isBackground: boolean,
+    ) => {
+      if (!isMounted) return;
+      setSession(currentSession);
+      if (currentSession) {
+        await fetchProfile(currentSession, isBackground);
+      } else {
+        applyFailClosedBootstrapState();
+      }
+    };
 
     const init = async () => {
       setLoading(true);
       try {
-        const { data: { session: currentSession } } = await withTimeout(supabase.auth.getSession(), 5000);
-        if (!isMounted) return;
-        setSession(currentSession);
-        if (currentSession) {
-          await fetchProfile(currentSession);
-        } else {
-          applyFailClosedBootstrapState();
-        }
+        const { data: { session: currentSession } } = await withTimeout(supabase.auth.getSession(), AUTH_INIT_TIMEOUT_MS);
+        if (!isMounted || initialAuthResolved) return;
+        await applySessionBootstrap(currentSession, false);
+        finishInitialAuth();
       } catch (e) {
-        console.warn("Auth init timed out", e);
-        if (isMounted) {
+        if (!isMounted || initialAuthResolved) return;
+        console.warn("Auth init delayed, waiting for auth listener", e);
+        fallbackTimer = setTimeout(() => {
+          if (!isMounted || initialAuthResolved) return;
           setSession(null);
           applyFailClosedBootstrapState();
-        }
-      } finally {
-        if (isMounted) setLoading(false);
+          finishInitialAuth();
+        }, AUTH_LISTENER_GRACE_MS);
       }
     };
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
         if (!isMounted) return;
-        setSession(newSession);
-        if (newSession) {
-          await fetchProfile(newSession, true);
-        } else {
-          applyFailClosedBootstrapState();
-        }
+        const isInitialEvent = !initialAuthResolved;
+        await applySessionBootstrap(newSession, !isInitialEvent);
+        if (isInitialEvent) finishInitialAuth();
       }
     );
 
@@ -243,6 +343,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     return () => {
       isMounted = false;
+      if (fallbackTimer) clearTimeout(fallbackTimer);
       authListener.subscription.unsubscribe();
     };
   }, [applyFailClosedBootstrapState, fetchProfile]);

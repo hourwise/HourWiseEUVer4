@@ -1,110 +1,173 @@
 # Auth and Startup Review
 
-Date: 2026-04-26
+Reviewed: 2026-06-02
 
 ## Scope
 
-Reviewed:
+Reviewed current startup/auth flow in:
 
-- [src/App.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/App.tsx)
-- [src/providers/AuthProvider.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/providers/AuthProvider.tsx)
-- [src/navigation/AppNavigator.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/navigation/AppNavigator.tsx)
-- [src/components/Auth.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/components/Auth.tsx)
-- [src/providers/SubscriptionProvider.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/providers/SubscriptionProvider.tsx)
+- `src/App.tsx`
+- `src/providers/AuthProvider.tsx`
+- `src/providers/SubscriptionProvider.tsx`
+- `src/providers/PermissionsProvider.tsx`
+- `src/navigation/AppNavigator.tsx`
+- `src/components/Auth.tsx`
+- `src/components/FirstTimeSetupGuide.tsx`
+- `src/components/DriverSetup.tsx`
+- `src/lib/subscriptionConfig.ts`
+- `src/lib/biometricAuth.ts`
+
+## Summary
+
+The auth flow is no longer broken in the same ways called out in the April review. Several of those issues have already been fixed:
+
+- auth listener cleanup is now returned correctly from `AuthProvider`
+- startup now fails closed more safely when profile bootstrap fails
+- invite verification resets its loading state correctly
+- subscription bypass is now an explicit config flag, not a hardcoded `true`
+- the `Subscription` route is registered in the navigator
+- setup completion now checks `first_time_setup_completed_at`
+
+The current problem is different: the flow is functionally correct more often, but still feels janky because startup is spread across several async providers and route gates that do not behave like one coherent state machine.
 
 ## Findings
 
-### 1. Auth state subscription cleanup is not actually returned from the effect
+### 1. `needsLastShiftEntry` is only persisted in memory
 
-In [AuthProvider.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/providers/AuthProvider.tsx#L171), the effect calls an inner async `init()` function, and the unsubscribe cleanup is returned from inside that async function:
+Files:
 
-- listener created at line `184`
-- unsubscribe returned at line `197`
-- effect itself only calls `init()` at line `199`
+- `src/providers/AuthProvider.tsx`
+- `src/navigation/AppNavigator.tsx`
 
-That means React never receives the cleanup function from `useEffect`.
+`completeLastShiftEntry()` only flips local React state. On the next cold start, `needsLastShiftEntry` is rebuilt from whether any work session exists. That means a user who intentionally dismisses or completes onboarding without creating a historical session can be routed back to the onboarding calendar again.
 
-Risk:
+Impact:
 
-- leaked auth listeners
-- duplicate `onAuthStateChange` callbacks after remounts
-- hard-to-trace startup/session bugs
-
-Severity: High
-
-### 2. Profile/bootstrap failures fail open into the app instead of failing closed
-
-`AuthProvider` initializes:
-
-- `needsSetup` as `false` at [line 49](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/providers/AuthProvider.tsx#L49)
-- `needsLastShiftEntry` as `false` at [line 50](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/providers/AuthProvider.tsx#L50)
-
-If `fetchProfile()` times out or fails, it only logs a warning at [line 99](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/providers/AuthProvider.tsx#L99) and then clears loading. No fallback state is applied.
-
-Result:
-
-- `session` may be present
-- `profile` may still be `null`
-- setup state may remain falsely complete
-- navigator can route into the main app based on incomplete auth/bootstrap data
-
-Given [AppNavigator.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/navigation/AppNavigator.tsx#L86), this can drop the user into the wrong screen after a transient network or Supabase timeout.
+- repeated onboarding calendar after login
+- confusing "why am I here again?" behavior
+- state depends on current app process, not durable account state
 
 Severity: High
 
-### 3. Fleet invite verification can leave the UI stuck in a verifying state if the request throws
+### 2. Startup gating is split across three providers plus the navigator
 
-In [Auth.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/components/Auth.tsx#L25), `handleVerifyCode()` does:
+Files:
 
-- `setVerifying(true)`
-- awaits `verifyInviteCode(inviteCode)`
-- `setVerifying(false)`
+- `src/App.tsx`
+- `src/providers/AuthProvider.tsx`
+- `src/providers/SubscriptionProvider.tsx`
+- `src/providers/PermissionsProvider.tsx`
+- `src/navigation/AppNavigator.tsx`
 
-But there is no `try/finally`. If `verifyInviteCode()` throws on a network/API failure, `verifying` never resets and the Verify button stays disabled.
+The app boots through these layers in sequence:
+
+1. app-level i18n and notifications init
+2. auth session restore and profile bootstrap
+3. subscription sync
+4. permission refresh
+5. navigator route decision
+
+Each layer owns its own loading flag and fallback behavior. The result is correct often enough, but it is not deterministic from the user?s point of view.
+
+Impact:
+
+- spinner churn
+- extra route recomputation
+- hard-to-debug transient states
+- login feels slower than the actual auth call
+
+Severity: High
+
+### 3. The post-login transition has no dedicated "auth bootstrap" UX
+
+Files:
+
+- `src/components/Auth.tsx`
+- `src/providers/AuthProvider.tsx`
+- `src/navigation/AppNavigator.tsx`
+- `src/components/LoadingScreen.tsx`
+
+After a successful sign-in, the user does not move into a distinct post-auth bootstrap state. Instead, the form submits, then the providers and navigator eventually move away from the auth screen.
+
+That means the user can experience:
+
+- the auth form still visible while the session/bootstrap finishes
+- a jump into `LoadingScreen`
+- then another jump into permissions/setup/calendar/dashboard
 
 Severity: Medium
 
-### 4. Subscription gating is intentionally bypassed, so the paywall path is not currently exercised
+### 4. `FirstTimeSetupGuide` auto-advances after 5 seconds
 
-In [SubscriptionProvider.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/providers/SubscriptionProvider.tsx#L20), `isSubscribed` is hardcoded to `true`.
+File:
 
-That is fine for internal testing, but it means:
+- `src/components/FirstTimeSetupGuide.tsx`
 
-- [PaywallScreen.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/screens/PaywallScreen.tsx) is effectively unreachable in normal startup flow
-- auth/startup routing for subscription state is not currently validated
-- any RevenueCat regressions can sit unnoticed
+This is a workaround for earlier routing races, but it now creates its own UX problems:
+
+- unexpected navigation without user intent
+- possible double-transition if the user taps continue near the timeout
+- setup flow feels unstable even when data is correct
 
 Severity: Medium
 
-### 5. Dashboard tries to navigate to a route that is not registered
+### 5. Permissions are part of login routing instead of feature activation routing
 
-In [Dashboard.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/screens/Dashboard.tsx#L520), `SettingsMenu` gets:
+Files:
 
-- `onOpenSubscription={() => navigation.navigate('Subscription')}`
+- `src/navigation/AppNavigator.tsx`
+- `src/providers/PermissionsProvider.tsx`
+- `src/screens/PermissionsScreen.tsx`
 
-But [AppNavigator.tsx](C:/Users/USER/AndroidStudioProjects/HourWiseEUVer4/src/navigation/AppNavigator.tsx) does not register a `Subscription` screen.
+The navigator routes authenticated users to permissions before setup, onboarding, paywall, or dashboard access. That gives the auth flow a heavy "grant everything now" feel.
 
-This is not strictly bootstrap logic, but it is part of the post-login settings flow and will fail at runtime if triggered.
+This may be acceptable for core location features, but it makes login feel like a compliance wizard instead of a clean sign-in flow.
+
+Severity: Medium
+
+### 6. Subscription bypass still costs startup work
+
+Files:
+
+- `src/providers/SubscriptionProvider.tsx`
+- `src/lib/subscriptionConfig.ts`
+- `src/navigation/AppNavigator.tsx`
+
+The paywall is correctly bypassed for testing through `SUBSCRIPTION_CONFIG.bypassSubscription`, but the app still waits on `subscriptionLoading` before routing. In bypass mode this should be near-zero-cost and ideally not a visible phase at all.
+
+Severity: Medium
+
+### 7. The auth screen is overloaded
+
+File:
+
+- `src/components/Auth.tsx`
+
+One component currently owns:
+
+- sign in
+- sign up
+- fleet invite verification
+- account type switching
+- biometric enable prompt
+- biometric sign in
+- alert-based error handling
+
+The result is functional, but brittle and hard to make smooth.
 
 Severity: Medium
 
 ## Assessment
 
-The auth flow is structurally understandable, but it is still too permissive under failure.
+The current auth flow is not primarily suffering from broken authentication. It is suffering from orchestration and UX coupling.
 
-The main issue is not ordinary sign-in. It is **startup correctness under partial failure**:
+The core auth and profile logic is now good enough to build on. The next step is to turn the startup sequence into an explicit boot state machine and to separate sign-in, onboarding, permissions, and paywall policy into clearer phases.
 
-- listener lifecycle is wrong
-- profile/bootstrap failures are not driving a safe fallback route
+## Recommended Direction
 
-Those should be fixed before treating the auth/startup layer as stable.
+1. Introduce a single boot/auth state model that the navigator consumes.
+2. Persist onboarding completion explicitly instead of inferring it from work session presence.
+3. Add a dedicated post-login bootstrap screen/state.
+4. Remove `FirstTimeSetupGuide` auto-advance behavior.
+5. Keep paywall bypassed during testing, but move it behind a clear runtime policy.
 
-## Recommended next fixes
-
-1. Fix `AuthProvider` effect lifecycle so the auth listener is unsubscribed correctly.
-2. Make bootstrap fail closed:
-   - if session exists but profile/bootstrap fetch fails, route to a recoverable loading/retry state or explicit error state
-   - do not silently default to “setup complete”
-3. Harden `handleVerifyCode()` with `try/finally`
-4. Replace the hardcoded subscription bypass with an explicit testing flag
-5. Either register a subscription/settings route or remove the invalid navigation target

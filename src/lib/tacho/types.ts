@@ -1,3 +1,5 @@
+import type { AlertKey } from './alerts';
+
 export type TimerMode = '6h' | '9h';
 
 export type WorkStatus = 'idle' | 'working' | 'poa' | 'break';
@@ -13,10 +15,24 @@ export type BreakTracker = {
   has15min: boolean;
 };
 
+export type ScheduledAlertScope = 'compliance' | 'drive';
+
+export type ScheduledAlertDescriptor = {
+  identifier: string;
+  scope: ScheduledAlertScope;
+  alertKey: AlertKey;
+  scheduleKey: string;
+  fireDateMs: number;
+  secondsFromNow: number;
+  channelId: string;
+  scheduledAtMs: number;
+};
+
 export type PersistedState = {
   status: WorkStatus;
   sessionId: string | null;
   userStorageKey?: string | null;
+  drivingDetectionPaused?: boolean;
   timerMode: TimerMode;
   workStartTime: string | null;
   currentSegmentStart: string | null;
@@ -33,6 +49,23 @@ export type PersistedState = {
   dailyRestSecondsBeforeShift?: number;
   reducedDailyRestTaken?: boolean;
   breakStartMs?: number;
+  motionState?: {
+    lastSpeedKmh: number;
+    lastSpeedTs: number;
+    drivingScore: number;
+    movingSinceMs: number;
+    stationarySinceMs: number;
+  };
+  alertWindow?: {
+    prevShiftElapsed: number;
+    prevRemaining: {
+      work: number;
+      drive: number;
+      driveExtension: number;
+      weeklyDrive: number;
+      maxShiftTime: number;
+    };
+  };
 };
 
 export type CounterState = {
@@ -147,6 +180,7 @@ export type DrivingTransitionResult = {
   shouldFlip: boolean;
   elapsedSecToApply: number;
   nextSegmentStartIso: string | null;
+  nextSegmentStartMs: number | null;
 };
 
 export type StatusTransitionInput = {
@@ -164,6 +198,7 @@ export type StatusTransitionInput = {
 export type StatusTransitionResult = {
   elapsedSecToApply: number;
   nowIso: string;
+  nextSegmentStartMs: number;
   nextTimerMode: TimerMode;
   nextHas15minBreak: boolean;
   nextWorkCycle: number;
@@ -251,6 +286,10 @@ export type EndShiftSummary = {
   totals: Totals;
   score: number;
   violations: string[];
+};
+
+export type EndShiftSummaryState = EndShiftSummary & {
+  isConfirming: boolean;
 };
 
 export type EndSessionRequestInput = {

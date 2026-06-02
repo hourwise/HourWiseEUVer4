@@ -10,14 +10,30 @@ export type InviteVerificationResult =
       status?: string;
     };
 
+const buildInviteCodeCandidates = (inviteCode: string) => {
+  const trimmedCode = inviteCode.trim();
+  const collapsedCode = trimmedCode.replace(/[\s-]+/g, '');
+
+  return Array.from(
+    new Set([
+      trimmedCode,
+      trimmedCode.toUpperCase(),
+      trimmedCode.toLowerCase(),
+      collapsedCode,
+      collapsedCode.toUpperCase(),
+      collapsedCode.toLowerCase(),
+    ]),
+  ).filter(Boolean);
+};
+
 /**
  * Verifies a driver invite code and fetches the pre-filled data.
  * @param inviteCode The 8-character code entered by the driver.
  * @returns A structured verification result with diagnostics for the UI.
  */
 export const verifyInviteCode = async (inviteCode: string) => {
-  const formattedCode = inviteCode.trim().toUpperCase();
-  if (!formattedCode) {
+  const inviteCodeCandidates = buildInviteCodeCandidates(inviteCode);
+  if (inviteCodeCandidates.length === 0) {
     return {
       ok: false,
       reason: 'missing',
@@ -26,19 +42,30 @@ export const verifyInviteCode = async (inviteCode: string) => {
   }
 
   try {
-    const { data, error } = await supabase
-      .from('driver_invites')
-      .select('*')
-      .eq('invite_code', formattedCode)
-      .single();
+    let data: any = null;
 
-    if (error) {
-      console.warn('Error verifying invite code:', error.message);
-      return {
-        ok: false,
-        reason: 'missing',
-        message: 'Invite code was not found.',
-      } satisfies InviteVerificationResult;
+    for (const codeCandidate of inviteCodeCandidates) {
+      const { data: invite, error } = await supabase
+        .from('driver_invites')
+        .select('*')
+        .ilike('invite_code', codeCandidate)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Error verifying invite code:', error.message, {
+          attemptedCode: codeCandidate,
+        });
+        return {
+          ok: false,
+          reason: 'error',
+          message: `Invite lookup failed: ${error.message}`,
+        } satisfies InviteVerificationResult;
+      }
+
+      if (invite) {
+        data = invite;
+        break;
+      }
     }
 
     if (!data) {
