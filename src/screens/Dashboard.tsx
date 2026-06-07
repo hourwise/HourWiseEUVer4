@@ -709,7 +709,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                       className={`py-3 rounded-xl mt-3 border items-center ${isDrivingDetectionPaused ? 'bg-emerald-600 border-emerald-500' : 'bg-slate-700 border-slate-600'}`}
                     >
                       <Text className="text-white font-bold text-lg text-center">
-                        {isDrivingDetectionPaused ? "I'm Driving" : "I'm not driving"}
+                        {isDrivingDetectionPaused ? "I'm Driving" : "I'm a Passenger"}
                       </Text>
                     </TouchableOpacity>
                   </View>

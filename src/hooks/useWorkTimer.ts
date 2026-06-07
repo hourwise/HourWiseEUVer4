@@ -228,6 +228,15 @@ const isValidSegmentStart = (iso: string | null): boolean => {
   }
 };
 
+const isValidResumableSessionState = (
+  state: TachoState | null | undefined,
+  sessionId?: string | null,
+): state is TachoState => {
+  if (!state || state.status === 'idle' || !state.sessionId) return false;
+  if (sessionId && state.sessionId !== sessionId) return false;
+  return isValidSegmentStart(state.currentSegmentStart);
+};
+
 type ShiftSummaryModalState = EndShiftSummaryState & {
   onConfirm: () => Promise<void>;
 };
@@ -985,6 +994,10 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         await new Promise(resolve => setTimeout(resolve, 50));
       }
 
+      const resumeNowMs = Date.now();
+      const currentRuntimeState = statusRef.current !== 'idle' && segmentStartRef.current
+        ? reduceTachoEvent(createMachineStateFromRefs(resumeNowMs), { type: 'TIMER_TICK', nowMs: resumeNowMs }).state
+        : createMachineStateFromRefs(resumeNowMs);
       const persistedState = await loadActiveTimerState();
       const hasMatchingPersistedState =
         !!persistedState &&
@@ -994,9 +1007,12 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
           ? !!persistedState.drivingDetectionPaused
           : false;
       setIsDrivingDetectionPaused(isDrivingDetectionPausedRef.current);
-      const localState = hasMatchingPersistedState && persistedState
-        ? createTachoStateFromPersisted(persistedState, Date.now())
-        : createMachineStateFromRefs();
+      const persistedRuntimeState = hasMatchingPersistedState && persistedState
+        ? reduceTachoEvent(
+            createTachoStateFromPersisted(persistedState, resumeNowMs),
+            { type: 'TIMER_TICK', nowMs: resumeNowMs },
+          ).state
+        : null;
 
       const { data, error } = await supabase
         .from('work_sessions')
@@ -1009,15 +1025,20 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
 
       setSessionData(data);
       sessionDataRef.current = data;
-      const dbState = createTachoStateFromSessionRow(data, localState);
-      const reconciledState =
-        localState.sessionId === data.id &&
-        localState.status !== 'idle' &&
-        isValidSegmentStart(localState.currentSegmentStart)
-          ? localState
+      const dbState = createTachoStateFromSessionRow(data, currentRuntimeState);
+      const reconciledState = isValidResumableSessionState(currentRuntimeState, data.id)
+        ? currentRuntimeState
+        : isValidResumableSessionState(persistedRuntimeState, data.id)
+          ? persistedRuntimeState
           : dbState;
 
       applyMachineStateToRefs(reconciledState);
+      if (reconciledState !== dbState) {
+        await syncSessionToDb('checkpoint', {
+          maxRetries: 2,
+          logLabel: 'Resume session state repair failed:',
+        });
+      }
 
       const nowMs = Date.now();
 
@@ -1035,7 +1056,15 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       syncStateFromRefs();
     } catch (e) { console.warn('refreshSession failed:', e); }
     finally { isRefreshingSessionRef.current = false; }
-  }, [userId, userStorageKey, syncStateFromRefs, syncShiftAllowanceState, createMachineStateFromRefs, applyMachineStateToRefs]);
+  }, [
+    userId,
+    userStorageKey,
+    syncStateFromRefs,
+    syncShiftAllowanceState,
+    createMachineStateFromRefs,
+    applyMachineStateToRefs,
+    syncSessionToDb,
+  ]);
 
   const commitAndFlipDriving = useCallback((
     nextDriving: boolean,
@@ -1101,6 +1130,14 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
                logLabel: 'Background driving state sync failed:',
              });
            } catch (e) { console.warn('Background driving state sync failed:', e); }
+         }
+         if (sessionIdRef.current) {
+           try {
+             await syncSessionToDb('checkpoint', {
+               maxRetries: 2,
+               logLabel: 'Background session checkpoint failed:',
+             });
+           } catch (e) { console.warn('Background session checkpoint failed:', e); }
          }
          await persistFromRefs();
          return;
