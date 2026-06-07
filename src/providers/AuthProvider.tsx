@@ -10,7 +10,12 @@ import { Alert } from 'react-native';
 import { supabase } from '../lib/supabase';
 import type { Session, SignInWithPasswordCredentials, SignUpWithPasswordCredentials } from '@supabase/supabase-js';
 import type { Database } from '../lib/database.types';
-import { clearBiometricSession } from '../lib/biometricAuth';
+import {
+  clearBiometricSession,
+  getStoredBiometricSessionMetadata,
+  hasStoredBiometricSession,
+  saveBiometricSession,
+} from '../lib/biometricAuth';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
@@ -24,15 +29,17 @@ interface AuthContextType {
   session: Session | null;
   profile: ProfileWithPay | null;
   loading: boolean;
+  bootstrapping: boolean;
   needsSetup: boolean;
   needsLastShiftEntry: boolean;
   transientInvite: Invite | null;
   isFleetDriver: boolean;
   refreshProfile: () => Promise<void>;
-  completeLastShiftEntry: () => void;
-  signOut: () => Promise<void>;
+  completeLastShiftEntry: () => Promise<void>;
+  clearStoredBiometricSignIn: () => Promise<void>;
+  signOut: (options?: { forgetBiometric?: boolean }) => Promise<void>;
   signIn: (credentials: SignInWithPasswordCredentials) => Promise<Session | null>;
-  signUp: (params: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; }) => Promise<void>;
+  signUp: (params: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; }) => Promise<Session | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -88,11 +95,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [needsSetup, setNeedsSetup] = useState(true);
   const [needsLastShiftEntry, setNeedsLastShiftEntry] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [bootstrapping, setBootstrapping] = useState(false);
   const [transientInvite, setTransientInvite] = useState<Invite | null>(null);
 
   // Use a ref to track profile presence without triggering dependency loops
   const hasProfileRef = useRef(false);
   const profileRef = useRef<ProfileWithPay | null>(null);
+  const lastKnownBootstrapRef = useRef<{
+    userId: string;
+    profile: ProfileWithPay | null;
+    needsSetup: boolean;
+    needsLastShiftEntry: boolean;
+  } | null>(null);
   const needsLastShiftEntryRef = useRef(true);
   const isFleetDriver = !!profile?.company_id;
 
@@ -114,6 +128,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setNeedsLastShiftEntry(next);
     needsLastShiftEntryRef.current = next;
   }, []);
+
+  const applyCachedBootstrapState = useCallback(
+    (cachedBootstrap: NonNullable<typeof lastKnownBootstrapRef.current>) => {
+      setProfile(cachedBootstrap.profile);
+      profileRef.current = cachedBootstrap.profile;
+      hasProfileRef.current = !!cachedBootstrap.profile;
+      setNeedsSetup(cachedBootstrap.needsSetup);
+      applyNeedsLastShiftEntry(cachedBootstrap.needsLastShiftEntry);
+    },
+    [applyNeedsLastShiftEntry],
+  );
 
   const readOptionalBootstrapQuery = useCallback(async <T,>(
     query: PromiseLike<{ data: T | null; error: any }>,
@@ -160,6 +185,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const cachedPayConfig = profileRef.current?.pay_configurations ?? null;
       const effectivePayConfig = payConfig ?? cachedPayConfig;
       const requiredDataPresent = !!(profileData?.full_name) && (!isSolo || !!effectivePayConfig);
+      const lastShiftOnboardingComplete =
+        !!profileData?.last_shift_onboarding_completed_at || !!anySession;
 
       // Setup is complete if marked in DB OR if all data is present
       const setupComplete = setupAlreadyMarkedComplete || requiredDataPresent;
@@ -172,23 +199,44 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         account_type: profileData?.account_type,
         has_full_name: !!profileData?.full_name,
         has_pay_config: !!effectivePayConfig,
+        last_shift_onboarding_completed_at: profileData?.last_shift_onboarding_completed_at,
+        legacy_any_session_found: !!anySession,
         willShowSetup: !setupComplete,
       });
 
       setNeedsSetup(!setupComplete);
-      applyNeedsLastShiftEntry(anySession ? false : needsLastShiftEntryRef.current);
-      if (!anySession && !isBackground && !hasProfileRef.current) {
-        applyNeedsLastShiftEntry(true);
-      }
+      applyNeedsLastShiftEntry(!lastShiftOnboardingComplete);
 
       const newProfile = profileData ? { ...profileData, pay_configurations: effectivePayConfig || null } : null;
       setProfile(newProfile);
       profileRef.current = newProfile;
       hasProfileRef.current = !!newProfile;
+      lastKnownBootstrapRef.current = {
+        userId: session.user.id,
+        profile: newProfile,
+        needsSetup: !setupComplete,
+        needsLastShiftEntry: !lastShiftOnboardingComplete,
+      };
       return true;
 
     } catch (error: any) {
       const message = error?.message || error;
+      const cachedBootstrap = lastKnownBootstrapRef.current;
+      const canReuseCachedBootstrap =
+        !!cachedBootstrap &&
+        cachedBootstrap.userId === session.user.id &&
+        isTimeoutError(error);
+
+      if (canReuseCachedBootstrap) {
+        console.log('[AuthProvider] Reusing cached bootstrap state after timeout', {
+          user_id: session.user.id.substring(0, 8),
+          reason: message,
+          needsSetup: cachedBootstrap.needsSetup,
+          needsLastShiftEntry: cachedBootstrap.needsLastShiftEntry,
+        });
+        applyCachedBootstrapState(cachedBootstrap);
+        return true;
+      }
       if (!isBackground || !hasProfileRef.current || !isTimeoutError(error)) {
         console.warn("fetchProfile failed or timed out:", message);
       }
@@ -201,12 +249,77 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } finally {
       if (shouldShowLoading) setLoading(false);
     }
-  }, [applyFailClosedBootstrapState, applyNeedsLastShiftEntry, readOptionalBootstrapQuery]);
+  }, [applyCachedBootstrapState, applyFailClosedBootstrapState, applyNeedsLastShiftEntry, readOptionalBootstrapQuery]);
 
-  const completeLastShiftEntry = () => setNeedsLastShiftEntry(false);
-  const signOut = async () => {
+  const completeLastShiftEntry = useCallback(async () => {
+    if (!session?.user) return;
+
+    const completedAt =
+      profileRef.current?.last_shift_onboarding_completed_at || new Date().toISOString();
+
+    applyNeedsLastShiftEntry(false);
+    setProfile((currentProfile) => {
+      if (!currentProfile) return currentProfile;
+
+      const nextProfile = {
+        ...currentProfile,
+        last_shift_onboarding_completed_at: completedAt,
+      };
+      profileRef.current = nextProfile;
+      return nextProfile;
+    });
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ last_shift_onboarding_completed_at: completedAt })
+        .eq('id', session.user.id);
+
+      if (error) throw error;
+    } catch (error: any) {
+      console.warn('Failed to persist last-shift onboarding completion:', error?.message || error);
+      applyNeedsLastShiftEntry(true);
+    }
+  }, [applyNeedsLastShiftEntry, session]);
+
+  const clearStoredBiometricSignIn = useCallback(async () => {
     await clearBiometricSession();
-    await supabase.auth.signOut();
+  }, []);
+
+  const syncStoredBiometricSession = useCallback(async (nextSession: Session | null) => {
+    if (!nextSession?.access_token || !nextSession.refresh_token) return;
+
+    try {
+      const biometricConfigured = await hasStoredBiometricSession();
+      if (!biometricConfigured) return;
+      const metadata = await getStoredBiometricSessionMetadata();
+      if (!metadata || metadata.userId !== nextSession.user.id) return;
+
+      await saveBiometricSession(nextSession.access_token, nextSession.refresh_token, {
+        userId: nextSession.user.id,
+        email: nextSession.user.email ?? metadata.email ?? null,
+      });
+    } catch (error) {
+      console.warn('Failed to synchronize stored biometric session:', error);
+    }
+  }, []);
+
+  const signOut = async (options?: { forgetBiometric?: boolean }) => {
+    const biometricConfigured = await hasStoredBiometricSession();
+
+    if (options?.forgetBiometric) {
+      await clearBiometricSession();
+    }
+    setTransientInvite(null);
+
+    if (biometricConfigured && !options?.forgetBiometric) {
+      // Soft sign-out clears local app auth state without revoking the server-side
+      // session that biometric restore depends on.
+      await (supabase.auth as any)._removeSession();
+      return;
+    }
+
+    await supabase.auth.signOut({ scope: 'local' });
   };
 
   const signIn = async (credentials: SignInWithPasswordCredentials) => {
@@ -271,6 +384,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     if (finalProfile) {
         setProfile(finalProfile);
+        profileRef.current = finalProfile;
         hasProfileRef.current = true;
 
         // IMPORTANT: Proactively set setup/calendar needs based on logic above
@@ -281,6 +395,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
 
     if (!data.session && data.user) Alert.alert("Check Your Email", "A confirmation link has been sent.");
+    return data.session ?? null;
   };
 
   useEffect(() => {
@@ -305,8 +420,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (!isMounted) return;
       setSession(currentSession);
       if (currentSession) {
-        await fetchProfile(currentSession, isBackground);
+        await syncStoredBiometricSession(currentSession);
+        setBootstrapping(true);
+        try {
+          await fetchProfile(currentSession, isBackground);
+        } finally {
+          if (isMounted) setBootstrapping(false);
+        }
       } else {
+        setBootstrapping(false);
         applyFailClosedBootstrapState();
       }
     };
@@ -324,6 +446,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         fallbackTimer = setTimeout(() => {
           if (!isMounted || initialAuthResolved) return;
           setSession(null);
+          setBootstrapping(false);
           applyFailClosedBootstrapState();
           finishInitialAuth();
         }, AUTH_LISTENER_GRACE_MS);
@@ -346,7 +469,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (fallbackTimer) clearTimeout(fallbackTimer);
       authListener.subscription.unsubscribe();
     };
-  }, [applyFailClosedBootstrapState, fetchProfile]);
+  }, [applyFailClosedBootstrapState, fetchProfile, syncStoredBiometricSession]);
 
   const refreshProfile = useCallback(async () => {
     const { data: { session: currentSession } } = await supabase.auth.getSession();
@@ -356,7 +479,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [fetchProfile]);
 
   return (
-    <AuthContext.Provider value={{ session, profile, loading, needsSetup, needsLastShiftEntry, transientInvite, isFleetDriver, refreshProfile, completeLastShiftEntry, signOut, signIn, signUp }}>
+    <AuthContext.Provider value={{ session, profile, loading, bootstrapping, needsSetup, needsLastShiftEntry, transientInvite, isFleetDriver, refreshProfile, completeLastShiftEntry, clearStoredBiometricSignIn, signOut, signIn, signUp }}>
       {children}
     </AuthContext.Provider>
   );

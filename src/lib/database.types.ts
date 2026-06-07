@@ -540,6 +540,7 @@ export type Database = {
           full_name: string | null
           id: string
           is_active: boolean | null
+          last_shift_onboarding_completed_at: string | null
           national_insurance_number: string | null
           payroll_number: string | null
           phone_number: string | null
@@ -572,6 +573,7 @@ export type Database = {
           full_name?: string | null
           id: string
           is_active?: boolean | null
+          last_shift_onboarding_completed_at?: string | null
           national_insurance_number?: string | null
           payroll_number?: string | null
           phone_number?: string | null
@@ -604,6 +606,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           is_active?: boolean | null
+          last_shift_onboarding_completed_at?: string | null
           national_insurance_number?: string | null
           payroll_number?: string | null
           phone_number?: string | null

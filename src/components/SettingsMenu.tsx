@@ -34,7 +34,7 @@ export default function SettingsMenu({
       t('confirmSignOut'),
       [
         { text: t('common.cancel'), style: 'cancel' },
-        { text: t('signOut'), style: 'destructive', onPress: signOut },
+        { text: t('signOut'), style: 'destructive', onPress: () => signOut() },
       ]
     );
   };

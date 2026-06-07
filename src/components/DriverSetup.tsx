@@ -126,8 +126,11 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
 
         setIsSaving(true);
         try {
+            const setupCompletedAt =
+                profile?.first_time_setup_completed_at || new Date().toISOString();
             const profileUpdate: any = {
                 full_name: fullName.trim(),
+                first_time_setup_completed_at: setupCompletedAt,
                 updated_at: new Date().toISOString()
             };
             if (!isFleetDriver) {

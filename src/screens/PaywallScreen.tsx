@@ -178,7 +178,7 @@ const PaywallScreen = () => {
       </TouchableOpacity>
 
       <TouchableOpacity
-        onPress={signOut}
+        onPress={() => signOut()}
         disabled={isBusy}
         className="mt-8"
       >

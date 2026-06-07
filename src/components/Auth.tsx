@@ -5,8 +5,11 @@ import { verifyInviteCode } from '../lib/inviteService';
 import type { Database } from '../lib/database.types';
 import { useAuth } from '../providers/AuthProvider'; // Import useAuth
 import {
+  type StoredBiometricSessionMetadata,
   getBiometricAvailability,
+  getStoredBiometricSessionMetadata,
   hasStoredBiometricSession,
+  clearBiometricSession,
   saveBiometricSession,
   signInWithBiometricSession,
 } from '../lib/biometricAuth';
@@ -29,14 +32,19 @@ export default function Auth() {
   const [verifying, setVerifying] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricSessionMetadata, setBiometricSessionMetadata] = useState<StoredBiometricSessionMetadata | null>(null);
 
   React.useEffect(() => {
     const loadBiometricState = async () => {
       try {
-        const availability = await getBiometricAvailability();
-        const hasStoredSession = await hasStoredBiometricSession();
+        const [availability, hasStoredSession, metadata] = await Promise.all([
+          getBiometricAvailability(),
+          hasStoredBiometricSession(),
+          getStoredBiometricSessionMetadata(),
+        ]);
         setBiometricAvailable(availability.isAvailable);
         setBiometricEnabled(hasStoredSession);
+        setBiometricSessionMetadata(metadata);
       } catch (error) {
         console.warn('Biometric availability check failed:', error);
       }
@@ -44,6 +52,58 @@ export default function Auth() {
 
     loadBiometricState();
   }, []);
+
+  const promptForBiometricEnable = async (
+    session: NonNullable<Awaited<ReturnType<typeof signIn>>>,
+    fallbackEmail: string,
+  ) => {
+    const availability = await getBiometricAvailability();
+    if (!availability.isAvailable || !session?.access_token || !session.refresh_token) return;
+
+    const storedMetadata = await getStoredBiometricSessionMetadata();
+    const hasStoredSession = await hasStoredBiometricSession();
+    const currentUserId = session.user.id;
+    const currentEmail = session.user.email ?? fallbackEmail;
+
+    if (storedMetadata?.userId === currentUserId) {
+      return;
+    }
+
+    const promptTitle = hasStoredSession
+      ? 'Replace biometric sign-in?'
+      : 'Enable biometric sign-in?';
+    const promptMessage = hasStoredSession && storedMetadata?.email
+      ? `This device is currently set to sign in as ${storedMetadata.email}. Replace it with ${currentEmail}?`
+      : 'Use fingerprint or face unlock for faster sign-in on this device.';
+
+    Alert.alert(
+      promptTitle,
+      promptMessage,
+      [
+        { text: 'Not now', style: 'cancel' },
+        {
+          text: hasStoredSession ? 'Replace' : 'Enable',
+          onPress: async () => {
+            try {
+              await saveBiometricSession(session.access_token, session.refresh_token, {
+                userId: currentUserId,
+                email: currentEmail,
+              });
+              setBiometricAvailable(true);
+              setBiometricEnabled(true);
+              setBiometricSessionMetadata({
+                userId: currentUserId,
+                email: currentEmail,
+              });
+              Alert.alert('Enabled', 'Biometric sign-in is now available on this device.');
+            } catch (error: any) {
+              Alert.alert('Biometric setup failed', error?.message || 'Could not enable biometric sign-in.');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleVerifyCode = async () => {
     setVerifying(true);
@@ -76,8 +136,11 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      await signUp({ email, password, fullName, accountType, invite: verifiedInvite });
+      const session = await signUp({ email, password, fullName, accountType, invite: verifiedInvite });
       // The auth provider will handle the "Check your email" alert if necessary
+      if (session) {
+        await promptForBiometricEnable(session, email);
+      }
     } catch (error: any) {
       Alert.alert('Sign-Up Error', error.message);
     } finally {
@@ -89,33 +152,8 @@ export default function Auth() {
     setLoading(true);
     try {
       const session = await signIn({ email, password });
-      const availability = await getBiometricAvailability();
-      if (
-        availability.isAvailable &&
-        session?.access_token &&
-        session?.refresh_token &&
-        !(await hasStoredBiometricSession())
-      ) {
-        Alert.alert(
-          'Enable biometric sign-in?',
-          'Use fingerprint or face unlock for faster sign-in on this device.',
-          [
-            { text: 'Not now', style: 'cancel' },
-            {
-              text: 'Enable',
-              onPress: async () => {
-                try {
-                  await saveBiometricSession(session.access_token, session.refresh_token);
-                  setBiometricAvailable(true);
-                  setBiometricEnabled(true);
-                  Alert.alert('Enabled', 'Biometric sign-in is now available on this device.');
-                } catch (error: any) {
-                  Alert.alert('Biometric setup failed', error?.message || 'Could not enable biometric sign-in.');
-                }
-              },
-            },
-          ]
-        );
+      if (session) {
+        await promptForBiometricEnable(session, email);
       }
     } catch (error: any) {
       Alert.alert("Login Failed", error.message);
@@ -129,7 +167,25 @@ export default function Auth() {
     try {
       await signInWithBiometricSession();
     } catch (error: any) {
+      if (!(await hasStoredBiometricSession())) {
+        setBiometricEnabled(false);
+        setBiometricSessionMetadata(null);
+      }
       Alert.alert('Biometric Sign-In Failed', error?.message || 'Could not sign in with biometrics.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisableBiometric = async () => {
+    setLoading(true);
+    try {
+      await clearBiometricSession();
+      setBiometricEnabled(false);
+      setBiometricSessionMetadata(null);
+      Alert.alert('Disabled', 'Biometric sign-in has been removed from this device.');
+    } catch (error: any) {
+      Alert.alert('Disable failed', error?.message || 'Could not remove biometric sign-in from this device.');
     } finally {
       setLoading(false);
     }
@@ -153,9 +209,18 @@ export default function Auth() {
         {mode === 'signIn' && (<><TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" placeholderTextColor="#94a3b8" /><TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} autoCapitalize="none" autoCorrect={false} secureTextEntry placeholderTextColor="#94a3b8" /></>)}
         <TouchableOpacity style={styles.button} onPress={mode === 'signIn' ? handleLogin : handleSignUp} disabled={loading}>{loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue</Text>}</TouchableOpacity>
         {mode === 'signIn' && biometricAvailable && biometricEnabled && (
-          <TouchableOpacity style={styles.secondaryButton} onPress={handleBiometricLogin} disabled={loading}>
-            <Text style={styles.secondaryButtonText}>Sign in with biometrics</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity style={styles.secondaryButton} onPress={handleBiometricLogin} disabled={loading}>
+              <Text style={styles.secondaryButtonText}>
+                {biometricSessionMetadata?.email
+                  ? `Sign in as ${biometricSessionMetadata.email}`
+                  : 'Sign in with biometrics'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleDisableBiometric} disabled={loading}>
+              <Text style={styles.switch}>Disable biometric sign-in on this device</Text>
+            </TouchableOpacity>
+          </>
         )}
         <TouchableOpacity onPress={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}><Text style={styles.switch}>{mode === 'signIn' ? "Don't have an account? Sign Up" : 'Already have an account? Sign In'}</Text></TouchableOpacity>
       </View>

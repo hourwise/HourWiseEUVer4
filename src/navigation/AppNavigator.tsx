@@ -8,7 +8,6 @@ import { useSubscriptionData } from '../providers/SubscriptionProvider';
 import { usePermissions } from '../providers/PermissionsProvider';
 
 import Auth from '../components/Auth';
-import LoadingScreen from '../components/LoadingScreen';
 import Dashboard from '../screens/Dashboard';
 import PermissionsScreen from '../screens/PermissionsScreen';
 import FirstTimeSetupGuide from '../components/FirstTimeSetupGuide';
@@ -18,7 +17,17 @@ import AccountManagementScreen from '../screens/AccountManagementScreen';
 import MessagesScreen from '../screens/MessagesScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import MyScheduleScreen from '../screens/MyScheduleScreen';
+import BootstrappingScreen from '../screens/BootstrappingScreen';
 import CalendarView from '../components/CalendarView';
+
+type BootStage =
+  | 'bootstrapping'
+  | 'signed_out'
+  | 'onboarding_setup'
+  | 'onboarding_last_shift'
+  | 'permissions_gate'
+  | 'paywall_gate'
+  | 'ready';
 
 const Stack = createNativeStackNavigator();
 
@@ -64,41 +73,75 @@ const OnboardingCalendar = () => {
 
 
 export default function AppNavigator() {
-  const { session, needsSetup, needsLastShiftEntry, loading: authLoading } = useAuth();
-  const { isSubscribed, isLoading: subscriptionLoading } = useSubscriptionData();
+  const {
+    session,
+    needsSetup,
+    needsLastShiftEntry,
+    loading: authLoading,
+    bootstrapping,
+  } = useAuth();
+  const {
+    hasAccess,
+    isLoading: subscriptionLoading,
+    paywallPolicy,
+    subscriptionActive,
+  } = useSubscriptionData();
   const { areAllGranted } = usePermissions();
 
-  console.log("NAVIGATOR STATE:", {
+  const shouldBlockOnSubscription =
+    !!session && paywallPolicy === 'enforce' && subscriptionLoading;
+
+  let bootStage: BootStage;
+  if (authLoading || bootstrapping || shouldBlockOnSubscription) {
+    bootStage = 'bootstrapping';
+  } else if (!session) {
+    bootStage = 'signed_out';
+  } else if (needsSetup) {
+    bootStage = 'onboarding_setup';
+  } else if (needsLastShiftEntry) {
+    bootStage = 'onboarding_last_shift';
+  } else if (areAllGranted !== true) {
+    bootStage = 'permissions_gate';
+  } else if (!hasAccess) {
+    bootStage = 'paywall_gate';
+  } else {
+    bootStage = 'ready';
+  }
+
+  console.log('[AppNavigator] boot stage', {
+    bootStage,
     authLoading,
+    bootstrapping,
     subscriptionLoading,
+    paywallPolicy,
     session: !!session,
     needsSetup,
     needsLastShiftEntry,
     areAllGranted,
-    isSubscribed,
+    subscriptionActive,
   });
 
-  if (authLoading || subscriptionLoading) {
-    return <LoadingScreen />;
+  if (bootStage === 'bootstrapping') {
+    return <BootstrappingScreen />;
   }
 
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!session ? (
+        {bootStage === 'signed_out' ? (
           <Stack.Screen name="Auth" component={Auth} />
-        ) : areAllGranted !== true ? (
-          <Stack.Screen name="Permissions" component={PermissionsScreen} />
-        ) : needsSetup ? (
+        ) : bootStage === 'onboarding_setup' ? (
           <Stack.Screen name="Setup" component={SetupStack} />
-        ) : needsLastShiftEntry ? (
+        ) : bootStage === 'onboarding_last_shift' ? (
           <Stack.Screen name="OnboardingCalendar" component={OnboardingCalendar} />
-        ) : !isSubscribed ? (
+        ) : bootStage === 'permissions_gate' ? (
+          <Stack.Screen name="Permissions" component={PermissionsScreen} />
+        ) : bootStage === 'paywall_gate' ? (
           <Stack.Screen name="Paywall" component={PaywallScreen} />
         ) : (
           <>
             <Stack.Screen name="Dashboard">
-              {(props) => <Dashboard {...props} session={session} />}
+              {(props) => <Dashboard {...props} session={session!} />}
             </Stack.Screen>
             <Stack.Screen name="AccountManagement" component={AccountManagementScreen} />
             <Stack.Screen name="Messages" component={MessagesScreen} />

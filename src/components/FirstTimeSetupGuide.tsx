@@ -33,23 +33,13 @@ function FirstTimeSetupGuide() {
     navigation.navigate('DriverSetup', { invite: transientInvite });
   }, [navigation, transientInvite]);
 
-  React.useEffect(() => {
-    // Auto-advance after 5 seconds to reduce friction for returning users
-    // who might briefly see this during the race condition (though race condition is fixed in Navigator)
-    const timer = setTimeout(() => {
-      handleContinue();
-    }, 5000);
-
-    return () => clearTimeout(timer);
-  }, [handleContinue]);
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <StatusBar barStyle="light-content" />
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
         <View style={{ backgroundColor: '#1E293B', borderRadius: 16, width: '100%', padding: 24, borderWidth: 1, borderColor: '#334155' }}>
           <Text style={{ fontSize: 24, fontWeight: 'bold', color: 'white', marginBottom: 8 }}>{t('firstTimeSetup.title', "Let's Get You Set Up")}</Text>
-          <Text style={{ color: '#94A3B8', fontSize: 18, marginBottom: 24 }}>{t('firstTimeSetup.subtitle', "Just a few steps to personalize your experience.")}</Text>
+          <Text style={{ color: '#94A3B8', fontSize: 18, marginBottom: 24 }}>{t('firstTimeSetup.subtitle', "Just a few steps to personalize your experience. Continue when you're ready.")}</Text>
 
           <View>
             <Step icon={<UserCheck color="#38bdf8" size={24} />} text={t('firstTimeSetup.step1_new', "First, you'll set up your driver profile and pay details.")} />

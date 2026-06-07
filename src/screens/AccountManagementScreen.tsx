@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../providers/AuthProvider';
 import DownloadReportModal from '../components/DownloadReportModal';
 import Constants from 'expo-constants';
+import { getBiometricAvailability, hasStoredBiometricSession } from '../lib/biometricAuth';
 
 const MenuItem = ({ label, icon, onPress, isDestructive = false }: { label: string; icon: React.ReactNode; onPress: () => void; isDestructive?: boolean }) => (
   <TouchableOpacity onPress={onPress} className={`flex-row items-center p-4 rounded-lg bg-slate-800 border border-slate-700 ${!isDestructive && 'active:bg-slate-700'}`}>
@@ -22,10 +23,12 @@ const SectionHeader = ({ title }: { title: string }) => (
 export default function AccountManagementScreen() {
   const { t } = useTranslation();
   const navigation = useNavigation<any>();
-  const { session, profile, isFleetDriver, refreshProfile, signOut } = useAuth();
+  const { session, profile, isFleetDriver, refreshProfile, signOut, clearStoredBiometricSignIn } = useAuth();
 
   const [isReportModalVisible, setIsReportModalVisible] = useState(false);
   const [companyName, setCompanyName] = useState<string | null>(null);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
 
   // Edit Modal State
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -38,6 +41,23 @@ export default function AccountManagementScreen() {
       fetchCompanyName();
     }
   }, [isFleetDriver, profile?.company_id]);
+
+  useEffect(() => {
+    const loadBiometricState = async () => {
+      try {
+        const [availability, enabled] = await Promise.all([
+          getBiometricAvailability(),
+          hasStoredBiometricSession(),
+        ]);
+        setBiometricAvailable(availability.isAvailable);
+        setBiometricEnabled(enabled);
+      } catch (error) {
+        console.warn('Error loading biometric state:', error);
+      }
+    };
+
+    loadBiometricState();
+  }, []);
 
   const fetchCompanyName = async () => {
     try {
@@ -111,13 +131,39 @@ export default function AccountManagementScreen() {
                 t('account.delete.requestSuccessTitle'),
                 t('account.delete.requestSuccessMessage')
               );
-              await signOut();
+              await signOut({ forgetBiometric: true });
             } catch (error: any) {
               Alert.alert(t('common.error'), t('account.delete.errorMessage'));
               console.error('Account deletion request error:', error.message);
             }
           }
         }
+      ]
+    );
+  };
+
+  const handleDisableBiometricSignIn = () => {
+    Alert.alert(
+      'Disable biometric sign-in?',
+      'This removes the saved biometric sign-in session from this device. You will need to sign in with email and password again to re-enable it.',
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: 'Disable',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsBusy(true);
+              await clearStoredBiometricSignIn();
+              setBiometricEnabled(false);
+              Alert.alert('Disabled', 'Biometric sign-in has been removed from this device.');
+            } catch (error: any) {
+              Alert.alert(t('common.error'), error?.message || 'Could not disable biometric sign-in.');
+            } finally {
+              setIsBusy(false);
+            }
+          },
+        },
       ]
     );
   };
@@ -150,6 +196,9 @@ export default function AccountManagementScreen() {
           <MenuItem label={t('account.editName', 'Edit Full Name')} icon={<User color="white" />} onPress={() => openEditModal('name')} />
           <MenuItem label={t('account.changeEmail', 'Change Email')} icon={<Mail color="white" />} onPress={() => openEditModal('email')} />
           <MenuItem label={t('account.changePassword', 'Change Password')} icon={<Lock color="white" />} onPress={() => openEditModal('password')} />
+          {biometricAvailable && biometricEnabled ? (
+            <MenuItem label="Disable Biometric Sign-In" icon={<Shield color="white" />} onPress={handleDisableBiometricSignIn} />
+          ) : null}
         </View>
 
         <SectionHeader title={t('account.dataSection', 'Data Management')} />
@@ -170,7 +219,7 @@ export default function AccountManagementScreen() {
 
         <SectionHeader title={t('account.dangerZone', 'Danger Zone')} />
         <View className="space-y-3 p-4 rounded-lg border border-red-500/50 bg-red-900/20">
-          <MenuItem label={t('common.logout', 'Sign Out')} icon={<LogOut color="white" />} onPress={signOut} />
+          <MenuItem label={t('common.logout', 'Sign Out')} icon={<LogOut color="white" />} onPress={() => signOut()} />
           <MenuItem label={t('account.delete.title', 'Delete My Account')} icon={<Trash2 color="#f87171" />} onPress={handleDeleteAccount} isDestructive />
         </View>
 

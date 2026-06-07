@@ -3,6 +3,7 @@ import Purchases from 'react-native-purchases';
 import { useAuth } from './AuthProvider';
 import {
   SUBSCRIPTION_CONFIG,
+  type PaywallPolicy,
 } from '../lib/subscriptionConfig';
 import {
   configureRevenueCatForUser,
@@ -11,8 +12,10 @@ import {
 } from '../lib/revenuecat';
 
 interface SubscriptionContextType {
-  isSubscribed: boolean;
+  hasAccess: boolean;
   isLoading: boolean;
+  paywallPolicy: PaywallPolicy;
+  subscriptionActive: boolean;
 }
 
 export const SubscriptionContext =
@@ -24,9 +27,10 @@ export const SubscriptionProvider = ({
   children: React.ReactNode;
 }) => {
   const { loading: authLoading, session, profile } = useAuth();
-  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [subscriptionActive, setSubscriptionActive] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const configuredUserIdRef = useRef<string | null>(null);
+  const paywallPolicy = SUBSCRIPTION_CONFIG.paywallPolicy;
 
   useEffect(() => {
     let isMounted = true;
@@ -36,26 +40,26 @@ export const SubscriptionProvider = ({
       if (authLoading) return;
 
       if (!session?.user || !profile) {
-        setIsSubscribed(false);
+        setSubscriptionActive(false);
         setIsLoading(false);
         return;
       }
 
       if (profile.account_type === 'fleet') {
-        setIsSubscribed(true);
+        setSubscriptionActive(true);
         setIsLoading(false);
         return;
       }
 
-      if (SUBSCRIPTION_CONFIG.bypassSubscription) {
-        setIsSubscribed(true);
+      if (paywallPolicy === 'bypass') {
+        setSubscriptionActive(false);
         setIsLoading(false);
         return;
       }
 
       if (!isRevenueCatReady()) {
         console.warn('RevenueCat config missing. Solo subscriptions will be treated as inactive.');
-        setIsSubscribed(false);
+        setSubscriptionActive(false);
         setIsLoading(false);
         return;
       }
@@ -64,7 +68,7 @@ export const SubscriptionProvider = ({
 
       const applyCustomerInfo = (customerInfo: any) => {
         if (!isMounted) return;
-        setIsSubscribed(isEntitlementActive(customerInfo));
+        setSubscriptionActive(isEntitlementActive(customerInfo));
       };
 
       try {
@@ -78,7 +82,7 @@ export const SubscriptionProvider = ({
         applyCustomerInfo(customerInfo);
       } catch (error) {
         console.warn('RevenueCat subscription sync failed:', error);
-        if (isMounted) setIsSubscribed(false);
+        if (isMounted) setSubscriptionActive(false);
       } finally {
         if (isMounted) setIsLoading(false);
       }
@@ -92,10 +96,18 @@ export const SubscriptionProvider = ({
         Purchases.removeCustomerInfoUpdateListener(listener);
       }
     };
-  }, [authLoading, profile, session]);
+  }, [authLoading, paywallPolicy, profile, session]);
+
+  const hasAccess =
+    profile?.account_type === 'fleet' ||
+    paywallPolicy === 'bypass' ||
+    paywallPolicy === 'observe' ||
+    subscriptionActive;
 
   return (
-    <SubscriptionContext.Provider value={{ isSubscribed, isLoading }}>
+    <SubscriptionContext.Provider
+      value={{ hasAccess, isLoading, paywallPolicy, subscriptionActive }}
+    >
       {children}
     </SubscriptionContext.Provider>
   );

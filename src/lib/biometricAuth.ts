@@ -4,6 +4,12 @@ import { supabase } from './supabase';
 
 const BIOMETRIC_ACCESS_TOKEN_KEY = 'biometric_access_token';
 const BIOMETRIC_REFRESH_TOKEN_KEY = 'biometric_refresh_token';
+const BIOMETRIC_SESSION_METADATA_KEY = 'biometric_session_metadata';
+
+export type StoredBiometricSessionMetadata = {
+  userId: string;
+  email: string | null;
+};
 
 export const getBiometricAvailability = async () => {
   const [hasHardware, isEnrolled] = await Promise.all([
@@ -27,18 +33,80 @@ export const hasStoredBiometricSession = async () => {
   return !!accessToken && !!refreshToken;
 };
 
-export const saveBiometricSession = async (accessToken: string, refreshToken: string) => {
-  await Promise.all([
+export const getStoredBiometricSessionMetadata = async (): Promise<StoredBiometricSessionMetadata | null> => {
+  const rawMetadata = await SecureStore.getItemAsync(BIOMETRIC_SESSION_METADATA_KEY);
+  if (!rawMetadata) return null;
+
+  try {
+    const parsed = JSON.parse(rawMetadata) as Partial<StoredBiometricSessionMetadata>;
+    if (!parsed.userId || typeof parsed.userId !== 'string') return null;
+
+    return {
+      userId: parsed.userId,
+      email: typeof parsed.email === 'string' ? parsed.email : null,
+    };
+  } catch {
+    return null;
+  }
+};
+
+export const saveBiometricSession = async (
+  accessToken: string,
+  refreshToken: string,
+  metadata?: StoredBiometricSessionMetadata | null,
+) => {
+  const writes: Promise<void>[] = [
     SecureStore.setItemAsync(BIOMETRIC_ACCESS_TOKEN_KEY, accessToken),
     SecureStore.setItemAsync(BIOMETRIC_REFRESH_TOKEN_KEY, refreshToken),
-  ]);
+  ];
+
+  if (metadata?.userId) {
+    writes.push(
+      SecureStore.setItemAsync(
+        BIOMETRIC_SESSION_METADATA_KEY,
+        JSON.stringify({
+          userId: metadata.userId,
+          email: metadata.email ?? null,
+        }),
+      ),
+    );
+  }
+
+  await Promise.all(writes);
 };
 
 export const clearBiometricSession = async () => {
   await Promise.all([
     SecureStore.deleteItemAsync(BIOMETRIC_ACCESS_TOKEN_KEY),
     SecureStore.deleteItemAsync(BIOMETRIC_REFRESH_TOKEN_KEY),
+    SecureStore.deleteItemAsync(BIOMETRIC_SESSION_METADATA_KEY),
   ]);
+};
+
+export const isBiometricSessionConfigured = async () => {
+  const availability = await getBiometricAvailability();
+  const hasStoredSession = await hasStoredBiometricSession();
+
+  return {
+    isAvailable: availability.isAvailable,
+    hasStoredSession,
+    isEnabled: availability.isAvailable && hasStoredSession,
+  };
+};
+
+const isInvalidStoredSessionError = (error: unknown) => {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+  return (
+    message.includes('auth session missing') ||
+    message.includes('refresh token') ||
+    message.includes('invalid token') ||
+    message.includes('token has expired') ||
+    message.includes('jwt expired') ||
+    message.includes('session expired') ||
+    message.includes('session_not_found') ||
+    message.includes('invalid refresh')
+  );
 };
 
 export const authenticateWithBiometrics = async () => {
@@ -69,6 +137,11 @@ export const signInWithBiometricSession = async () => {
     refresh_token: refreshToken,
   });
 
-  if (error) throw error;
+  if (error) {
+    if (isInvalidStoredSessionError(error)) {
+      await clearBiometricSession();
+    }
+    throw error;
+  }
   return data.session;
 };

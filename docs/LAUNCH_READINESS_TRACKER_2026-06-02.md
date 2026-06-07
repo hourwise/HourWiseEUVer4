@@ -49,8 +49,8 @@ If a future agent resumes from this file:
 
 ## Snapshot
 
-Last Updated: 2026-06-02
-Current Focus: Planning only; no new code implementation started from this tracker yet.
+Last Updated: 2026-06-07
+Current Focus: Auth/startup stabilization first slice: bootstrapping stage, durable onboarding flags, and explicit paywall policy while keeping bypass mode active.
 Current Release Mode: Internal / controlled testing
 Paywall Mode Target Right Now: `bypass`
 Highest Priority Workstream: Auth and startup stabilization
@@ -59,12 +59,12 @@ Highest Priority Workstream: Auth and startup stabilization
 
 | Gate | Status | Owner | Notes |
 | --- | --- | --- | --- |
-| Auth/startup deterministic | `not_started` | `USER+AGENT` | Main UX blocker right now |
-| Durable onboarding state | `not_started` | `USER+AGENT` | Needed to stop repeated onboarding/calendar redirects |
+| Auth/startup deterministic | `in_progress` | `USER+AGENT` | Bootstrapping stage introduced; full auth UI split still pending |
+| Durable onboarding state | `in_progress` | `USER+AGENT` | Explicit last-shift completion persistence started with DB migration + auth flow wiring |
 | Fleet invite flow verified | `not_started` | `USER+AGENT` | Still needs end-to-end real validation |
 | Real-device field validation complete | `not_started` | `USER` | Notifications, drive detection, shift flows |
 | Crash/event observability live | `not_started` | `USER+AGENT` | Sentry or Crashlytics not yet integrated |
-| RevenueCat production policy ready | `not_started` | `USER+AGENT` | Keep bypass during current testing |
+| RevenueCat production policy ready | `in_progress` | `USER+AGENT` | Explicit paywall policy model added; current mode remains `bypass` |
 | Supabase security audit complete | `not_started` | `USER+AGENT` | Launch blocker |
 | Mobile app security audit complete | `not_started` | `USER+AGENT` | Launch blocker |
 | Signing/secrets/release hygiene complete | `not_started` | `USER+AGENT` | Launch blocker |
@@ -74,11 +74,11 @@ Highest Priority Workstream: Auth and startup stabilization
 
 | ID | Workstream | Status | Owner | Priority | Dependencies | Deliverable | Next Action |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| LR-01 | Stabilize auth/startup flow | `not_started` | `USER+AGENT` | `P0` | none | Single boot-state-driven startup flow | Convert auth/startup plan into implementation tickets |
-| LR-02 | Persist onboarding completion durably | `not_started` | `USER+AGENT` | `P0` | LR-01 | Durable last-shift onboarding state | Decide profile field shape and migration path |
-| LR-03 | Remove setup auto-advance and flow hacks | `not_started` | `USER+AGENT` | `P1` | LR-01 | Stable setup UX without timer-driven navigation | Review `FirstTimeSetupGuide` replacement path |
+| LR-01 | Stabilize auth/startup flow | `in_progress` | `USER+AGENT` | `P0` | none | Single boot-state-driven startup flow | Finish consolidating remaining auth transitions and reduce auth screen complexity |
+| LR-02 | Persist onboarding completion durably | `in_progress` | `USER+AGENT` | `P0` | LR-01 | Durable last-shift onboarding state | Apply new profile-column migration to Supabase and validate returning-user behavior |
+| LR-03 | Remove setup auto-advance and flow hacks | `done` | `USER+AGENT` | `P1` | LR-01 | Stable setup UX without timer-driven navigation | Completed in `FirstTimeSetupGuide` |
 | LR-04 | Refactor auth UI into smaller flows | `not_started` | `USER+AGENT` | `P1` | LR-01 | Separate sign-in, sign-up, invite, biometric surfaces | Define desired component split |
-| LR-05 | Formalize paywall policy | `not_started` | `USER+AGENT` | `P1` | LR-01 | `bypass / observe / enforce` policy model | Keep bypass on, define observe mode next |
+| LR-05 | Formalize paywall policy | `in_progress` | `USER+AGENT` | `P1` | LR-01 | `bypass / observe / enforce` policy model | Validate observe/enforce behavior after auth/startup flow is cleaner |
 | LR-06 | Verify fleet invite onboarding | `not_started` | `USER+AGENT` | `P0` | LR-01 | Passing fleet invite create-account path | Test exact invite journey and capture failures |
 | LR-07 | Verify solo auth/setup journey | `not_started` | `USER+AGENT` | `P0` | LR-01 | Passing solo sign-up/sign-in/setup path | Create test checklist for cold start and relogin |
 | LR-08 | Real-device notification validation | `not_started` | `USER` | `P0` | current notification fixes | Confirm background notifications on test device | Run tomorrow’s field test and log results |
@@ -105,19 +105,19 @@ Highest Priority Workstream: Auth and startup stabilization
 
 | Item | Status | Owner | Notes / Evidence |
 | --- | --- | --- | --- |
-| Define canonical `BootState` shape | `not_started` | `AGENT` | See `AUTH_FLOW_ANALYSIS_AND_PLAN.md` |
+| Define canonical `BootState` shape | `in_progress` | `AGENT` | Navigator now derives one boot stage locally; provider consolidation still pending |
 | Decide provider ownership model | `not_started` | `USER+AGENT` | BootstrapProvider vs refactor of AuthProvider |
-| Add dedicated bootstrap route/state | `not_started` | `AGENT` | Needed to remove auth-form lingering |
-| Persist last-shift onboarding completion | `not_started` | `USER+AGENT` | Current behavior is process-local |
-| Remove timed setup auto-advance | `not_started` | `AGENT` | `FirstTimeSetupGuide` currently auto-navigates |
-| Simplify login UX transitions | `not_started` | `USER+AGENT` | Goal: one clear transition after sign-in |
+| Add dedicated bootstrap route/state | `done` | `AGENT` | `BootstrappingScreen` added and driven by auth/bootstrap state |
+| Persist last-shift onboarding completion | `in_progress` | `USER+AGENT` | DB migration + auth persistence added; needs live migration and device validation |
+| Remove timed setup auto-advance | `done` | `AGENT` | `FirstTimeSetupGuide` no longer auto-navigates |
+| Simplify login UX transitions | `in_progress` | `USER+AGENT` | Post-session bootstrap stage added; auth component is still overloaded |
 
 ## 2. Billing and Paywall
 
 | Item | Status | Owner | Notes / Evidence |
 | --- | --- | --- | --- |
-| Keep bypass enabled in current testing builds | `not_started` | `USER` | Must remain true until later phase |
-| Define explicit paywall policy model | `not_started` | `AGENT` | `bypass / observe / enforce` |
+| Keep bypass enabled in current testing builds | `done` | `USER` | Code path still defaults to `bypass` and does not enforce paywall |
+| Define explicit paywall policy model | `done` | `AGENT` | `EXPO_PUBLIC_PAYWALL_POLICY` with `bypass / observe / enforce`, legacy bypass env still respected |
 | Add observe-mode plan | `not_started` | `AGENT` | Non-blocking telemetry path |
 | Gather RevenueCat production config | `not_started` | `USER` | Keys, entitlement, offering IDs |
 | Validate solo subscribed/unsubscribed paths | `not_started` | `USER+AGENT` | After observe/enforce work begins |
@@ -204,8 +204,20 @@ Use this section to leave continuity notes for future sessions.
 - Current immediate next real-world task is device notification testing.
 - Current highest-value engineering task remains auth/startup stabilization.
 
+### 2026-06-07
+
+- Added `BootstrappingScreen` and navigator boot-stage derivation so startup routing is driven from one derived stage instead of independent loading checks.
+- Added `bootstrapping` state to `AuthProvider` so post-login and post-biometric bootstrap transitions have a dedicated loading phase.
+- Added `last_shift_onboarding_completed_at` migration and wired `completeLastShiftEntry()` to persist it.
+- Updated auth bootstrap logic to use the explicit last-shift completion flag, with `work_sessions` kept as a legacy fallback for existing users.
+- `DriverSetup` now stamps `first_time_setup_completed_at` when setup is saved.
+- `FirstTimeSetupGuide` auto-advance removed.
+- Subscription config now supports explicit `bypass / observe / enforce` paywall policy while preserving `bypass` as the current default.
+- Normal sign-out now preserves device biometric sign-in, with explicit disable controls added and invalid stored biometric sessions cleared automatically on restore failure.
+- Verification: `npm run ts:check` passed on 2026-06-07; `npm run test:tacho` passed on 2026-06-07.
+
 ## Suggested Immediate Next Actions
 
-1. Run the scheduled real-device notification/background tests and append results here.
-2. Convert LR-01 into concrete code-change tickets before implementation starts.
-3. Start Supabase inventory workstream once auth/startup ticketing is written.
+1. Apply the new Supabase migration and validate that returning users do not re-enter last-shift onboarding.
+2. Continue LR-01 by splitting `Auth.tsx` into smaller sign-in/sign-up/invite/biometric units.
+3. Validate `observe` paywall behavior only after the auth/startup slice is stable on device.
