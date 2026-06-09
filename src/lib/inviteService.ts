@@ -4,8 +4,10 @@ export type InviteVerificationResult =
   | { ok: true; invite: any }
   | {
       ok: false;
-      reason: 'missing' | 'expired' | 'not_pending' | 'error';
+      reason: 'empty' | 'missing' | 'expired' | 'already_used' | 'not_pending' | 'error';
+      title?: string;
       message: string;
+      guidance?: string;
       expiresAt?: string;
       status?: string;
     };
@@ -36,8 +38,10 @@ export const verifyInviteCode = async (inviteCode: string) => {
   if (inviteCodeCandidates.length === 0) {
     return {
       ok: false,
-      reason: 'missing',
+      reason: 'empty',
+      title: 'Invite code required',
       message: 'Invite code is empty.',
+      guidance: 'Enter the code exactly as it appears in the invite email or portal.',
     } satisfies InviteVerificationResult;
   }
 
@@ -58,7 +62,9 @@ export const verifyInviteCode = async (inviteCode: string) => {
         return {
           ok: false,
           reason: 'error',
+          title: 'Invite lookup failed',
           message: `Invite lookup failed: ${error.message}`,
+          guidance: 'Try again in a moment. If this keeps happening, confirm the app build matches the invite environment.',
         } satisfies InviteVerificationResult;
       }
 
@@ -72,7 +78,9 @@ export const verifyInviteCode = async (inviteCode: string) => {
       return {
         ok: false,
         reason: 'missing',
-        message: 'Invite code was not found.',
+        title: 'Invite not found',
+        message: 'Invite code was not found in this environment.',
+        guidance: 'Check the code for typos and confirm the invite was created in the same test or live environment as this app build.',
       } satisfies InviteVerificationResult;
     }
 
@@ -84,7 +92,21 @@ export const verifyInviteCode = async (inviteCode: string) => {
       return {
         ok: false,
         reason: 'error',
+        title: 'Invite data invalid',
         message: 'Invite expiry could not be read.',
+        guidance: 'The invite record is malformed. Ask the fleet admin to generate a new invite.',
+        expiresAt: data.expires_at,
+        status: data.status,
+      } satisfies InviteVerificationResult;
+    }
+
+    if (data.status === 'accepted') {
+      return {
+        ok: false,
+        reason: 'already_used',
+        title: 'Invite already used',
+        message: 'This invite has already been accepted.',
+        guidance: 'Ask the fleet admin to create a new invite if this driver still needs access.',
         expiresAt: data.expires_at,
         status: data.status,
       } satisfies InviteVerificationResult;
@@ -94,7 +116,9 @@ export const verifyInviteCode = async (inviteCode: string) => {
       return {
         ok: false,
         reason: 'not_pending',
+        title: 'Invite not active',
         message: `Invite is ${data.status}, not pending.`,
+        guidance: 'Ask the fleet admin to check the invite status or send a replacement invite.',
         expiresAt: data.expires_at,
         status: data.status,
       } satisfies InviteVerificationResult;
@@ -104,7 +128,9 @@ export const verifyInviteCode = async (inviteCode: string) => {
       return {
         ok: false,
         reason: 'expired',
+        title: 'Invite expired',
         message: 'Invite code has expired.',
+        guidance: 'Ask the fleet admin to send a new invite.',
         expiresAt: data.expires_at,
         status: data.status,
       } satisfies InviteVerificationResult;
@@ -116,7 +142,9 @@ export const verifyInviteCode = async (inviteCode: string) => {
     return {
       ok: false,
       reason: 'error',
+      title: 'Invite verification error',
       message: 'Unexpected invite verification error.',
+      guidance: 'Try again and, if the problem persists, confirm the invite exists in the same environment as this app build.',
     } satisfies InviteVerificationResult;
   }
 };

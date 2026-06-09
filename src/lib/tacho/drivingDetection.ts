@@ -8,6 +8,7 @@ import type {
 } from './types';
 
 const MAX_LOCATION_ACCURACY_METERS = 50;
+const MAX_STOP_LOCATION_ACCURACY_METERS = 75;
 
 export const evaluateBackgroundSpeedDecision = ({
   nowMs,
@@ -60,7 +61,11 @@ export const evaluateLocationSample = ({
   stationaryConfirmMs,
   accelScoreMax,
 }: LocationSampleDecisionInput): LocationSampleDecision => {
-  if (accuracy > MAX_LOCATION_ACCURACY_METERS) {
+  const maxAllowedAccuracy = isDriving
+    ? MAX_STOP_LOCATION_ACCURACY_METERS
+    : MAX_LOCATION_ACCURACY_METERS;
+
+  if (accuracy > maxAllowedAccuracy) {
     return {
       shouldIgnore: true,
       nextDriving: null,

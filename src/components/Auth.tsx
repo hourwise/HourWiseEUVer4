@@ -1,24 +1,39 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Alert, Image } from 'react-native';
-import { supabase } from '../lib/supabase';
-import { verifyInviteCode } from '../lib/inviteService';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import type { Database } from '../lib/database.types';
-import { useAuth } from '../providers/AuthProvider'; // Import useAuth
+import {
+  type InviteVerificationResult,
+  verifyInviteCode,
+} from '../lib/inviteService';
+import { useAuth } from '../providers/AuthProvider';
 import {
   type StoredBiometricSessionMetadata,
+  clearBiometricSession,
   getBiometricAvailability,
   getStoredBiometricSessionMetadata,
   hasStoredBiometricSession,
-  clearBiometricSession,
   saveBiometricSession,
   signInWithBiometricSession,
 } from '../lib/biometricAuth';
+import BiometricSignInSection from './auth/BiometricSignInSection';
+import SignInFields from './auth/SignInFields';
+import SignUpFields, { type AccountType } from './auth/SignUpFields';
 
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
-type AccountType = 'solo' | 'fleet';
+type InviteVerificationFailure = Exclude<InviteVerificationResult, { ok: true }>;
 
 export default function Auth() {
-  const { signUp, signIn } = useAuth(); // Get new functions from context
+  const { signUp, signIn } = useAuth();
   const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
   const [accountType, setAccountType] = useState<AccountType>('solo');
 
@@ -32,7 +47,8 @@ export default function Auth() {
   const [verifying, setVerifying] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [biometricSessionMetadata, setBiometricSessionMetadata] = useState<StoredBiometricSessionMetadata | null>(null);
+  const [biometricSessionMetadata, setBiometricSessionMetadata] =
+    useState<StoredBiometricSessionMetadata | null>(null);
 
   React.useEffect(() => {
     const loadBiometricState = async () => {
@@ -72,37 +88,52 @@ export default function Auth() {
     const promptTitle = hasStoredSession
       ? 'Replace biometric sign-in?'
       : 'Enable biometric sign-in?';
-    const promptMessage = hasStoredSession && storedMetadata?.email
-      ? `This device is currently set to sign in as ${storedMetadata.email}. Replace it with ${currentEmail}?`
-      : 'Use fingerprint or face unlock for faster sign-in on this device.';
+    const promptMessage =
+      hasStoredSession && storedMetadata?.email
+        ? `This device is currently set to sign in as ${storedMetadata.email}. Replace it with ${currentEmail}?`
+        : 'Use fingerprint or face unlock for faster sign-in on this device.';
 
-    Alert.alert(
-      promptTitle,
-      promptMessage,
-      [
-        { text: 'Not now', style: 'cancel' },
-        {
-          text: hasStoredSession ? 'Replace' : 'Enable',
-          onPress: async () => {
-            try {
-              await saveBiometricSession(session.access_token, session.refresh_token, {
-                userId: currentUserId,
-                email: currentEmail,
-              });
-              setBiometricAvailable(true);
-              setBiometricEnabled(true);
-              setBiometricSessionMetadata({
-                userId: currentUserId,
-                email: currentEmail,
-              });
-              Alert.alert('Enabled', 'Biometric sign-in is now available on this device.');
-            } catch (error: any) {
-              Alert.alert('Biometric setup failed', error?.message || 'Could not enable biometric sign-in.');
-            }
-          },
+    Alert.alert(promptTitle, promptMessage, [
+      { text: 'Not now', style: 'cancel' },
+      {
+        text: hasStoredSession ? 'Replace' : 'Enable',
+        onPress: async () => {
+          try {
+            await saveBiometricSession(session.access_token, session.refresh_token, {
+              userId: currentUserId,
+              email: currentEmail,
+            });
+            setBiometricAvailable(true);
+            setBiometricEnabled(true);
+            setBiometricSessionMetadata({
+              userId: currentUserId,
+              email: currentEmail,
+            });
+            Alert.alert('Enabled', 'Biometric sign-in is now available on this device.');
+          } catch (error: any) {
+            Alert.alert(
+              'Biometric setup failed',
+              error?.message || 'Could not enable biometric sign-in.',
+            );
+          }
         },
-      ]
-    );
+      },
+    ]);
+  };
+
+  const showInviteVerificationFailure = (result: InviteVerificationFailure) => {
+    const detailLines = [
+      result.status ? `Status: ${result.status}` : null,
+      result.expiresAt ? `Expiry: ${result.expiresAt}` : null,
+      result.guidance ?? null,
+    ].filter(Boolean);
+
+    const message =
+      detailLines.length > 0
+        ? `${result.message}\n\n${detailLines.join('\n')}`
+        : result.message;
+
+    Alert.alert(result.title ?? 'Invite verification failed', message);
   };
 
   const handleVerifyCode = async () => {
@@ -111,18 +142,12 @@ export default function Auth() {
       const result = await verifyInviteCode(inviteCode);
 
       if (result.ok) {
-        Alert.alert("Success", "Invite code is valid. Your details have been pre-filled.");
+        Alert.alert('Success', 'Invite code is valid. Your details have been pre-filled.');
         setVerifiedInvite(result.invite);
         setEmail(result.invite.email || '');
         setFullName(result.invite.full_name || '');
       } else {
-        const diagnosticSuffix = result.expiresAt
-          ? `\n\nExpiry in database: ${result.expiresAt}`
-          : '';
-        const statusSuffix = result.status
-          ? `\nCurrent status: ${result.status}`
-          : '';
-        Alert.alert("Invite verification failed", `${result.message}${statusSuffix}${diagnosticSuffix}`);
+        showInviteVerificationFailure(result);
       }
     } finally {
       setVerifying(false);
@@ -130,14 +155,25 @@ export default function Auth() {
   };
 
   const handleSignUp = async () => {
-    if (accountType === 'fleet' && !verifiedInvite) return Alert.alert("Error", "Please verify your invite code before creating an account.");
-    if (!email || !password) return Alert.alert("Error", "Email and password are required.");
-    if (accountType === 'solo' && !fullName) return Alert.alert("Error", "Please enter your full name.");
+    if (accountType === 'fleet' && !verifiedInvite) {
+      return Alert.alert('Error', 'Please verify your invite code before creating an account.');
+    }
+    if (!email || !password) {
+      return Alert.alert('Error', 'Email and password are required.');
+    }
+    if (accountType === 'solo' && !fullName) {
+      return Alert.alert('Error', 'Please enter your full name.');
+    }
 
     setLoading(true);
     try {
-      const session = await signUp({ email, password, fullName, accountType, invite: verifiedInvite });
-      // The auth provider will handle the "Check your email" alert if necessary
+      const session = await signUp({
+        email,
+        password,
+        fullName,
+        accountType,
+        invite: verifiedInvite,
+      });
       if (session) {
         await promptForBiometricEnable(session, email);
       }
@@ -156,7 +192,7 @@ export default function Auth() {
         await promptForBiometricEnable(session, email);
       }
     } catch (error: any) {
-      Alert.alert("Login Failed", error.message);
+      Alert.alert('Login Failed', error.message);
     } finally {
       setLoading(false);
     }
@@ -171,7 +207,10 @@ export default function Auth() {
         setBiometricEnabled(false);
         setBiometricSessionMetadata(null);
       }
-      Alert.alert('Biometric Sign-In Failed', error?.message || 'Could not sign in with biometrics.');
+      Alert.alert(
+        'Biometric Sign-In Failed',
+        error?.message || 'Could not sign in with biometrics.',
+      );
     } finally {
       setLoading(false);
     }
@@ -185,70 +224,139 @@ export default function Auth() {
       setBiometricSessionMetadata(null);
       Alert.alert('Disabled', 'Biometric sign-in has been removed from this device.');
     } catch (error: any) {
-      Alert.alert('Disable failed', error?.message || 'Could not remove biometric sign-in from this device.');
+      Alert.alert(
+        'Disable failed',
+        error?.message || 'Could not remove biometric sign-in from this device.',
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const renderSignUpForm = () => (
-    <>
-      <View style={styles.toggleContainer}><TouchableOpacity style={[styles.toggleButton, accountType === 'solo' && styles.toggleButtonActive]} onPress={() => setAccountType('solo')}><Text style={[styles.toggleButtonText, accountType === 'solo' && styles.toggleButtonTextActive]}>Solo Driver</Text></TouchableOpacity><TouchableOpacity style={[styles.toggleButton, accountType === 'fleet' && styles.toggleButtonActive]} onPress={() => setAccountType('fleet')}><Text style={[styles.toggleButtonText, accountType === 'fleet' && styles.toggleButtonTextActive]}>Fleet Member</Text></TouchableOpacity></View>
-      {accountType === 'solo' ? (<TextInput style={styles.input} placeholder="Full Name" value={fullName} onChangeText={setFullName} placeholderTextColor="#94a3b8" />) : (<><View style={styles.inviteContainer}><TextInput style={[styles.input, styles.inviteInput]} placeholder="Invite Code" value={inviteCode} onChangeText={setInviteCode} autoCapitalize="characters" editable={!verifiedInvite} placeholderTextColor="#94a3b8" /><TouchableOpacity style={styles.verifyButton} onPress={handleVerifyCode} disabled={verifying || !!verifiedInvite}>{verifying ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Verify</Text>}</TouchableOpacity></View>{verifiedInvite && <Text style={styles.verifiedText}>✓ Verified: Welcome, {fullName}!</Text>}</>)}
-      <TextInput style={[styles.input, verifiedInvite && styles.inputDisabled]} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" editable={!verifiedInvite} placeholderTextColor="#94a3b8" />
-      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} autoCapitalize="none" autoCorrect={false} secureTextEntry placeholderTextColor="#94a3b8" />
-    </>
-  );
-
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-      <View style={{ alignItems: 'center', marginBottom: 32 }}><Image source={require('../../assets/splash-icon.png')} style={styles.logo} /><Text style={styles.appName}>HourWise EU</Text><Text style={styles.tagline}>EU Compliance & Work Time Tracking Made Simple</Text></View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
+      <View style={styles.brandBlock}>
+        <Image source={require('../../assets/splash-icon.png')} style={styles.logo} />
+        <Text style={styles.appName}>HourWise EU</Text>
+        <Text style={styles.tagline}>EU Compliance & Work Time Tracking Made Simple</Text>
+      </View>
+
       <View style={styles.card}>
         <Text style={styles.title}>{mode === 'signIn' ? 'Sign In' : 'Create Account'}</Text>
-        {mode === 'signUp' && renderSignUpForm()}
-        {mode === 'signIn' && (<><TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" placeholderTextColor="#94a3b8" /><TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} autoCapitalize="none" autoCorrect={false} secureTextEntry placeholderTextColor="#94a3b8" /></>)}
-        <TouchableOpacity style={styles.button} onPress={mode === 'signIn' ? handleLogin : handleSignUp} disabled={loading}>{loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue</Text>}</TouchableOpacity>
-        {mode === 'signIn' && biometricAvailable && biometricEnabled && (
-          <>
-            <TouchableOpacity style={styles.secondaryButton} onPress={handleBiometricLogin} disabled={loading}>
-              <Text style={styles.secondaryButtonText}>
-                {biometricSessionMetadata?.email
-                  ? `Sign in as ${biometricSessionMetadata.email}`
-                  : 'Sign in with biometrics'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleDisableBiometric} disabled={loading}>
-              <Text style={styles.switch}>Disable biometric sign-in on this device</Text>
-            </TouchableOpacity>
-          </>
+
+        {mode === 'signUp' ? (
+          <SignUpFields
+            accountType={accountType}
+            fullName={fullName}
+            email={email}
+            password={password}
+            inviteCode={inviteCode}
+            verifiedInvite={verifiedInvite}
+            verifyingInvite={verifying}
+            onAccountTypeChange={setAccountType}
+            onFullNameChange={setFullName}
+            onEmailChange={setEmail}
+            onPasswordChange={setPassword}
+            onInviteCodeChange={setInviteCode}
+            onVerifyInvite={handleVerifyCode}
+          />
+        ) : (
+          <SignInFields
+            email={email}
+            password={password}
+            onEmailChange={setEmail}
+            onPasswordChange={setPassword}
+          />
         )}
-        <TouchableOpacity onPress={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}><Text style={styles.switch}>{mode === 'signIn' ? "Don't have an account? Sign Up" : 'Already have an account? Sign In'}</Text></TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.button}
+          onPress={mode === 'signIn' ? handleLogin : handleSignUp}
+          disabled={loading}
+        >
+          {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue</Text>}
+        </TouchableOpacity>
+
+        <BiometricSignInSection
+          visible={mode === 'signIn' && biometricAvailable && biometricEnabled}
+          loading={loading}
+          email={biometricSessionMetadata?.email ?? null}
+          onSignIn={handleBiometricLogin}
+          onDisable={handleDisableBiometric}
+        />
+
+        <TouchableOpacity onPress={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}>
+          <Text style={styles.switch}>
+            {mode === 'signIn'
+              ? "Don't have an account? Sign Up"
+              : 'Already have an account? Sign In'}
+          </Text>
+        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 16 },
-  logo: { width: 120, height: 120, resizeMode: 'contain', marginBottom: 12 },
-  appName: { fontSize: 32, fontWeight: 'bold', color: 'white' },
-  tagline: { fontSize: 16, color: '#94a3b8', marginTop: 4 },
-  card: { width: '100%', maxWidth: 450, backgroundColor: '#1e293b', padding: 24, borderRadius: 16, marginTop: 20 },
-  title: { fontSize: 24, color: 'white', marginBottom: 20, textAlign: 'center', fontWeight: 'bold' },
-  input: { backgroundColor: '#334155', padding: 12, marginBottom: 10, color: 'white', borderRadius: 8 },
-  inputDisabled: { backgroundColor: '#475569' },
-  button: { backgroundColor: '#2563eb', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 10 },
-  buttonText: { color: 'white', fontWeight: '600' },
-  secondaryButton: { backgroundColor: '#0f172a', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 10, borderWidth: 1, borderColor: '#475569' },
-  secondaryButtonText: { color: 'white', fontWeight: '600' },
-  switch: { color: '#94a3b8', textAlign: 'center', marginTop: 12 },
-  toggleContainer: { flexDirection: 'row', backgroundColor: '#334155', borderRadius: 8, marginBottom: 16, padding: 4 },
-  toggleButton: { flex: 1, paddingVertical: 10, borderRadius: 6 },
-  toggleButtonActive: { backgroundColor: '#4f46e5' },
-  toggleButtonText: { color: '#94a3b8', textAlign: 'center', fontWeight: '600' },
-  toggleButtonTextActive: { color: 'white' },
-  inviteContainer: { flexDirection: 'row', gap: 8 },
-  inviteInput: { flex: 1, marginBottom: 0 },
-  verifyButton: { backgroundColor: '#16a34a', paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
-  verifiedText: { color: '#4ade80', marginBottom: 10, fontStyle: 'italic' },
+  container: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  brandBlock: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  logo: {
+    width: 120,
+    height: 120,
+    resizeMode: 'contain',
+    marginBottom: 12,
+  },
+  appName: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  tagline: {
+    fontSize: 16,
+    color: '#94a3b8',
+    marginTop: 4,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 450,
+    backgroundColor: '#1e293b',
+    padding: 24,
+    borderRadius: 16,
+    marginTop: 20,
+  },
+  title: {
+    fontSize: 24,
+    color: 'white',
+    marginBottom: 20,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  button: {
+    backgroundColor: '#2563eb',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  switch: {
+    color: '#94a3b8',
+    textAlign: 'center',
+    marginTop: 12,
+  },
 });

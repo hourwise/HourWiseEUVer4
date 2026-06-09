@@ -110,6 +110,11 @@ const APP_BUNDLE_ID = 'com.PCGsoft.hourwise.eu';
 export type { WorkStatus } from '../lib/tacho/types';
 
 const notificationSetupDone = { current: false };
+const ALERT_CHANNEL_IDS = new Set<string>(
+  Object.values(ALERT_TEXT)
+    .map(config => config.channelId)
+    .filter(channelId => !!channelId)
+);
 async function ensureNotificationSetup() {
   if (notificationSetupDone.current) return;
   await ensureNotificationChannelsInitialized();
@@ -465,6 +470,15 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     fireDateMs: number,
   ) => `${scope}:${alertKey}:${Math.floor(fireDateMs / 1000)}`, []);
 
+  const isHourwiseAlertRequest = useCallback((request: any) => {
+    const data = request?.content?.data as Record<string, any> | undefined;
+    if (data?.hourwiseAlert === true) return true;
+
+    const channelId = request?.content?.channelId;
+    const categoryIdentifier = request?.content?.categoryIdentifier;
+    return categoryIdentifier === 'alarm' && typeof channelId === 'string' && ALERT_CHANNEL_IDS.has(channelId);
+  }, []);
+
   const extractScheduledAlertDescriptor = useCallback((request: any) => {
     const data = request?.content?.data as Record<string, any> | undefined;
     if (!data?.hourwiseAlert) return null;
@@ -490,6 +504,21 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       scheduledAtMs: Number.isFinite(scheduledAtMs) ? scheduledAtMs : Date.now(),
     } satisfies ScheduledAlertDescriptor;
   }, []);
+
+  const cancelAllTrackedHourwiseAlerts = useCallback(async () => {
+    const scheduledRequests = await Notifications.getAllScheduledNotificationsAsync()
+      .catch(() => [] as any[]);
+    const identifiers = scheduledRequests
+      .filter(request => isHourwiseAlertRequest(request))
+      .map(request => request.identifier)
+      .filter((identifier): identifier is string => !!identifier);
+
+    await Promise.all(
+      identifiers.map(identifier =>
+        Notifications.cancelScheduledNotificationAsync(identifier).catch(() => {})
+      )
+    );
+  }, [isHourwiseAlertRequest]);
 
   const setScopeScheduledAlerts = useCallback((
     scope: ScheduledAlertScope,
@@ -605,10 +634,11 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   ) => {
     await cancelScheduledAlertsForScope('compliance');
     await cancelScheduledAlertsForScope('drive');
+    await cancelAllTrackedHourwiseAlerts();
     if (options?.clearBackgroundState) {
       await clearBackgroundAlertState();
     }
-  }, [cancelScheduledAlertsForScope]);
+  }, [cancelAllTrackedHourwiseAlerts, cancelScheduledAlertsForScope]);
 
   const scheduleDesiredAlert = useCallback(async (
     desiredAlert: DesiredScheduledAlert,
@@ -835,6 +865,34 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     );
   }, [buildComplianceAlertPlans, reconcileScheduledAlerts]);
 
+  const seedAlertWindowFromState = useCallback((machineState: TachoState, nowMs: number) => {
+    const displayState = deriveDisplayFromTachoState(machineState, nowMs);
+    const segmentStartMs = machineState.currentSegmentStart
+      ? new Date(machineState.currentSegmentStart).getTime()
+      : nowMs;
+    const inFlightDrivingSeconds =
+      machineState.status === 'working' && machineState.isDriving && Number.isFinite(segmentStartMs)
+        ? Math.max(0, Math.floor((nowMs - segmentStartMs) / 1000))
+        : 0;
+    const totalDrivingSeconds = machineState.totals.driving + inFlightDrivingSeconds;
+
+    return {
+      ...machineState,
+      lastBreakDuration: displayState.lastBreakDuration,
+      lastBreakEndTime: displayState.lastBreakEndTime,
+      alerts: {
+        prevShiftElapsed: displayState.shift,
+        prevRemaining: {
+          work: displayState.workTimeRemaining,
+          drive: displayState.drivingTimeRemaining,
+          driveExtension: MAX_DAILY_DRIVE_EXTENDED - totalDrivingSeconds,
+          weeklyDrive: displayState.weeklyDrivingRemaining,
+          maxShiftTime: displayState.maxShiftTimeRemaining,
+        },
+      },
+    };
+  }, []);
+
   const persistFromRefs = useCallback(async () => {
      if (!userStorageKey || isPersistingRef.current || isRefreshingSessionRef.current) return;
      if (isEndingRef.current && statusRef.current !== 'idle') return;
@@ -901,8 +959,12 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       timerMode: normalizedState.timerMode,
       existingOtherData: sessionDataRef.current?.other_data,
       currentSegmentStart: normalizedState.currentSegmentStart,
-      currentPoaStart: normalizedState.currentSegmentStart,
+      currentBreakStart:
+        normalizedState.status === 'break' ? normalizedState.currentSegmentStart : null,
+      currentPoaStart:
+        normalizedState.status === 'poa' ? normalizedState.currentSegmentStart : null,
       breakStartMs: normalizedState.breakStartMs,
+      isDriving: normalizedState.isDriving,
       nowMs,
     });
 
@@ -1021,11 +1083,27 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         .is('end_time', null)
         .single();
 
-      if (error || !data) return;
+      if (error) return;
+
+      if (!data) {
+        applyMachineStateToRefs(createInitialTachoState(resumeNowMs));
+        setSessionData(null);
+        sessionDataRef.current = null;
+        isDrivingDetectionPausedRef.current = false;
+        setIsDrivingDetectionPaused(false);
+        setDisplay(createInitialDisplayState());
+        syncStateFromRefs();
+        await clearActiveTimerState(userStorageKey);
+        await cancelAllScheduledAlertNotifications({ clearBackgroundState: true });
+        return;
+      }
 
       setSessionData(data);
       sessionDataRef.current = data;
-      const dbState = createTachoStateFromSessionRow(data, currentRuntimeState);
+      const dbState = seedAlertWindowFromState(
+        createTachoStateFromSessionRow(data, currentRuntimeState),
+        resumeNowMs,
+      );
       const reconciledState = isValidResumableSessionState(currentRuntimeState, data.id)
         ? currentRuntimeState
         : isValidResumableSessionState(persistedRuntimeState, data.id)
@@ -1063,7 +1141,9 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     syncShiftAllowanceState,
     createMachineStateFromRefs,
     applyMachineStateToRefs,
+    cancelAllScheduledAlertNotifications,
     syncSessionToDb,
+    seedAlertWindowFromState,
   ]);
 
   const commitAndFlipDriving = useCallback((
@@ -1121,16 +1201,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
        appStateRef.current = next;
 
         if ((next === 'inactive' || next === 'background') && statusRef.current !== 'idle') {
-         // CRITICAL FIX #8: Ensure driving state is synced before backgrounding
-         // This prevents stale driving state from being replayed on resume
-         if (isDrivingRef.current && sessionIdRef.current) {
-           try {
-             await syncSessionToDb('drive_stop', {
-               maxRetries: 2,
-               logLabel: 'Background driving state sync failed:',
-             });
-           } catch (e) { console.warn('Background driving state sync failed:', e); }
-         }
          if (sessionIdRef.current) {
            try {
              await syncSessionToDb('checkpoint', {
@@ -1259,8 +1329,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         if (!await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) {
           await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
             accuracy: Location.Accuracy.BestForNavigation,
-            timeInterval: 4000,
-            distanceInterval: 8,
+            timeInterval: 2000,
+            distanceInterval: 4,
             pausesUpdatesAutomatically: false,
             foregroundService: {
               notificationTitle: i18n.t('notification.trackingTitle', 'HourWise active'),
@@ -1294,11 +1364,29 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     syncStateFromRefs();
     vibrateAlert();
 
-    await executeReducerCommands(result.commands);
+    const syncCommand = result.commands.find(
+      (command): command is Extract<TachoCommand, { type: 'sync_session' }> =>
+        command.type === 'sync_session'
+    );
+
+    await persistFromRefs();
+    if (syncCommand && syncCommand.reason !== 'end_shift') {
+      await syncSessionToDb(syncCommand.reason, {
+        maxRetries: 2,
+        logLabel: `Immediate ${syncCommand.reason} sync failed:`,
+      });
+    }
+
+    await executeReducerCommands(result.commands, {
+      skipPersist: true,
+      skipSyncSession: true,
+    });
   }, [
     cancelAllScheduledAlertNotifications,
     createMachineStateFromRefs,
     applyMachineStateToRefs,
+    persistFromRefs,
+    syncSessionToDb,
     syncStateFromRefs,
     vibrateAlert,
     executeReducerCommands,

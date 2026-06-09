@@ -57,6 +57,54 @@ test('evaluateLocationSample stops driving after stationary confirmation window'
   assert.equal(result.nextDrivingScore, 0);
 });
 
+test('evaluateLocationSample accepts slightly weaker GPS accuracy for stop decisions', () => {
+  const stationarySinceMs = Date.UTC(2026, 4, 14, 9, 45, 0);
+  const nowMs = stationarySinceMs + 2000;
+  const result = evaluateLocationSample({
+    nowMs,
+    accuracy: 70,
+    speedKmh: 3,
+    lastSpeedKmh: 10,
+    lastSpeedTs: stationarySinceMs,
+    isDriving: true,
+    movingSinceMs: 0,
+    stationarySinceMs,
+    stillThresholdKmh: 4,
+    lowSpeedStopThresholdKmh: 6,
+    drivingThresholdKmh: 10,
+    immediateStartThresholdKmh: 14,
+    movingConfirmMs: 1200,
+    stationaryConfirmMs: 1800,
+    accelScoreMax: 8,
+  });
+
+  assert.equal(result.shouldIgnore, false);
+  assert.equal(result.nextDriving, false);
+});
+
+test('evaluateLocationSample still ignores weak GPS accuracy for driving start decisions', () => {
+  const result = evaluateLocationSample({
+    nowMs: Date.UTC(2026, 4, 14, 10, 0, 0),
+    accuracy: 70,
+    speedKmh: 20,
+    lastSpeedKmh: 0,
+    lastSpeedTs: 0,
+    isDriving: false,
+    movingSinceMs: 0,
+    stationarySinceMs: 0,
+    stillThresholdKmh: 4,
+    lowSpeedStopThresholdKmh: 6,
+    drivingThresholdKmh: 10,
+    immediateStartThresholdKmh: 14,
+    movingConfirmMs: 1200,
+    stationaryConfirmMs: 1800,
+    accelScoreMax: 8,
+  });
+
+  assert.equal(result.shouldIgnore, true);
+  assert.equal(result.nextDriving, null);
+});
+
 test('evaluateBackgroundSpeedDecision ignores stale background speed samples', () => {
   const result = evaluateBackgroundSpeedDecision({
     nowMs: 100000,

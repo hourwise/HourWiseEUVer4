@@ -214,6 +214,8 @@ export type SessionOtherData = Record<string, any> & {
   workCycle?: number;
   drivingCycle?: number;
   legalBreakDisplay?: number;
+  currentSegmentStart?: string | null;
+  isDriving?: boolean;
   timerMode?: TimerMode;
   shiftDurationMinutes?: number;
   usedShiftExtension?: boolean;
@@ -237,6 +239,7 @@ export type SessionCheckpointPayloadInput = SessionCounterSnapshotInput & {
   status: WorkStatus;
   breakStartMs: number;
   currentPoaStart: string | null;
+  isDriving?: boolean;
 };
 
 export type SessionStatusUpdatePayloadInput = SessionCounterSnapshotInput & {
@@ -244,6 +247,7 @@ export type SessionStatusUpdatePayloadInput = SessionCounterSnapshotInput & {
   currentSegmentStart: string;
   currentBreakStart: string | null;
   currentPoaStart: string | null;
+  isDriving?: boolean;
 };
 
 export type ShiftLifecycleState = {

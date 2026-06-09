@@ -33,6 +33,8 @@ test('buildSessionSyncPayload creates status change payloads with break timestam
   assert.equal(payload.current_poa_start, null);
   assert.equal('current_segment_start' in payload, false);
   assert.equal((payload.other_data as any).driving, 20);
+  assert.equal((payload.other_data as any).currentSegmentStart, null);
+  assert.equal((payload.other_data as any).isDriving, false);
   assert.equal((payload.other_data as any).keep, 'me');
 });
 
@@ -63,6 +65,7 @@ test('buildSessionSyncPayload creates checkpoint payloads for poa without overri
   assert.equal(payload.current_break_start, null);
   assert.equal(payload.current_poa_start, '2026-05-17T10:00:00.000Z');
   assert.equal('current_segment_start' in payload, false);
+  assert.equal((payload.other_data as any).currentSegmentStart, null);
 });
 
 test('buildSessionSyncPayload creates drive-stop payloads without totals fields', () => {
@@ -77,10 +80,33 @@ test('buildSessionSyncPayload creates drive-stop payloads without totals fields'
     timerMode: '6h',
     existingOtherData: { marker: true },
     currentSegmentStart: '2026-05-17T11:00:00.000Z',
+    isDriving: true,
   });
 
   assert.equal('total_work_minutes' in payload, false);
   assert.equal('current_segment_start' in payload, false);
   assert.equal((payload.other_data as any).driving, 3);
+  assert.equal((payload.other_data as any).currentSegmentStart, '2026-05-17T11:00:00.000Z');
+  assert.equal((payload.other_data as any).isDriving, false);
   assert.equal((payload.other_data as any).marker, true);
+});
+
+test('buildSessionSyncPayload keeps the active working segment checkpoint in other_data', () => {
+  const payload = buildSessionSyncPayload({
+    reason: 'checkpoint',
+    status: 'working',
+    totals: { work: 5400, poa: 0, break: 2940, driving: 1500 },
+    legalBreakDisplayTotal: 2940,
+    has15minBreak: false,
+    workCycle: 0,
+    drivingCycle: 0,
+    timerMode: '6h',
+    existingOtherData: { keep: 'checkpoint' },
+    currentSegmentStart: '2026-06-08T13:49:00.000Z',
+    isDriving: false,
+  });
+
+  assert.equal((payload.other_data as any).currentSegmentStart, '2026-06-08T13:49:00.000Z');
+  assert.equal((payload.other_data as any).isDriving, false);
+  assert.equal((payload.other_data as any).keep, 'checkpoint');
 });

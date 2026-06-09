@@ -214,6 +214,8 @@ Use this section to leave continuity notes for future sessions.
 - `FirstTimeSetupGuide` auto-advance removed.
 - Subscription config now supports explicit `bypass / observe / enforce` paywall policy while preserving `bypass` as the current default.
 - Normal sign-out now preserves device biometric sign-in, with explicit disable controls added and invalid stored biometric sessions cleared automatically on restore failure.
+- `Auth.tsx` is now split into smaller sign-in, sign-up, fleet-invite, and biometric presentation components under `src/components/auth/`.
+- Invite verification diagnostics now distinguish empty, missing, expired, already-used, and other inactive invite states with user-facing guidance.
 - Verification: `npm run ts:check` passed on 2026-06-07; `npm run test:tacho` passed on 2026-06-07.
 
 ## Suggested Immediate Next Actions

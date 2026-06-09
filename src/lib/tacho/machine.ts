@@ -272,7 +272,7 @@ export const createTachoStateFromSessionRow = (
       ? (session.current_break_start || session.start_time)
       : status === 'poa'
         ? (session.current_poa_start || session.start_time)
-        : session.start_time;
+        : (otherData?.currentSegmentStart || session.start_time);
   const breakStartMs =
     status === 'break'
       ? new Date(session.current_break_start || currentSegmentStart || session.start_time).getTime()
@@ -302,7 +302,7 @@ export const createTachoStateFromSessionRow = (
         ? otherData.drivingCycle * 60
         : totals.driving,
     has15minBreak: !!otherData?.has15minBreak,
-    isDriving: false,
+    isDriving: !!otherData?.isDriving,
     breakStartMs: Number.isFinite(breakStartMs) ? breakStartMs : 0,
     dailyRestSecondsBeforeShift:
       typeof otherData?.dailyRestSecondsBeforeShift === 'number'

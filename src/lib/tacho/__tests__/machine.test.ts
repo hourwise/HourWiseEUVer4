@@ -160,3 +160,73 @@ test('createTachoStateFromSessionRow maps database session fields while preservi
   assert.equal(machineState.motion.lastSpeedKmh, fallbackState.motion.lastSpeedKmh);
   assert.equal(machineState.alerts.prevRemaining.work, fallbackState.alerts.prevRemaining.work);
 });
+
+test('createTachoStateFromSessionRow restores working segment checkpoint from other_data', () => {
+  const fallbackState = createTachoStateFromSnapshot({
+    status: 'working',
+    sessionId: 'local-session-2',
+    timerMode: '6h',
+    workStartTime: '2026-06-08T07:00:00.000Z',
+    currentSegmentStart: '2026-06-08T08:00:00.000Z',
+    totals: { work: 3600, poa: 0, break: 2940, driving: 1200 },
+    legalBreakDisplayTotal: 2940,
+    workCycle: 0,
+    drivingCycle: 0,
+    has15minBreak: false,
+    isDriving: false,
+    breakStartMs: 0,
+    weeklyDrivingAccumulator: 0,
+    shiftExtensionsUsedThisWeek: 0,
+    maxShiftTimeSeconds: 13 * 3600,
+    dailyRestSecondsBeforeShift: 0,
+    reducedDailyRestTaken: false,
+    lastTickMs: 1,
+    lastBreakDuration: 0,
+    lastBreakEndTime: 0,
+  });
+
+  const machineState = createTachoStateFromSessionRow({
+    id: 'db-session-2',
+    user_id: 'user-2',
+    date: '2026-06-08',
+    start_time: '2026-06-08T07:00:00.000Z',
+    end_time: null,
+    total_work_minutes: 60,
+    total_break_minutes: 49,
+    total_poa_minutes: 0,
+    status: 'working',
+    timezone: 'Europe/London',
+    created_at: '2026-06-08T07:00:00.000Z',
+    updated_at: null,
+    compliance_score: null,
+    compliance_violations: null,
+    current_break_start: null,
+    current_poa_start: null,
+    drop_count: null,
+    empty_miles: null,
+    end_lat: null,
+    end_lng: null,
+    is_manual_entry: null,
+    job_reference: null,
+    loaded_miles: null,
+    notes: null,
+    other_data: {
+      driving: 20,
+      legalBreakDisplay: 49,
+      has15minBreak: false,
+      workCycle: 0,
+      drivingCycle: 0,
+      currentSegmentStart: '2026-06-08T08:19:00.000Z',
+      isDriving: true,
+      timerMode: '6h',
+    },
+    start_lat: null,
+    start_lng: null,
+    client_id: null,
+    waiting_minutes: null,
+  }, fallbackState);
+
+  assert.equal(machineState.currentSegmentStart, '2026-06-08T08:19:00.000Z');
+  assert.equal(machineState.isDriving, true);
+  assert.equal(machineState.totals.break, 49 * 60);
+});
