@@ -108,6 +108,17 @@ function pickBestAmount(rawText: string): number | null {
   return (reasonable.length ? Math.max(...reasonable) : Math.max(...all)) ?? null;
 }
 
+function pickBestFuelLitres(rawText: string): number | null {
+  const matches = rawText.match(/\b\d{1,4}(?:[.,]\d{1,3})?\s*(?:L|LTR|LITRE|LITRES)\b/gi) ?? [];
+
+  for (const match of matches) {
+    const value = Number(normalizeAmountText(match.replace(/[^\d.,]/g, '')));
+    if (Number.isFinite(value) && value > 0 && value <= 500) return value;
+  }
+
+  return null;
+}
+
 export default function AddExpenseModal({
   visible,
   onClose,
@@ -121,6 +132,7 @@ export default function AddExpenseModal({
   const [currency, setCurrency] = useState<string>('GBP');
   const [merchant, setMerchant] = useState<string>('');
   const [category, setCategory] = useState<string>('Fuel');
+  const [fuelLitres, setFuelLitres] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [busy, setBusy] = useState(false);
 
@@ -132,6 +144,7 @@ export default function AddExpenseModal({
       setCurrency('GBP');
       setMerchant('');
       setCategory('Fuel');
+      setFuelLitres('');
       setNotes('');
       setBusy(false);
     }
@@ -161,6 +174,9 @@ export default function AddExpenseModal({
 
       const bestMerchant = pickBestMerchant(text);
       if (bestMerchant) setMerchant(bestMerchant);
+
+      const bestLitres = pickBestFuelLitres(text);
+      if (bestLitres !== null) setFuelLitres(bestLitres.toFixed(2));
     } catch (e: any) {
       Alert.alert(
         t('expenses.scanResult'),
@@ -260,12 +276,14 @@ export default function AddExpenseModal({
 
     setBusy(true);
     try {
+      const litres = Number(fuelLitres);
       await expenseService.addExpense(
         {
           amount: n,
           currency,
           merchant: merchant.trim() || undefined,
           category: category.trim() || undefined,
+          fuel_litres: category === 'Fuel' && Number.isFinite(litres) && litres > 0 ? litres : undefined,
           notes: notes.trim() || undefined,
           image_url: receiptUri ?? undefined,
           raw_ocr_text: rawOcrText || undefined,
@@ -378,6 +396,20 @@ export default function AddExpenseModal({
                 </TouchableOpacity>
               ))}
             </View>
+
+            {category === 'Fuel' ? (
+              <>
+                <Text style={styles.label}>Fuel Added (litres)</Text>
+                <TextInput
+                  value={fuelLitres}
+                  onChangeText={setFuelLitres}
+                  keyboardType="numeric"
+                  placeholder="e.g. 58.42"
+                  placeholderTextColor="#64748b"
+                  style={styles.input}
+                />
+              </>
+            ) : null}
 
             <Text style={styles.label}>{t('expenses.notes')}</Text>
             <TextInput

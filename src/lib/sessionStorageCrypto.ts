@@ -42,3 +42,5 @@ export const parseEncryptedSessionPayload = (rawPayload: string | null): Encrypt
   }
 };
 
+export const toSecureStoreSafeKey = (value: string): string =>
+  aesjs.utils.hex.fromBytes(aesjs.utils.utf8.toBytes(value));

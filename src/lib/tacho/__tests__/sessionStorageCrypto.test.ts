@@ -5,6 +5,7 @@ import {
   decryptSessionValue,
   encryptSessionValue,
   parseEncryptedSessionPayload,
+  toSecureStoreSafeKey,
 } from '../../sessionStorageCrypto';
 
 const createKey = () => new Uint8Array(Array.from({ length: 32 }, (_, index) => index + 1));
@@ -37,3 +38,10 @@ test('parseEncryptedSessionPayload accepts only the supported payload shape', ()
   assert.equal(parseEncryptedSessionPayload(JSON.stringify({ version: 1, ciphertextHex: 123 })), null);
 });
 
+test('toSecureStoreSafeKey removes characters rejected by Expo SecureStore keys', () => {
+  const safeKey = toSecureStoreSafeKey('sb-project-ref-auth-token:with:colons/slashes');
+
+  assert.match(safeKey, /^[A-Za-z0-9._-]+$/);
+  assert.equal(safeKey.includes(':'), false);
+  assert.equal(safeKey.includes('/'), false);
+});

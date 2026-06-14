@@ -6,6 +6,7 @@ import {
   decryptSessionValue,
   encryptSessionValue,
   parseEncryptedSessionPayload,
+  toSecureStoreSafeKey,
   type EncryptedSessionPayload,
 } from './sessionStorageCrypto';
 
@@ -14,7 +15,8 @@ const KEY_SUFFIX = 'encryption-key';
 const AES_KEY_BYTES = 32;
 
 const encryptedStorageKey = (key: string) => `${STORAGE_PREFIX}:${key}:payload`;
-const secureKeyStorageKey = (key: string) => `${STORAGE_PREFIX}:${key}:${KEY_SUFFIX}`;
+const secureKeyStorageKey = (key: string) =>
+  `${STORAGE_PREFIX}.${toSecureStoreSafeKey(key)}.${KEY_SUFFIX}`;
 
 const randomBytes = (length: number) => {
   const bytes = new Uint8Array(length);

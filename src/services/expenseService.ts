@@ -10,6 +10,7 @@ export interface Expense {
   notes?: string;
   image_url?: string; // Corrected from receipt_url
   raw_ocr_text?: string;
+  fuel_litres?: number;
 }
 
 const addExpense = async (expense: Omit<Expense, 'user_id'>, userId: string) => {

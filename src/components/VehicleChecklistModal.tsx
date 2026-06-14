@@ -64,6 +64,8 @@ const TRAILER_CHECKS = [
 
 const VEHICLE_TYPES = ['Van', '7.5t', 'Class 2 (Rigid)', 'Class 1 (Artic)'];
 
+const normalizeReg = (value: string) => value.trim().toUpperCase().replace(/\s+/g, '');
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -112,24 +114,31 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
   }, [startTime, timeRemaining]);
 
   useEffect(() => {
-    if (reg.length >= 3 && !startTime) {
+    const normalizedReg = normalizeReg(reg);
+    if (normalizedReg.length >= 3 && !startTime) {
       setStartTime(Date.now());
-      fetchLastClosingOdometer(reg);
     }
-  }, [reg]);
+
+    if (visible && normalizedReg.length >= 3 && !currentCheckId && odometer.trim() === '') {
+      fetchLastClosingOdometer(normalizedReg);
+    }
+  }, [reg, visible, currentCheckId, odometer, startTime]);
 
   const fetchLastClosingOdometer = async (regNumber: string) => {
     try {
       const { data, error } = await supabase
         .from('vehicle_checks')
         .select('closing_odometer')
-        .eq('reg_number', regNumber)
+        .eq('driver_id', userId)
+        .eq('reg_number', normalizeReg(regNumber))
         .not('closing_odometer', 'is', null)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (data?.closing_odometer) {
+      if (error) throw error;
+
+      if (data?.closing_odometer && !currentCheckId && odometer.trim() === '') {
         setOdometer(data.closing_odometer.toString());
       }
     } catch (err) {
@@ -163,7 +172,8 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
         .maybeSingle();
 
       if (lastCheck) {
-        setReg(lastCheck.reg_number);
+        resetForm();
+        setReg(normalizeReg(lastCheck.reg_number));
         setVehicleType(lastCheck.vehicle_type);
         setVehicleMake(lastCheck.vehicle_make || '');
         // We don't load the full check (answers/defects) as it's a new session,
@@ -279,7 +289,8 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
   const allAnswered = getRequiredItems().every((item) => answers[item.id] !== undefined);
 
   const handleSubmit = async () => {
-    if (!reg) { Alert.alert(t('common.error'), t('vehicleChecklist.missingReg')); return; }
+    const normalizedReg = normalizeReg(reg);
+    if (!normalizedReg) { Alert.alert(t('common.error'), t('vehicleChecklist.missingReg')); return; }
     if (isArtic && pullingTrailer && !trailerReg) { Alert.alert(t('common.error'), t('vehicleChecklist.missingTrailerReg')); return; }
     if (!allAnswered) { Alert.alert(t('common.error'), t('vehicleChecklist.incomplete')); return; }
     if (hasDefects && !defectDetails.trim()) { Alert.alert(t('common.error'), t('vehicleChecklist.missingDefectDetails')); return; }
@@ -301,13 +312,19 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
       const odoReading = parseInt(odometer, 10);
       const closingOdo = parseInt(closingOdometer, 10);
 
+      if (!isNaN(odoReading) && !isNaN(closingOdo) && closingOdo < odoReading) {
+        Alert.alert(t('common.error'), t('vehicleChecklist.invalidClosingOdo', 'Closing odometer cannot be lower than opening odometer.'));
+        setIsSubmitting(false);
+        return;
+      }
+
       // Primary payload with columns guaranteed to exist
       const primaryPayload = {
         driver_id: userId,
         company_id: profile?.company_id || null,
         session_id: sessionId,
-        reg_number: reg,
-        trailer_reg: (isArtic && pullingTrailer) ? trailerReg : null,
+        reg_number: normalizedReg,
+        trailer_reg: (isArtic && pullingTrailer) ? normalizeReg(trailerReg) : null,
         vehicle_type: vehicleType,
         vehicle_make: vehicleMake || null,
         odometer_reading: isNaN(odoReading) ? null : odoReading,
@@ -492,7 +509,7 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t('vehicleChecklist.vehicleDetails')}</Text>
-            <TextInput style={styles.input} placeholder={t('vehicleChecklist.registration')} placeholderTextColor="#94a3b8" value={reg} onChangeText={setReg} autoCapitalize="characters" autoComplete="off" autoCorrect={false} spellCheck={false} textContentType="none" importantForAutofill="no" />
+            <TextInput style={styles.input} placeholder={t('vehicleChecklist.registration')} placeholderTextColor="#94a3b8" value={reg} onChangeText={(value) => setReg(normalizeReg(value))} autoCapitalize="characters" autoComplete="off" autoCorrect={false} spellCheck={false} textContentType="none" importantForAutofill="no" />
             <View style={styles.pickerContainer}>
               {VEHICLE_TYPES.map((t) => (
                 <TouchableOpacity key={t} onPress={() => setVehicleType(t)} style={[styles.typeChip, vehicleType === t && styles.typeChipActive]}>
@@ -530,7 +547,7 @@ export default function VehicleChecklistModal({ visible, onClose, userId, profil
                   placeholder={t('vehicleChecklist.trailerRegistration')}
                   placeholderTextColor="#94a3b8"
                   value={trailerReg}
-                  onChangeText={setTrailerReg}
+                  onChangeText={(value) => setTrailerReg(normalizeReg(value))}
                   autoCapitalize="characters"
                   autoComplete="off"
                   autoCorrect={false}

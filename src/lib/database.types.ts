@@ -307,12 +307,16 @@ export type Database = {
           created_at: string | null
           currency: string | null
           date: string
+          fuel_litres: number | null
           id: string
           image_url: string | null
           merchant: string | null
           notes: string | null
           raw_ocr_text: string | null
+          session_id: string | null
           user_id: string
+          vehicle_check_id: string | null
+          vehicle_reg: string | null
         }
         Insert: {
           amount: number
@@ -320,12 +324,16 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           date: string
+          fuel_litres?: number | null
           id?: string
           image_url?: string | null
           merchant?: string | null
           notes?: string | null
           raw_ocr_text?: string | null
+          session_id?: string | null
           user_id: string
+          vehicle_check_id?: string | null
+          vehicle_reg?: string | null
         }
         Update: {
           amount?: number
@@ -333,14 +341,33 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           date?: string
+          fuel_litres?: number | null
           id?: string
           image_url?: string | null
           merchant?: string | null
           notes?: string | null
           raw_ocr_text?: string | null
+          session_id?: string | null
           user_id?: string
+          vehicle_check_id?: string | null
+          vehicle_reg?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: 'expenses_session_id_fkey'
+            columns: ['session_id']
+            isOneToOne: false
+            referencedRelation: 'work_sessions'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'expenses_vehicle_check_id_fkey'
+            columns: ['vehicle_check_id']
+            isOneToOne: false
+            referencedRelation: 'vehicle_checks'
+            referencedColumns: ['id']
+          },
+        ]
       }
       invoices: {
         Row: {
@@ -792,12 +819,14 @@ export type Database = {
       vehicle_checks: {
         Row: {
           check_status: string | null
+          closing_odometer: number | null
           company_id: string | null
           created_at: string | null
           defect_details: string | null
           defect_lifecycle_status: string | null
           driver_id: string | null
           id: string
+          inspection_duration_seconds: number | null
           items: Json
           odometer_reading: number | null
           reg_number: string
@@ -805,18 +834,21 @@ export type Database = {
           resolved_at: string | null
           resolved_by: string | null
           session_id: string | null
+          signature_url: string | null
           trailer_reg: string | null
           vehicle_make: string | null
           vehicle_type: string
         }
         Insert: {
           check_status?: string | null
+          closing_odometer?: number | null
           company_id?: string | null
           created_at?: string | null
           defect_details?: string | null
           defect_lifecycle_status?: string | null
           driver_id?: string | null
           id?: string
+          inspection_duration_seconds?: number | null
           items: Json
           odometer_reading?: number | null
           reg_number: string
@@ -824,18 +856,21 @@ export type Database = {
           resolved_at?: string | null
           resolved_by?: string | null
           session_id?: string | null
+          signature_url?: string | null
           trailer_reg?: string | null
           vehicle_make?: string | null
           vehicle_type: string
         }
         Update: {
           check_status?: string | null
+          closing_odometer?: number | null
           company_id?: string | null
           created_at?: string | null
           defect_details?: string | null
           defect_lifecycle_status?: string | null
           driver_id?: string | null
           id?: string
+          inspection_duration_seconds?: number | null
           items?: Json
           odometer_reading?: number | null
           reg_number?: string
@@ -843,6 +878,7 @@ export type Database = {
           resolved_at?: string | null
           resolved_by?: string | null
           session_id?: string | null
+          signature_url?: string | null
           trailer_reg?: string | null
           vehicle_make?: string | null
           vehicle_type?: string

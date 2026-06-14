@@ -501,7 +501,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     <SafeAreaView className="flex-1 bg-brand-dark" edges={['top']}>
       <View className="flex-1">
         {dailyReportData ? <DailyComplianceReportModal visible={!!dailyReportData} onClose={() => setDailyReportData(null)} violations={dailyReportData.violations} date={dailyReportData.date}/> : null}
-        {shiftSummaryData ? <EndShiftConfirmationModal visible={!!shiftSummaryData} onClose={() => setShiftSummaryData(null)} onConfirm={shiftSummaryData.onConfirm} violations={shiftSummaryData.violations} shiftTotals={shiftSummaryData.totals} score={shiftSummaryData.score} isConfirming={shiftSummaryData.isConfirming}/> : null}
+        {shiftSummaryData ? <EndShiftConfirmationModal visible={!!shiftSummaryData} onClose={() => setShiftSummaryData(null)} onConfirm={shiftSummaryData.onConfirm} violations={shiftSummaryData.violations} shiftTotals={shiftSummaryData.totals} score={shiftSummaryData.score} userId={userId} sessionId={sessionId} isConfirming={shiftSummaryData.isConfirming}/> : null}
         <AddExpenseModal visible={showAddExpense} onClose={() => setShowAddExpense(false)} onSaveSuccess={refreshProfile} userId={userId}/>
         {isSolo && <BusinessProfileModal visible={showBusinessProfile} onClose={() => setShowBusinessProfile(false)} />}
         <Modal visible={showSafetyWarning} transparent animationType="fade"><SafetyWarningModal onClose={() => setShowSafetyWarning(false)} /></Modal>
