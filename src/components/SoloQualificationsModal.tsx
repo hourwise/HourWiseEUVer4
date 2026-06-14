@@ -21,6 +21,7 @@ import { ocrService } from '../services/ocrService';
 import { driverDocumentService } from '../services/driverDocumentService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, parseISO } from 'date-fns';
+import { useTranslation } from 'react-i18next';
 
 interface SoloQualificationsModalProps {
   visible: boolean;
@@ -35,6 +36,7 @@ interface Qualification {
 }
 
 export default function SoloQualificationsModal({ visible, onClose, userId }: SoloQualificationsModalProps) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -85,14 +87,14 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
       if (source === 'camera') {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission needed', 'Camera access is required to scan documents.');
+          Alert.alert(t('permissions.cameraTitle'), t('qualifications.alerts.cameraScanRequired'));
           return;
         }
         result = await ImagePicker.launchCameraAsync({ quality: 0.7, allowsEditing: false });
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission needed', 'Media library access is required to pick documents.');
+          Alert.alert(t('permissions.mediaLibraryTitle'), t('qualifications.alerts.mediaLibraryRequired'));
           return;
         }
         result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7, allowsEditing: false });
@@ -147,15 +149,15 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
 
       if (extractedDate || extractedRef) {
         Alert.alert(
-          'Scan Success',
-          `${extractedDate ? `Expiry: ${format(parseISO(extractedDate), 'dd/MM/yyyy')}` : ''}${extractedRef ? `\nRef: ${extractedRef}` : ''}`
+          t('qualifications.alerts.scanSuccess'),
+          `${extractedDate ? t('qualifications.alerts.expiryLine', { date: format(parseISO(extractedDate), 'dd/MM/yyyy') }) : ''}${extractedRef ? `\n${t('qualifications.alerts.refLine', { ref: extractedRef })}` : ''}`
         );
       } else {
-        Alert.alert('Scan Result', 'Could not extract clear information. Please check and enter manually.');
+        Alert.alert(t('expenses.scanResult'), t('qualifications.alerts.scanManualEntry'));
       }
     } catch (error: any) {
       console.error('OCR failed:', error);
-      Alert.alert('Error', error.message || 'Failed to scan document');
+      Alert.alert(t('common.error'), error.message || t('qualifications.alerts.scanFailed'));
     } finally {
       setScanning(null);
     }
@@ -180,7 +182,7 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
 
       if (error) throw error;
       if (!data) {
-        Alert.alert("Not Found", "No document image found for this qualification.");
+        Alert.alert(t('qualifications.alerts.notFoundTitle'), t('qualifications.alerts.noDocumentImage'));
         return;
       }
 
@@ -193,7 +195,7 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
       }
     } catch (error) {
       console.error('View doc error:', error);
-      Alert.alert("Error", "Could not retrieve document image.");
+      Alert.alert(t('common.error'), t('qualifications.alerts.retrieveImageFailed'));
     }
   };
 
@@ -213,10 +215,10 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
         .eq('id', userId);
 
       if (error) throw error;
-      Alert.alert('Success', 'Qualifications updated successfully');
+      Alert.alert(t('common.success'), t('qualifications.alerts.updated'));
       onClose();
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      Alert.alert(t('common.error'), e.message);
     } finally {
       setSaving(false);
     }
@@ -225,7 +227,7 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
   const takePhoto = async (type: 'licence' | 'cpc' | 'tacho') => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Camera access is required to scan documents.');
+      Alert.alert(t('permissions.cameraTitle'), t('qualifications.alerts.cameraScanRequired'));
       return;
     }
 
@@ -260,9 +262,9 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
 
       if (uploadError) throw uploadError;
 
-      Alert.alert('Success', 'Document image uploaded');
+      Alert.alert(t('common.success'), t('qualifications.alerts.documentImageUploaded'));
     } catch (e: any) {
-      Alert.alert('Upload failed', e.message);
+      Alert.alert(t('qualifications.alerts.uploadFailed'), e.message);
     } finally {
       setSaving(false);
     }
@@ -287,24 +289,24 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
         <Text style={styles.cardTitle}>{title}</Text>
       </View>
       <View style={styles.inputGroup}>
-        <Text style={styles.label}>Number / Reference</Text>
+        <Text style={styles.label}>{t('qualifications.numberReference')}</Text>
         <TextInput
           style={styles.input}
           value={data.id_number}
           onChangeText={(text) => setData({ ...data, id_number: text })}
-          placeholder="Enter number"
+          placeholder={t('qualifications.enterNumber')}
           placeholderTextColor="#64748b"
           autoCapitalize="characters"
         />
       </View>
       <View style={styles.inputGroup}>
-        <Text style={styles.label}>Expiry Date</Text>
+        <Text style={styles.label}>{t('qualifications.expiryDate')}</Text>
         <TouchableOpacity
           onPress={() => setShowDatePicker({ type })}
           style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
         >
           <Text style={{ color: data.expiry_date ? '#fff' : '#64748b', fontWeight: 'bold' }}>
-            {data.expiry_date ? format(parseISO(data.expiry_date), 'dd/MM/yyyy') : 'Select Date'}
+            {data.expiry_date ? format(parseISO(data.expiry_date), 'dd/MM/yyyy') : t('vehicleManagement.selectDate')}
           </Text>
           <Calendar size={18} color="#64748b" />
         </TouchableOpacity>
@@ -321,7 +323,7 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
           ) : (
             <>
               <Camera size={18} color="#fff" />
-              <Text style={styles.photoBtnText}>Scan</Text>
+              <Text style={styles.photoBtnText}>{t('qualifications.scan')}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -349,7 +351,7 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
       <View style={styles.backdrop}>
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Professional Qualifications</Text>
+            <Text style={styles.headerTitle}>{t('qualifications.professionalTitle')}</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <X size={24} color="#fff" />
             </TouchableOpacity>
@@ -360,21 +362,21 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
           ) : (
             <ScrollView contentContainerStyle={styles.scrollContent}>
               <QualInput
-                title="HGV Driving Licence"
+                title={t('qualifications.docTypes.hgvLicence')}
                 icon={<Award size={20} color="#3b82f6" />}
                 data={licence}
                 setData={setLicence}
                 type="licence"
               />
               <QualInput
-                title="CPC Card (DQC)"
+                title={t('qualifications.docTypes.cpcCard')}
                 icon={<Shield size={20} color="#f59e0b" />}
                 data={cpc}
                 setData={setCpc}
                 type="cpc"
               />
               <QualInput
-                title="Digital Tacho Card"
+                title={t('qualifications.docTypes.tachoCard')}
                 icon={<CreditCard size={20} color="#94a3b8" />}
                 data={tacho}
                 setData={setTacho}
@@ -385,13 +387,13 @@ export default function SoloQualificationsModal({ visible, onClose, userId }: So
 
           <View style={styles.footer}>
             <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-              <Text style={styles.cancelBtnText}>Cancel</Text>
+              <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
               {saving ? <ActivityIndicator color="#fff" /> : (
                 <>
                   <Save size={18} color="#fff" />
-                  <Text style={styles.saveBtnText}>Save Changes</Text>
+                  <Text style={styles.saveBtnText}>{t('qualifications.saveChanges')}</Text>
                 </>
               )}
             </TouchableOpacity>

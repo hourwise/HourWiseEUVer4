@@ -1,5 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import type { Database } from '../../lib/database.types';
 
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
@@ -21,12 +22,14 @@ export default function FleetInviteFields({
   onInviteCodeChange,
   onVerify,
 }: FleetInviteFieldsProps) {
+  const { t } = useTranslation();
+
   return (
     <>
       <View style={styles.inviteContainer}>
         <TextInput
           style={[styles.input, styles.inviteInput]}
-          placeholder="Invite Code"
+          placeholder={t('auth.fields.inviteCode.placeholder')}
           value={inviteCode}
           onChangeText={onInviteCodeChange}
           autoCapitalize="characters"
@@ -38,10 +41,10 @@ export default function FleetInviteFields({
           onPress={onVerify}
           disabled={verifying || !!verifiedInvite}
         >
-          {verifying ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Verify</Text>}
+          {verifying ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>{t('auth.buttons.verify')}</Text>}
         </TouchableOpacity>
       </View>
-      {verifiedInvite ? <Text style={styles.verifiedText}>Verified: Welcome, {fullName}!</Text> : null}
+      {verifiedInvite ? <Text style={styles.verifiedText}>{t('auth.invite.verifiedWelcome', { fullName })}</Text> : null}
     </>
   );
 }

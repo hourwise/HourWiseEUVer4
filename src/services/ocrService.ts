@@ -5,21 +5,45 @@ export interface OcrResult {
   text: string;
 }
 
+const getFunctionErrorMessage = async (error: any, response?: Response): Promise<string> => {
+  const contextResponse = error?.context instanceof Response ? error.context : response;
+
+  if (contextResponse) {
+    const cloned = contextResponse.clone();
+    try {
+      const body = await cloned.json();
+      if (typeof body?.error === 'string' && body.error.trim()) {
+        return body.error;
+      }
+    } catch {
+      try {
+        const text = await contextResponse.clone().text();
+        if (text.trim()) return text;
+      } catch {
+        // Fall through to the SDK error below.
+      }
+    }
+  }
+
+  return error?.message || 'OCR request failed.';
+};
+
 export const ocrService = {
   async parseImage(imageUri: string): Promise<string> {
     const image = await FileSystem.readAsStringAsync(imageUri, {
       encoding: FileSystem.EncodingType.Base64,
     });
 
-    const { data, error } = await supabase.functions.invoke<{ text?: string; error?: string }>(
+    const { data, error, response } = await supabase.functions.invoke<{ text?: string; error?: string }>(
       'ocr-receipt',
       {
         body: { image },
+        timeout: 30000,
       },
     );
 
     if (error) {
-      throw new Error(error.message || 'OCR request failed.');
+      throw new Error(await getFunctionErrorMessage(error, response));
     }
 
     if (data?.error) {

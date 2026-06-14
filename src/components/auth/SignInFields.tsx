@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, TextInput } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 type SignInFieldsProps = {
   email: string;
@@ -14,11 +15,13 @@ export default function SignInFields({
   onEmailChange,
   onPasswordChange,
 }: SignInFieldsProps) {
+  const { t } = useTranslation();
+
   return (
     <>
       <TextInput
         style={styles.input}
-        placeholder="Email"
+        placeholder={t('auth.fields.email.placeholder')}
         value={email}
         onChangeText={onEmailChange}
         autoCapitalize="none"
@@ -26,7 +29,7 @@ export default function SignInFields({
       />
       <TextInput
         style={styles.input}
-        placeholder="Password"
+        placeholder={t('auth.fields.password.placeholder')}
         value={password}
         onChangeText={onPasswordChange}
         autoCapitalize="none"

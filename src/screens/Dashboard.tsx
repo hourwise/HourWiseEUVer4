@@ -157,9 +157,26 @@ const withTimeout = async <T,>(p: Promise<T>, ms = 8000): Promise<T> => {
   ]);
 };
 
+type PostShiftLogoutMode = 'scheduled' | 'idle';
+
+type PostShiftLogoutPolicy = {
+  userId: string;
+  mode: PostShiftLogoutMode;
+  shiftEndedAt: number;
+  lastActivityAt: number;
+  logoutAt: number;
+};
+
+const POST_SHIFT_LOGOUT_30_MIN_MS = 30 * 60 * 1000;
+const POST_SHIFT_IDLE_LOGOUT_MS = 2 * 60 * 60 * 1000;
+const POST_SHIFT_WARNING_SECONDS = 15;
+const POST_SHIFT_ACTIVITY_THROTTLE_MS = 30 * 1000;
+
+const postShiftLogoutStorageKey = (userId: string) => `postShiftLogoutPolicy:${userId}`;
+
 export function Dashboard({ session, navigation }: { session: Session; navigation: any }) {
   const { t, i18n, ready } = useTranslation();
-  const { profile, refreshProfile } = useAuth();
+  const { profile, refreshProfile, signOut } = useAuth();
 
   const userId = session?.user?.id;
 
@@ -222,8 +239,169 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const [soloVehicle, setSoloVehicle] = useState<any>(null);
   const [vehicleCheckCompletedToday, setVehicleCheckCompletedToday] = useState(false);
   const [dailyReportData, setDailyReportData] = useState<{ violations: string[]; date: string } | null>(null);
+  const [postShiftPromptStage, setPostShiftPromptStage] = useState<'initial' | 'defer' | null>(null);
+  const [postShiftLogoutPolicy, setPostShiftLogoutPolicy] = useState<PostShiftLogoutPolicy | null>(null);
+  const [logoutWarningVisible, setLogoutWarningVisible] = useState(false);
+  const [logoutCountdown, setLogoutCountdown] = useState(POST_SHIFT_WARNING_SECONDS);
 
   const unreadCheckInFlight = useRef(false);
+  const postShiftLogoutPolicyRef = useRef<PostShiftLogoutPolicy | null>(null);
+  const logoutWarningVisibleRef = useRef(false);
+
+  useEffect(() => {
+    postShiftLogoutPolicyRef.current = postShiftLogoutPolicy;
+  }, [postShiftLogoutPolicy]);
+
+  useEffect(() => {
+    logoutWarningVisibleRef.current = logoutWarningVisible;
+  }, [logoutWarningVisible]);
+
+  const clearPostShiftLogoutPolicy = useCallback(async () => {
+    setPostShiftLogoutPolicy(null);
+    postShiftLogoutPolicyRef.current = null;
+    setPostShiftPromptStage(null);
+    setLogoutWarningVisible(false);
+    if (userId) {
+      await AsyncStorage.removeItem(postShiftLogoutStorageKey(userId));
+    }
+  }, [userId]);
+
+  const savePostShiftLogoutPolicy = useCallback(async (policy: PostShiftLogoutPolicy) => {
+    setPostShiftLogoutPolicy(policy);
+    postShiftLogoutPolicyRef.current = policy;
+    await AsyncStorage.setItem(postShiftLogoutStorageKey(policy.userId), JSON.stringify(policy));
+  }, []);
+
+  const performPostShiftSignOut = useCallback(async () => {
+    await clearPostShiftLogoutPolicy();
+    await signOut();
+  }, [clearPostShiftLogoutPolicy, signOut]);
+
+  const schedulePostShiftLogout = useCallback(async (mode: PostShiftLogoutMode, delayMs: number) => {
+    if (!userId) return;
+    const now = Date.now();
+    await savePostShiftLogoutPolicy({
+      userId,
+      mode,
+      shiftEndedAt: now,
+      lastActivityAt: now,
+      logoutAt: now + delayMs,
+    });
+    setPostShiftPromptStage(null);
+  }, [savePostShiftLogoutPolicy, userId]);
+
+  const recordPostShiftActivity = useCallback(() => {
+    const policy = postShiftLogoutPolicyRef.current;
+    if (!policy || policy.mode !== 'idle' || logoutWarningVisibleRef.current) return;
+
+    const now = Date.now();
+    if (now - policy.lastActivityAt < POST_SHIFT_ACTIVITY_THROTTLE_MS) return;
+
+    const nextPolicy = {
+      ...policy,
+      lastActivityAt: now,
+      logoutAt: now + POST_SHIFT_IDLE_LOGOUT_MS,
+    };
+    postShiftLogoutPolicyRef.current = nextPolicy;
+    setPostShiftLogoutPolicy(nextPolicy);
+    AsyncStorage.setItem(postShiftLogoutStorageKey(policy.userId), JSON.stringify(nextPolicy)).catch((error) => {
+      console.warn('Failed to persist post-shift activity:', error);
+    });
+  }, []);
+
+  const evaluatePostShiftLogoutPolicy = useCallback(async () => {
+    const policy = postShiftLogoutPolicyRef.current;
+    if (!policy || logoutWarningVisibleRef.current) return;
+
+    if (status !== 'idle') {
+      await clearPostShiftLogoutPolicy();
+      return;
+    }
+
+    if (Date.now() < policy.logoutAt) return;
+
+    if (policy.mode === 'scheduled') {
+      await performPostShiftSignOut();
+      return;
+    }
+
+    setLogoutCountdown(POST_SHIFT_WARNING_SECONDS);
+    setLogoutWarningVisible(true);
+  }, [clearPostShiftLogoutPolicy, performPostShiftSignOut, status]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+
+    const loadPostShiftLogoutPolicy = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(postShiftLogoutStorageKey(userId));
+        if (cancelled || !raw) return;
+        const parsed = JSON.parse(raw) as PostShiftLogoutPolicy;
+        if (parsed?.userId === userId && typeof parsed.logoutAt === 'number') {
+          setPostShiftLogoutPolicy(parsed);
+          postShiftLogoutPolicyRef.current = parsed;
+        }
+      } catch (error) {
+        console.warn('Failed to load post-shift logout policy:', error);
+      }
+    };
+
+    loadPostShiftLogoutPolicy();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    evaluatePostShiftLogoutPolicy();
+    const interval = setInterval(() => {
+      evaluatePostShiftLogoutPolicy();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [evaluatePostShiftLogoutPolicy]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        evaluatePostShiftLogoutPolicy();
+      }
+    });
+    return () => subscription.remove();
+  }, [evaluatePostShiftLogoutPolicy]);
+
+  useEffect(() => {
+    if (!logoutWarningVisible) return;
+
+    setLogoutCountdown(POST_SHIFT_WARNING_SECONDS);
+    const interval = setInterval(() => {
+      setLogoutCountdown((current) => {
+        if (current <= 1) {
+          clearInterval(interval);
+          performPostShiftSignOut().catch((error) => {
+            console.warn('Post-shift auto logout failed:', error);
+          });
+          return 0;
+        }
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [logoutWarningVisible, performPostShiftSignOut]);
+
+  const cancelPostShiftLogoutWarning = useCallback(async () => {
+    setLogoutWarningVisible(false);
+    await schedulePostShiftLogout('idle', POST_SHIFT_IDLE_LOGOUT_MS);
+  }, [schedulePostShiftLogout]);
+
+  const handleShiftSummaryConfirm = useCallback(async () => {
+    if (!shiftSummaryData) return;
+    const completed = await shiftSummaryData.onConfirm();
+    if (completed) {
+      setPostShiftPromptStage('initial');
+    }
+  }, [shiftSummaryData]);
 
   const handleExportTimerDiagnostics = useCallback(async () => {
     try {
@@ -477,6 +655,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
 
   const handleStartWork = async () => {
     if (isStarting) return;
+    await clearPostShiftLogoutPolicy();
     await startWork();
     refreshShiftInfo();
     await refreshProfile();
@@ -498,10 +677,59 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const isFleetDriverRole = isFleet && profile?.role === 'driver';
 
   return (
-    <SafeAreaView className="flex-1 bg-brand-dark" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-brand-dark" edges={['top']} onTouchStart={recordPostShiftActivity}>
       <View className="flex-1">
         {dailyReportData ? <DailyComplianceReportModal visible={!!dailyReportData} onClose={() => setDailyReportData(null)} violations={dailyReportData.violations} date={dailyReportData.date}/> : null}
-        {shiftSummaryData ? <EndShiftConfirmationModal visible={!!shiftSummaryData} onClose={() => setShiftSummaryData(null)} onConfirm={shiftSummaryData.onConfirm} violations={shiftSummaryData.violations} shiftTotals={shiftSummaryData.totals} score={shiftSummaryData.score} userId={userId} sessionId={sessionId} isConfirming={shiftSummaryData.isConfirming}/> : null}
+        {shiftSummaryData ? <EndShiftConfirmationModal visible={!!shiftSummaryData} onClose={() => setShiftSummaryData(null)} onConfirm={handleShiftSummaryConfirm} violations={shiftSummaryData.violations} shiftTotals={shiftSummaryData.totals} score={shiftSummaryData.score} userId={userId} sessionId={sessionId} isConfirming={shiftSummaryData.isConfirming}/> : null}
+        <Modal visible={postShiftPromptStage !== null} transparent animationType="fade" onRequestClose={() => setPostShiftPromptStage('defer')}>
+          <View className="flex-1 justify-center items-center bg-black/70 p-4">
+            <View className="bg-slate-800 rounded-2xl w-full max-w-sm p-6 border border-slate-700">
+              {postShiftPromptStage === 'initial' ? (
+                <>
+                  <Text className="text-white text-2xl font-bold mb-3">{t('postShiftLogout.initial.title')}</Text>
+                  <Text className="text-slate-300 mb-6">
+                    {t('postShiftLogout.initial.body')}
+                  </Text>
+                  <TouchableOpacity onPress={performPostShiftSignOut} className="bg-compliance-danger py-3 rounded-lg mb-3">
+                    <Text className="text-white text-center font-bold">{t('postShiftLogout.initial.logOutNow')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setPostShiftPromptStage('defer')} className="bg-slate-600 py-3 rounded-lg">
+                    <Text className="text-white text-center font-bold">{t('postShiftLogout.initial.notYet')}</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text className="text-white text-2xl font-bold mb-3">{t('postShiftLogout.defer.title')}</Text>
+                  <Text className="text-slate-300 mb-6">
+                    {t('postShiftLogout.defer.body')}
+                  </Text>
+                  <TouchableOpacity onPress={() => schedulePostShiftLogout('scheduled', POST_SHIFT_LOGOUT_30_MIN_MS)} className="bg-blue-600 py-3 rounded-lg mb-3">
+                    <Text className="text-white text-center font-bold">{t('postShiftLogout.defer.auto30')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => schedulePostShiftLogout('idle', POST_SHIFT_IDLE_LOGOUT_MS)} className="bg-slate-600 py-3 rounded-lg">
+                    <Text className="text-white text-center font-bold">{t('postShiftLogout.defer.stayLoggedIn')}</Text>
+                  </TouchableOpacity>
+                  <Text className="text-slate-500 text-xs text-center mt-4">
+                    {t('postShiftLogout.defer.idleNote')}
+                  </Text>
+                </>
+              )}
+            </View>
+          </View>
+        </Modal>
+        <Modal visible={logoutWarningVisible} transparent animationType="fade" onRequestClose={cancelPostShiftLogoutWarning}>
+          <View className="flex-1 justify-center items-center bg-black/80 p-4">
+            <View className="bg-slate-800 rounded-2xl w-full max-w-sm p-6 border border-red-500/50">
+              <Text className="text-white text-2xl font-bold mb-3">{t('postShiftLogout.warning.title')}</Text>
+              <Text className="text-slate-300 mb-4">
+                {t('postShiftLogout.warning.body', { count: logoutCountdown })}
+              </Text>
+              <TouchableOpacity onPress={cancelPostShiftLogoutWarning} className="bg-blue-600 py-3 rounded-lg">
+                <Text className="text-white text-center font-bold">{t('postShiftLogout.warning.cancel')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
         <AddExpenseModal visible={showAddExpense} onClose={() => setShowAddExpense(false)} onSaveSuccess={refreshProfile} userId={userId}/>
         {isSolo && <BusinessProfileModal visible={showBusinessProfile} onClose={() => setShowBusinessProfile(false)} />}
         <Modal visible={showSafetyWarning} transparent animationType="fade"><SafetyWarningModal onClose={() => setShowSafetyWarning(false)} /></Modal>
@@ -578,7 +806,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                     >
                         {vehicleCheckCompletedToday ? <CheckCircle size={14} color="#22c55e" /> : <AlertTriangle size={14} color={isFleet ? "white" : "#94a3b8"} />}
                         <Text className={`font-bold ${vehicleCheckCompletedToday ? 'text-green-500' : 'text-white'}`} style={{ fontSize: 12 }}>
-                            {vehicleCheckCompletedToday ? 'Check OK' : 'Check Vehicle'}
+                            {vehicleCheckCompletedToday ? t('dashboard.checkOk') : t('dashboard.checkVehicle')}
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -595,7 +823,9 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                   </View>
                   <View>
                     <Text className="text-white font-bold">
-                      {qualificationWarnings.daysRemaining <= 0 ? `${qualificationWarnings.type} Expired` : `${qualificationWarnings.type} Expiring`}
+                      {qualificationWarnings.daysRemaining <= 0
+                        ? t('dashboard.qualificationExpired', { type: qualificationWarnings.type })
+                        : t('dashboard.qualificationExpiring', { type: qualificationWarnings.type })}
                     </Text>
                     <Text className="text-slate-400 text-xs">{qualificationWarnings.date}</Text>
                   </View>
@@ -604,7 +834,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                   <Text className={`text-xl font-black ${qualificationWarnings.daysRemaining <= 0 ? 'text-red-500' : 'text-amber-500'}`}>
                     {Math.max(0, qualificationWarnings.daysRemaining)}
                   </Text>
-                  <Text className="text-[10px] text-slate-500 font-bold uppercase">Days Left</Text>
+                  <Text className="text-[10px] text-slate-500 font-bold uppercase">{t('dashboard.daysLeft')}</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -619,7 +849,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                     <Clock size={20} color="white" />
                   </View>
                   <View>
-                    <Text className="text-white font-bold">{nextSoloComplianceEvent.type} Due</Text>
+                    <Text className="text-white font-bold">{t('dashboard.complianceDue', { type: nextSoloComplianceEvent.type })}</Text>
                     <Text className="text-slate-400 text-xs">{nextSoloComplianceEvent.date}</Text>
                   </View>
                 </View>
@@ -627,7 +857,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                   <Text className={`text-xl font-black ${nextSoloComplianceEvent.daysRemaining < 7 ? 'text-red-500' : nextSoloComplianceEvent.daysRemaining < 21 ? 'text-amber-500' : 'text-blue-400'}`}>
                     {Math.max(0, nextSoloComplianceEvent.daysRemaining)}
                   </Text>
-                  <Text className="text-[10px] text-slate-500 font-bold uppercase">Days Left</Text>
+                  <Text className="text-[10px] text-slate-500 font-bold uppercase">{t('dashboard.daysLeft')}</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -636,7 +866,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                 {previousShiftEnd ? ( <Row label={t('dashboard.previousShiftEnd')} value={new Date(previousShiftEnd).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> ) : null}
                 {currentShiftStart ? ( <Row label={t('dashboard.newShiftStarted')} value={new Date(currentShiftStart).toLocaleString(i18n.language, { hour12: false, dateStyle: 'short', timeStyle: 'short' })} /> ) : null}
                 {dailyRest > 0 ? (<View className="mt-2 pt-2 border-t border-slate-700 flex-row justify-between"><Text className="text-slate-400">{t('dashboard.dailyRest')}</Text><Text className="text-white font-bold">{formatDuration(dailyRest)}</Text></View>) : null}
-                {payrollNumber ? ( <Row label={'Payroll Number'} value={payrollNumber} /> ) : null}
+                {payrollNumber ? ( <Row label={t('dashboard.payrollNumber')} value={payrollNumber} /> ) : null}
             </View>
             <FatigueMonitor
               workSeconds={dailyCumulativeTotals.work}
@@ -651,7 +881,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
               <View className="mt-6 items-center">
                 {status === 'break' ? ( <View className="items-center mb-4"><Text className="text-5xl font-bold text-compliance-warning">{formatTime(display.breakDuration)}</Text><Text className="text-slate-400">{t('dashboard.breakDuration')}</Text></View>
                 ) : display.lastBreakDuration > 0 && display.lastBreakEndTime > 0 ? (
-                  <View className="items-center mb-4"><Text className="text-lg font-semibold text-slate-300">Last break: {formatTime(display.lastBreakDuration)}</Text></View>
+                  <View className="items-center mb-4"><Text className="text-lg font-semibold text-slate-300">{t('dashboard.lastBreak', { time: formatTime(display.lastBreakDuration) })}</Text></View>
                 ) : status !== 'idle' ? (
                   <><View className="w-full mb-4 items-center">
                     <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">{t('dashboard.workTimeRemaining')}</Text>
@@ -665,13 +895,13 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                   </View>
                   {display.maxShiftTimeRemaining < 3 * 3600 && (
                     <View className="w-full mb-4 items-center">
-                      <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">Max Shift Time Remaining</Text>
+                      <Text className="w-full text-slate-400 text-xs font-bold uppercase mb-2">{t('dashboard.maxShiftTimeRemaining')}</Text>
                       <View className="flex-row items-center justify-between w-full mb-2">
                         <Text className={`text-5xl font-bold ${display.maxShiftTimeRemaining < 0 ? 'text-compliance-danger' : 'text-amber-400'}`}>{formatTime(display.maxShiftTimeRemaining)}</Text>
-                        <Text className="text-xs text-slate-400 text-right">({Math.round(maxShiftTimeLimit / 3600)}h limit)</Text>
+                        <Text className="text-xs text-slate-400 text-right">{t('dashboard.hourLimit', { hours: Math.round(maxShiftTimeLimit / 3600) })}</Text>
                       </View>
                       <View className="w-full h-2 bg-brand-dark rounded-full mt-2 overflow-hidden"><View className={`h-full ${display.maxShiftTimeRemaining < 0 ? 'bg-compliance-danger' : 'bg-amber-500'}`} style={{ width: `${maxShiftTimePct}%` }} /></View>
-                      <Text className="text-xs text-slate-500 mt-2 font-semibold">Note: POA, work, and breaks all count toward this limit</Text>
+                      <Text className="text-xs text-slate-500 mt-2 font-semibold">{t('dashboard.maxShiftNote')}</Text>
                     </View>
                   )}
                   </>

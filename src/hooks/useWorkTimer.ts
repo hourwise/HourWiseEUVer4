@@ -261,7 +261,7 @@ const createClientUuid = (): string =>
   });
 
 type ShiftSummaryModalState = EndShiftSummaryState & {
-  onConfirm: () => Promise<void>;
+  onConfirm: () => Promise<boolean>;
 };
 
 export const useWorkTimer = (userId: string | undefined, timezone: string) => {
@@ -2085,7 +2085,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
          // ========== CRITICAL FIX: Guard against concurrent executions ==========
          if (isEndingRef.current) {
            console.warn('End shift already in progress, ignoring duplicate click');
-           return;
+           return false;
          }
          setShiftSummaryData(current =>
            current ? setEndShiftSummaryConfirming(current, true) : current,
@@ -2097,8 +2097,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
           try {
             const confirmationError = getEndShiftConfirmationError(sessionIdRef.current);
             if (confirmationError === 'missing_active_session') {
-              Alert.alert('End Shift Failed', 'No active shift session was found. Please try again without closing the shift summary.');
-              return;
+              Alert.alert(i18n.t('endShiftConfirmation.alerts.failedTitle'), i18n.t('endShiftConfirmation.alerts.missingSession'));
+              return false;
             }
             const activeSessionId = sessionIdRef.current as string;
             const confirmNowMs = Date.now();
@@ -2251,12 +2251,14 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
             completed = true;
             setShiftSummaryData(null);
             speakAlert('audioShiftEnded');
+            return true;
           } finally {
             suppressDriveStopSyncRef.current = false;
           }
         } catch (e) {
           console.error('End shift confirmation failed:', e);
-          Alert.alert('End Shift Failed', 'An unexpected error occurred while saving your shift. Please try again.');
+          Alert.alert(i18n.t('endShiftConfirmation.alerts.failedTitle'), i18n.t('endShiftConfirmation.alerts.unexpected'));
+          return false;
         } finally {
           if (!completed && alertsCancelled && statusRef.current !== 'idle') {
             try {

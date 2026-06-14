@@ -134,7 +134,7 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
         if (currentStatus !== 'granted') {
           const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (status !== 'granted') {
-            Alert.alert("Permission needed", "Media library access is required to pick documents.", [
+            Alert.alert(t('permissions.mediaLibraryTitle'), t('qualifications.alerts.mediaLibraryRequired'), [
               { text: t('common.cancel'), style: 'cancel' },
               { text: t('common.openSettings'), onPress: () => Linking.openSettings() },
             ]);
@@ -211,17 +211,17 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
       if (extractedDate) {
         Alert.alert(
           t('common.success'),
-          `Extracted date: ${format(parseISO(extractedDate), 'dd/MM/yyyy')}${extractedRef ? `\nRef: ${extractedRef}` : ''}`
+          `${t('vehicleManagement.alerts.extractedDate', { date: format(parseISO(extractedDate), 'dd/MM/yyyy') })}${extractedRef ? `\n${t('qualifications.alerts.refLine', { ref: extractedRef })}` : ''}`
         );
       } else {
         Alert.alert(
           t('common.success'),
-          "Document scanned and saved, but no clear expiry date found. Please check and set it manually if needed."
+          t('vehicleManagement.alerts.documentScannedNoDate')
         );
       }
     } catch (error: any) {
       console.error('OCR failed:', error);
-      Alert.alert(t('common.error'), error.message || "Failed to scan document");
+      Alert.alert(t('common.error'), error.message || t('qualifications.alerts.scanFailed'));
     } finally {
       setScanning(null);
     }
@@ -240,7 +240,7 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
 
       if (error) throw error;
       if (!data) {
-        Alert.alert("Not Found", "No document image found for this field.");
+        Alert.alert(t('qualifications.alerts.notFoundTitle'), t('vehicleManagement.alerts.noDocumentImageForField'));
         return;
       }
 
@@ -253,7 +253,7 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
       }
     } catch (error) {
       console.error('View doc error:', error);
-      Alert.alert("Error", "Could not retrieve document image.");
+      Alert.alert(t('common.error'), t('qualifications.alerts.retrieveImageFailed'));
     }
   };
 
@@ -329,7 +329,7 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
     const next = addYears(current, years);
     const dateString = format(next, 'yyyy-MM-dd');
     setFormData(prev => ({ ...prev, [field]: dateString }));
-    Alert.alert("Date Updated", `${format(next, 'dd/MM/yyyy')} set as new due date. Don't forget to save!`);
+    Alert.alert(t('vehicleManagement.alerts.dateUpdatedTitle'), t('vehicleManagement.alerts.dateUpdatedBody', { date: format(next, 'dd/MM/yyyy') }));
   };
 
   const renderDateField = (label: string, field: keyof typeof formData, icon: React.ReactNode, canRenew?: boolean) => (
@@ -339,7 +339,7 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
         <View className="flex-row gap-3">
           {formData[field] && (
             <TouchableOpacity onPress={() => setFormData(prev => ({ ...prev, [field]: null }))}>
-              <Text className="text-red-500 text-[10px] font-bold uppercase">Clear</Text>
+              <Text className="text-red-500 text-[10px] font-bold uppercase">{t('common.clear')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -398,7 +398,7 @@ export default function SoloVehicleModal({ visible, onClose, userId }: SoloVehic
         )}
       </View>
       {!vehicleId && (
-        <Text className="text-slate-500 text-[9px] mt-1 italic">Save vehicle first to permanently store document images</Text>
+        <Text className="text-slate-500 text-[9px] mt-1 italic">{t('vehicleManagement.saveVehicleFirstForDocuments')}</Text>
       )}
     </View>
   );

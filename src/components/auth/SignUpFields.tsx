@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import type { Database } from '../../lib/database.types';
 import FleetInviteFields from './FleetInviteFields';
 
@@ -37,6 +38,8 @@ export default function SignUpFields({
   onInviteCodeChange,
   onVerifyInvite,
 }: SignUpFieldsProps) {
+  const { t } = useTranslation();
+
   return (
     <>
       <View style={styles.toggleContainer}>
@@ -45,7 +48,7 @@ export default function SignUpFields({
           onPress={() => onAccountTypeChange('solo')}
         >
           <Text style={[styles.toggleButtonText, accountType === 'solo' && styles.toggleButtonTextActive]}>
-            Solo Driver
+            {t('auth.accountType.solo.title')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -53,7 +56,7 @@ export default function SignUpFields({
           onPress={() => onAccountTypeChange('fleet')}
         >
           <Text style={[styles.toggleButtonText, accountType === 'fleet' && styles.toggleButtonTextActive]}>
-            Fleet Member
+            {t('auth.accountType.fleet.title')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -61,7 +64,7 @@ export default function SignUpFields({
       {accountType === 'solo' ? (
         <TextInput
           style={styles.input}
-          placeholder="Full Name"
+          placeholder={t('auth.fields.driverName.placeholder')}
           value={fullName}
           onChangeText={onFullNameChange}
           placeholderTextColor="#94a3b8"
@@ -79,7 +82,7 @@ export default function SignUpFields({
 
       <TextInput
         style={[styles.input, verifiedInvite && styles.inputDisabled]}
-        placeholder="Email"
+        placeholder={t('auth.fields.email.placeholder')}
         value={email}
         onChangeText={onEmailChange}
         autoCapitalize="none"
@@ -89,7 +92,7 @@ export default function SignUpFields({
       />
       <TextInput
         style={styles.input}
-        placeholder="Password"
+        placeholder={t('auth.fields.password.placeholder')}
         value={password}
         onChangeText={onPasswordChange}
         autoCapitalize="none"

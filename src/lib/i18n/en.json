@@ -27,7 +27,9 @@
     "takePhoto": "Take Photo",
     "fromLibrary": "From Library",
     "clear": "Clear",
-    "ready": "Ready"
+    "ready": "Ready",
+    "continue": "Continue",
+    "loading": "Loading..."
   },
   "permissions": {
     "notificationsTitle": "Notifications Permission",
@@ -44,7 +46,13 @@
     "body": "HourWise requires Location and Notification permissions to function correctly. Your location is used only to detect driving automatically, even when the app is in the background.",
     "button": "Grant Permissions",
     "deniedTitle": "Permissions Required",
-    "deniedBody": "You have permanently denied essential permissions. Please go to your device settings to enable Location (Allow all the time) and Notifications."
+    "deniedBody": "You have permanently denied essential permissions. Please go to your device settings to enable Location (Allow all the time) and Notifications.",
+    "foregroundLocation": "Foreground Location",
+    "backgroundLocation": "Background Location",
+    "notifications": "Notifications",
+    "allGranted": "All permissions granted!",
+    "continueToApp": "Continue to App",
+    "refreshStatus": "Refresh Status"
   },
   "messages": {
     "title": "Messages",
@@ -54,7 +62,19 @@
     "noMessages": "No messages yet.",
     "unread": "Unread",
     "read": "Read",
-    "noUnread": "All caught up! No unread messages."
+    "noUnread": "All caught up! No unread messages.",
+    "directMessage": "Direct Message",
+    "systemUpdate": "System Update",
+    "fleetAlert": "Fleet Alert",
+    "replyPlaceholder": "Type a reply to your manager...",
+    "replySentTitle": "Sent",
+    "replySentBody": "Your reply has been sent to your fleet manager.",
+    "replyFailed": "Failed to send reply. Please try again.",
+    "badges": {
+      "system": "SYSTEM",
+      "direct": "DIRECT",
+      "fleet": "FLEET"
+    }
   },
   "app": {
     "title": "HourWise EU",
@@ -84,7 +104,14 @@
     "checklistRequired": "Checklist Required",
     "fleetChecklistNotice": "Fleet drivers must complete a vehicle safety check to start their shift.",
     "complianceDue": "{{type}} Due",
-    "daysLeft": "Days Left"
+    "daysLeft": "Days Left",
+    "payrollNumber": "Payroll Number",
+    "lastBreak": "Last break: {{time}}",
+    "maxShiftTimeRemaining": "Max Shift Time Remaining",
+    "hourLimit": "({{hours}}h limit)",
+    "maxShiftNote": "Note: POA, work, and breaks all count toward this limit",
+    "qualificationExpired": "{{type}} Expired",
+    "qualificationExpiring": "{{type}} Expiring"
   },
   "vehicleChecklist": {
     "title": "Daily Safety Check",
@@ -236,8 +263,14 @@
       "regRequired": "Registration number is required",
       "saveSuccess": "Vehicle details saved successfully",
       "duplicateReg": "This registration number is already registered.",
-      "saveError": "Failed to save vehicle details"
-    }
+      "saveError": "Failed to save vehicle details",
+      "extractedDate": "Extracted date: {{date}}",
+      "documentScannedNoDate": "Document scanned and saved, but no clear expiry date found. Please check and set it manually if needed.",
+      "noDocumentImageForField": "No document image found for this field.",
+      "dateUpdatedTitle": "Date Updated",
+      "dateUpdatedBody": "{{date}} set as new due date. Don't forget to save!"
+    },
+    "saveVehicleFirstForDocuments": "Save vehicle first to permanently store document images"
   },
   "expenses": {
     "title": "Add Expense",
@@ -265,7 +298,8 @@
       "Accommodation": "Accommodation",
       "Supplies": "Supplies",
       "Other": "Other"
-    }
+    },
+    "fuelLitres": "Fuel Added (litres)"
   },
   "shiftSummary": {
     "title": "Current Shift",
@@ -280,7 +314,28 @@
     "violationsFound": "Violations Found",
     "greatJob": "Great Job!",
     "noViolations": "No violations will be recorded for this shift.",
-    "confirmEnd": "Confirm & End Shift"
+    "confirmEnd": "Confirm & End Shift",
+    "checklist": {
+      "title": "End Shift Checklist",
+      "vehicleReg": "Vehicle reg",
+      "openingOdometer": "Opening odometer",
+      "closingOdometer": "Closing odometer",
+      "notEntered": "Not entered",
+      "enterClosingReading": "Enter closing reading",
+      "noVehicleCheck": "No vehicle check was found for this shift. You can still end the shift, but no odometer record will be updated.",
+      "fuelAdded": "Fuel Added",
+      "litres": "Litres",
+      "matchFuelReceipt": "Match fuel receipt",
+      "noFuelReceipts": "No fuel receipts found for today.",
+      "selectedReceiptLinked": "Selected receipt will be linked to this shift and vehicle.",
+      "invalidOdometerTitle": "Invalid odometer",
+      "invalidOdometerBody": "Enter a valid closing odometer reading or leave it blank.",
+      "closingLowerThanOpening": "Closing odometer cannot be lower than opening odometer.",
+      "invalidFuelTitle": "Invalid fuel amount",
+      "invalidFuelBody": "Enter fuel added in litres as a number or leave it blank.",
+      "fuelLitresRequiredTitle": "Fuel litres required",
+      "fuelLitresRequiredBody": "Enter the litres added before matching the fuel receipt."
+    }
   },
   "menu": {
     "instructions": "Instructions",
@@ -332,7 +387,11 @@
     "selectedMonthSummary": "Selected Month",
     "lastWeekOfSelectedMonth": "Last Week of Month",
     "complianceReminders": "Compliance Reminders",
-    "renewalDue": "{{type}} Renewal Due"
+    "renewalDue": "{{type}} Renewal Due",
+    "backToCalendar": "Back to Calendar",
+    "daysCount": "{{count}} days",
+    "estimate": "ESTIMATE",
+    "estimateNote": "Based on configured rates for {{period}}. Excludes tax."
   },
   "fatigue": {
     "title": "Fatigue & Focus Index",
@@ -399,7 +458,10 @@
     },
     "signOut": {
       "action": "Sign Out"
-    }
+    },
+    "qualifications": "Qualifications",
+    "qualificationsDocs": "Qualifications & Docs",
+    "exportTimerDiagnostics": "Export Timer Diagnostics"
   },
   "driverSetup": {
     "title": "Driver Setup",
@@ -418,7 +480,10 @@
     "skip": "Skip for Now",
     "save": "Save & Continue",
     "validationError": "Validation Error",
-    "pleaseEnterName": "Please enter your name."
+    "pleaseEnterName": "Please enter your name.",
+    "notLoggedIn": "You are not logged in.",
+    "pleaseEnterFullName": "Please enter your full name.",
+    "saveError": "Save Error"
   },
   "instructions": {
     "title": "How to Use HourWise",
@@ -751,7 +816,9 @@
       "successTitle": "Account Deleted",
       "successMessage": "Your account and all associated data have been permanently removed.",
       "errorMessage": "We could not delete your account at this time. Please contact support."
-    }
+    },
+    "fleetAccount": "Fleet Account",
+    "linkedTo": "Linked to: {{companyName}}"
   },
   "notification": {
     "trackingTitle": "Tracking Driving Time",
@@ -830,11 +897,15 @@
       "companyCode": {
         "label": "Company Code",
         "placeholder": "Enter code from your company"
+      },
+      "inviteCode": {
+        "placeholder": "Invite Code"
       }
     },
     "buttons": {
       "signIn": "Sign In",
-      "createAccount": "Create Account"
+      "createAccount": "Create Account",
+      "verify": "Verify"
     },
     "switchTo": {
       "signUp": "Don't have an account? Sign Up",
@@ -869,7 +940,45 @@
       },
       "signInError": {
         "title": "Sign-In Error"
-      }
+      },
+      "verifyInviteFirst": "Please verify your invite code before creating an account.",
+      "emailPasswordRequired": "Email and password are required.",
+      "fullNameRequired": "Please enter your full name.",
+      "loginFailed": "Login Failed",
+      "userNotFound": "User not found",
+      "checkEmailTitle": "Check Your Email",
+      "confirmationSent": "A confirmation link has been sent."
+    },
+    "tagline": "EU Compliance & Work Time Tracking Made Simple",
+    "invite": {
+      "verifiedWelcome": "Verified: Welcome, {{fullName}}!",
+      "statusLine": "Status: {{status}}",
+      "expiryLine": "Expiry: {{expiresAt}}",
+      "failedTitle": "Invite verification failed",
+      "validBody": "Invite code is valid. Your details have been pre-filled."
+    },
+    "biometric": {
+      "signInAs": "Sign in as {{email}}",
+      "signIn": "Sign in with biometrics",
+      "disableOnDevice": "Disable biometric sign-in on this device",
+      "replaceTitle": "Replace biometric sign-in?",
+      "enableTitle": "Enable biometric sign-in?",
+      "replaceBody": "This device is currently set to sign in as {{storedEmail}}. Replace it with {{currentEmail}}?",
+      "enableBody": "Use fingerprint or face unlock for faster sign-in on this device.",
+      "notNow": "Not now",
+      "replace": "Replace",
+      "enable": "Enable",
+      "enabledTitle": "Enabled",
+      "enabledBody": "Biometric sign-in is now available on this device.",
+      "setupFailedTitle": "Biometric setup failed",
+      "setupFailedBody": "Could not enable biometric sign-in.",
+      "signInFailedTitle": "Biometric Sign-In Failed",
+      "signInFailedBody": "Could not sign in with biometrics.",
+      "disabledTitle": "Disabled",
+      "disabledBody": "Biometric sign-in has been removed from this device.",
+      "disableFailedTitle": "Disable failed",
+      "disableFailedBody": "Could not remove biometric sign-in from this device.",
+      "disableSignIn": "Disable Biometric Sign-In"
     }
   },
   "paywall": {
@@ -901,7 +1010,10 @@
     "title": "Business Profile",
     "subtitle": "For invoices and reports",
     "alerts": {
-      "profileSaved": "Business profile saved successfully."
+      "profileSaved": "Business profile saved successfully.",
+      "logoPermissionDenied": "We need access to your photos to upload a logo.",
+      "uploadError": "Upload Error",
+      "uploadImageFailed": "Failed to upload image."
     },
     "sections": {
       "companyDetails": "Company Details",
@@ -957,36 +1069,45 @@
       }
     },
     "clients": {
-        "title": "Clients",
-        "addClient": "Add Client",
-        "editClient": "Edit Client",
-        "noClients": "No clients added yet.",
-        "deleteConfirm": "Are you sure you want to delete this client?",
-        "billingTypes": "Billing Types",
-        "hourly": "Hourly",
-        "daily": "Daily Rate",
-        "ppm": "Pence Per Mile",
-        "job": "Job Rate",
-        "fields": {
-            "name": "Client Name",
-            "address": "Client Address",
-            "email": "Client Email",
-            "paymentTerms": "Payment Terms",
-            "notes": "Notes",
-            "hourlyRate": "Rate per hour (£)",
-            "dayRate": "Day rate (£)",
-            "nightOutRate": "Night Out Rate (£)",
-            "ppmLoaded": "Loaded rate (pence/mile)",
-            "ppmEmpty": "Empty running rate (pence/mile)",
-            "fuelSurcharge": "Fuel surcharge (%)",
-            "waitingFree": "Free period (minutes)",
-            "waitingRate": "Rate after free period (£/hour)",
-            "description": "Description",
-            "amount": "Amount (£)",
-            "unit": "Unit"
-        },
-        "customItems": "Custom Line Items",
-        "addCustom": "Add Line Item"
+      "title": "Clients",
+      "addClient": "Add Client",
+      "editClient": "Edit Client",
+      "noClients": "No clients added yet.",
+      "deleteConfirm": "Are you sure you want to delete this client?",
+      "billingTypes": "Billing Types",
+      "hourly": "Hourly",
+      "daily": "Daily Rate",
+      "ppm": "Pence Per Mile",
+      "job": "Job Rate",
+      "fields": {
+        "name": "Client Name",
+        "address": "Client Address",
+        "email": "Client Email",
+        "paymentTerms": "Payment Terms",
+        "notes": "Notes",
+        "hourlyRate": "Rate per hour (£)",
+        "dayRate": "Day rate (£)",
+        "nightOutRate": "Night Out Rate (£)",
+        "ppmLoaded": "Loaded rate (pence/mile)",
+        "ppmEmpty": "Empty running rate (pence/mile)",
+        "fuelSurcharge": "Fuel surcharge (%)",
+        "waitingFree": "Free period (minutes)",
+        "waitingRate": "Rate after free period (£/hour)",
+        "description": "Description",
+        "amount": "Amount (£)",
+        "unit": "Unit"
+      },
+      "customItems": "Custom Line Items",
+      "addCustom": "Add Line Item",
+      "nameRequired": "Client name is required",
+      "placeholders": {
+        "name": "e.g. Acme Logistics",
+        "address": "Full delivery/billing address",
+        "email": "invoices@client.com",
+        "paymentTerms": "e.g. Payment due within 30 days",
+        "notes": "Internal notes about this client",
+        "unit": "e.g. per shift"
+      }
     }
   },
   "violation": {
@@ -1079,13 +1200,99 @@
     "dateFormat": "dddd, MMMM Do YYYY"
   },
   "invoiceGeneration": {
-      "title": "Generate Invoice",
-      "selectClient": "Select Client",
-      "description": "Invoice Description",
-      "includeExpenses": "Include Expenses",
-      "vatRate": "VAT Rate (%)",
-      "noVat": "No VAT",
-      "manualInvoiceNumber": "Invoice Number",
-      "addManualLineItem": "+ Add Manual Line Item"
+    "title": "Generate Invoice",
+    "selectClient": "Select Client",
+    "description": "Invoice Description",
+    "includeExpenses": "Include Expenses",
+    "vatRate": "VAT Rate (%)",
+    "noVat": "No VAT",
+    "manualInvoiceNumber": "Invoice Number",
+    "addManualLineItem": "+ Add Manual Line Item",
+    "invoiceNumberPlaceholder": "e.g. 0014",
+    "descriptionPlaceholder": "e.g. HGV Driving Services",
+    "manualLineItems": "Manual Line Items",
+    "lineDescriptionPlaceholder": "Description"
+  },
+  "loading": {
+    "synchronizing": "Synchronizing..."
+  },
+  "errorBoundary": {
+    "title": "Something went wrong."
+  },
+  "startup": {
+    "needsAttention": "Startup needs attention",
+    "failed": "HourWise could not finish startup. Please restart the app."
+  },
+  "compliance": {
+    "score": "Compliance Score",
+    "violationsFound": "Violations",
+    "perfect": "Perfect"
+  },
+  "postShiftLogout": {
+    "initial": {
+      "title": "Shift Saved",
+      "body": "Your shift has ended and saved successfully. Do you want to log out now?",
+      "logOutNow": "Log Out Now",
+      "notYet": "Not Yet"
+    },
+    "defer": {
+      "title": "Stay Logged In?",
+      "body": "Choose a logout safety option. This does not affect the saved shift.",
+      "auto30": "Auto Log Out in 30 Minutes",
+      "stayLoggedIn": "Stay Logged In",
+      "idleNote": "If there is no app activity for 2 hours after choosing Stay Logged In, a 15-second logout warning will appear."
+    },
+    "warning": {
+      "title": "No Action Detected",
+      "body": "Logging out in {{count}} seconds.",
+      "cancel": "Cancel Logout"
+    }
+  },
+  "qualifications": {
+    "professionalTitle": "Professional Qualifications",
+    "fleetUploadTitle": "Fleet Document Upload",
+    "selectDocumentType": "Select document type to upload",
+    "pendingVerification": "Pending Verification",
+    "documentType": "Document Type",
+    "idCardNumber": "ID / Card Number",
+    "numberReference": "Number / Reference",
+    "expiryDate": "Expiry Date",
+    "expiryDateIso": "Expiry Date (YYYY-MM-DD)",
+    "extractedNumberPlaceholder": "Extracted number...",
+    "enterNumber": "Enter number",
+    "confirmUpload": "Confirm & Upload",
+    "retakePhoto": "Retake Photo",
+    "processingOcr": "Processing OCR...",
+    "scan": "Scan",
+    "saveChanges": "Save Changes",
+    "docTypes": {
+      "hgvLicence": "HGV Driving Licence",
+      "cpcCard": "CPC Card (DQC)",
+      "tachoCard": "Digital Tacho Card"
+    },
+    "alerts": {
+      "cameraRequired": "Camera access is required.",
+      "cameraScanRequired": "Camera access is required to scan documents.",
+      "mediaLibraryRequired": "Media library access is required to pick documents.",
+      "uploadedPending": "Document uploaded and pending verification.",
+      "uploadError": "Upload Error",
+      "uploadFailed": "Upload failed",
+      "scanSuccess": "Scan Success",
+      "scanManualEntry": "Could not extract clear information. Please check and enter manually.",
+      "scanFailed": "Failed to scan document",
+      "notFoundTitle": "Not Found",
+      "noDocumentImage": "No document image found for this qualification.",
+      "retrieveImageFailed": "Could not retrieve document image.",
+      "updated": "Qualifications updated successfully",
+      "documentImageUploaded": "Document image uploaded",
+      "expiryLine": "Expiry: {{date}}",
+      "refLine": "Ref: {{ref}}"
+    },
+    "expiryDatePlaceholder": "YYYY-MM-DD"
+  },
+  "onboardingLastShift": {
+    "title": "Add Your Last Completed Shift",
+    "body": "This is crucial for correct daily rest calculation. Tap a date to add a shift.",
+    "done": "Done, Continue Setup"
   }
 }

@@ -87,11 +87,11 @@ export default function SettingsMenu({
               <>
                 <TouchableOpacity onPress={() => handlePress(onOpenVehicleSettings)} className="flex-row items-center gap-3 p-4 border-b border-slate-700 active:bg-slate-700">
                   <Truck size={20} color="#60a5fa" />
-                  <Text className="text-slate-200 font-medium">Vehicle Management</Text>
+                  <Text className="text-slate-200 font-medium">{t('settingsMenu.vehicleManagement')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => handlePress(() => setShowQuals(true))} className="flex-row items-center gap-3 p-4 border-b border-slate-700 active:bg-slate-700">
                   <Award size={20} color="#fbbf24" />
-                  <Text className="text-slate-200 font-medium">Qualifications</Text>
+                  <Text className="text-slate-200 font-medium">{t('settingsMenu.qualifications')}</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -99,7 +99,7 @@ export default function SettingsMenu({
             {isFleet && (
               <TouchableOpacity onPress={() => handlePress(() => setShowQuals(true))} className="flex-row items-center gap-3 p-4 border-b border-slate-700 active:bg-slate-700">
                 <Award size={20} color="#fbbf24" />
-                <Text className="text-slate-200 font-medium">Qualifications & Docs</Text>
+                <Text className="text-slate-200 font-medium">{t('settingsMenu.qualificationsDocs')}</Text>
               </TouchableOpacity>
             )}
 
@@ -108,7 +108,7 @@ export default function SettingsMenu({
             {onExportTimerDiagnostics ? (
               <TouchableOpacity onPress={() => handlePress(onExportTimerDiagnostics)} className="flex-row items-center gap-3 p-4 border-b border-slate-700 active:bg-slate-700">
                 <FileText size={20} color="#38bdf8" />
-                <Text className="text-slate-200 font-medium">Export Timer Diagnostics</Text>
+                <Text className="text-slate-200 font-medium">{t('settingsMenu.exportTimerDiagnostics')}</Text>
               </TouchableOpacity>
             ) : null}
             <View className="flex-row items-center gap-3 p-4 border-b border-slate-700 bg-slate-800/50"><Clock size={20} color="#64748b" /><View><Text className="text-slate-400 text-xs">{t('settingsMenu.timezone.label')}</Text><Text className="text-slate-500 text-xs w-48" numberOfLines={1}>{Intl.DateTimeFormat().resolvedOptions().timeZone}</Text></View></View>

@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { Alert } from 'react-native';
 import { supabase } from '../lib/supabase';
+import i18n from '../lib/i18n';
 import type { Session, SignInWithPasswordCredentials, SignUpWithPasswordCredentials } from '@supabase/supabase-js';
 import type { Database } from '../lib/database.types';
 import {
@@ -395,7 +396,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setNeedsLastShiftEntry(true);
     }
 
-    if (!data.session && data.user) Alert.alert("Check Your Email", "A confirmation link has been sent.");
+    if (!data.session && data.user) Alert.alert(i18n.t('auth.alerts.checkEmailTitle'), i18n.t('auth.alerts.confirmationSent'));
     return data.session ?? null;
   };
 

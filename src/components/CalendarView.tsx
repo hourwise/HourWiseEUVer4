@@ -139,12 +139,12 @@ const DayDetailsModal = ({ visible, onClose, selectedDate, sessions, dailyPay, t
                 <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
                     {eventsForDay.length > 0 && (
                       <View className="bg-amber-900/20 rounded-lg p-4 mb-4 border border-amber-500/30">
-                        <Text className="text-amber-500 font-bold mb-3 text-sm uppercase tracking-wider">Compliance Reminders</Text>
+                        <Text className="text-amber-500 font-bold mb-3 text-sm uppercase tracking-wider">{t('calendar.complianceReminders')}</Text>
                         {eventsForDay.map((event: any, idx: number) => (
                           <View key={idx} className="flex-row items-center gap-3 py-2 border-b border-amber-500/10 last:border-0">
                             {event.type === 'MOT' || event.type === 'Insurance' ? <Shield size={18} color="#f59e0b" /> :
                              event.type === 'Tacho' ? <Activity size={18} color="#f59e0b" /> : <Tool size={18} color="#f59e0b" />}
-                            <Text className="text-white font-semibold">{event.type} Renewal Due</Text>
+                            <Text className="text-white font-semibold">{t('calendar.renewalDue', { type: event.type })}</Text>
                           </View>
                         ))}
                       </View>
@@ -284,7 +284,7 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
 
         <View className="bg-slate-900 rounded-xl p-4 mb-6 border border-slate-800 shadow-lg">
             <View className="flex-row mb-4 border-b border-slate-700 pb-2">
-                {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => <Text key={i} className="flex-1 text-center text-slate-500 font-semibold">{day}</Text>)}
+                {['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((day, i) => <Text key={i} className="flex-1 text-center text-slate-500 font-semibold">{t(`day.${day}`)}</Text>)}
             </View>
             {weeks.map((week: any, weekIndex: number) => (
                 <View key={weekIndex} className="flex-row mb-2">
@@ -318,13 +318,13 @@ export default function CalendarView({ timezone, userId, onClose, onDataChanged 
                  <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">{t('workHistory.totalWork')}</Text><Text className="text-white font-bold text-lg">{formatTimeFromMinutes(monthlyTotals.work)}</Text></View>
                  <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">{t('workHistory.totalBreaks')}</Text><Text className="text-white font-bold text-lg">{formatTimeFromMinutes(monthlyTotals.break)}</Text></View>
                  <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">{t('workHistory.totalPOA')}</Text><Text className="text-white font-bold text-lg">{formatTimeFromMinutes(monthlyTotals.poa)}</Text></View>
-                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">{t('workHistory.noShiftsTitle')}</Text><Text className="text-green-400 font-bold text-lg">{monthlyTotals.restDays} Days</Text></View>
+                 <View className="w-[47%] bg-slate-800 p-3 rounded-lg"><Text className="text-slate-400 text-xs">{t('workHistory.noShiftsTitle')}</Text><Text className="text-green-400 font-bold text-lg">{t('calendar.daysCount', { count: monthlyTotals.restDays })}</Text></View>
             </View>
         </View>
 
         <View className="bg-slate-900 rounded-xl p-4 mb-8 border border-slate-800">
-            <View className="flex-row justify-between items-center mb-2"><Text className="text-white font-bold text-lg">{t('calendar.paySummaryTitle')}</Text><View className="bg-green-900/30 px-2 py-1 rounded border border-green-800"><Text className="text-green-400 text-xs font-bold">ESTIMATE</Text></View></View>
-            <Text className="text-slate-400 text-xs mb-3">Based on configured rates for {monthName}. Excludes tax.</Text>
+            <View className="flex-row justify-between items-center mb-2"><Text className="text-white font-bold text-lg">{t('calendar.paySummaryTitle')}</Text><View className="bg-green-900/30 px-2 py-1 rounded border border-green-800"><Text className="text-green-400 text-xs font-bold">{t('calendar.estimate')}</Text></View></View>
+            <Text className="text-slate-400 text-xs mb-3">{t('calendar.estimateNote', { period: monthName })}</Text>
             <View className="bg-slate-800 p-4 rounded-lg border border-slate-700 items-center"><Text className="text-green-400 font-bold text-3xl">{formatCurrency(monthlyTotals.pay)}</Text></View>
         </View>
       </ScrollView>

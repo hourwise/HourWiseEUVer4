@@ -120,7 +120,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
 
   const handleSaveClient = async () => {
     if (!editingClient?.name) {
-      Alert.alert(t('common.error'), 'Client name is required');
+      Alert.alert(t('common.error'), t('businessProfile.clients.nameRequired'));
       return;
     }
 
@@ -195,7 +195,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'We need access to your photos to upload a logo.');
+      Alert.alert(t('permissions.mediaLibraryTitle'), t('businessProfile.alerts.logoPermissionDenied'));
       return;
     }
 
@@ -218,7 +218,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
 
     try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("User not found");
+        if (!user) throw new Error(t('auth.alerts.userNotFound'));
 
         const filePath = `${user.id}/${new Date().getTime()}.${fileExt}`;
         const { error } = await supabase.storage
@@ -233,7 +233,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
         setLogoUrl(publicUrlData.publicUrl);
 
     } catch(err: any) {
-        Alert.alert('Upload Error', err.message || 'Failed to upload image.');
+        Alert.alert(t('businessProfile.alerts.uploadError'), err.message || t('businessProfile.alerts.uploadImageFailed'));
     } finally {
         setLoading(false);
     }
@@ -448,7 +448,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                               value={editingClient?.name}
                               onChangeText={text => setEditingClient(prev => ({ ...prev, name: text }))}
                               className="p-3 border border-slate-600 rounded-xl bg-slate-800 text-white"
-                              placeholder="e.g. Acme Logistics"
+                              placeholder={t('businessProfile.clients.placeholders.name')}
                               placeholderTextColor="#64748b"
                             />
                         </View>
@@ -459,7 +459,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                               onChangeText={text => setEditingClient(prev => ({ ...prev, address: text }))}
                               multiline
                               className="p-3 border border-slate-600 rounded-xl bg-slate-800 text-white h-20"
-                              placeholder="Full delivery/billing address"
+                              placeholder={t('businessProfile.clients.placeholders.address')}
                               placeholderTextColor="#64748b"
                             />
                         </View>
@@ -470,7 +470,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                               onChangeText={text => setEditingClient(prev => ({ ...prev, email: text }))}
                               keyboardType="email-address"
                               className="p-3 border border-slate-600 rounded-xl bg-slate-800 text-white"
-                              placeholder="invoices@client.com"
+                              placeholder={t('businessProfile.clients.placeholders.email')}
                               placeholderTextColor="#64748b"
                             />
                         </View>
@@ -480,7 +480,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                               value={editingClient?.payment_terms}
                               onChangeText={text => setEditingClient(prev => ({ ...prev, payment_terms: text }))}
                               className="p-3 border border-slate-600 rounded-xl bg-slate-800 text-white"
-                              placeholder="e.g. Payment due within 30 days"
+                              placeholder={t('businessProfile.clients.placeholders.paymentTerms')}
                               placeholderTextColor="#64748b"
                             />
                         </View>
@@ -491,7 +491,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                               onChangeText={text => setEditingClient(prev => ({ ...prev, notes: text }))}
                               multiline
                               className="p-3 border border-slate-600 rounded-xl bg-slate-800 text-white h-20"
-                              placeholder="Internal notes about this client"
+                              placeholder={t('businessProfile.clients.placeholders.notes')}
                               placeholderTextColor="#64748b"
                             />
                         </View>
@@ -670,7 +670,7 @@ export default function BusinessProfileModal({ visible, onClose }: BusinessProfi
                                       value={item.unit}
                                       onChangeText={text => updateCustomItem(idx, 'unit', text)}
                                       className="text-sm p-1 border-b border-slate-600 text-white"
-                                      placeholder="e.g. per shift"
+                                      placeholder={t('businessProfile.clients.placeholders.unit')}
                                       placeholderTextColor="#64748b"
                                     />
                                   </View>

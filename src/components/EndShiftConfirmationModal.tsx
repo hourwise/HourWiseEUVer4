@@ -49,8 +49,8 @@ const formatTime = (seconds: number) => {
 const formatReceipt = (expense: FuelExpenseOption) => {
   const merchant = expense.merchant?.trim() || 'Fuel receipt';
   const amount = `${expense.currency || 'GBP'} ${Number(expense.amount).toFixed(2)}`;
-  const litres = expense.fuel_litres ? ` • ${expense.fuel_litres} L` : '';
-  return `${merchant} • ${amount}${litres}`;
+  const litres = expense.fuel_litres ? ` - ${expense.fuel_litres} L` : '';
+  return `${merchant} - ${amount}${litres}`;
 };
 
 const parseOptionalNumber = (value: string) => {
@@ -141,22 +141,22 @@ const EndShiftConfirmationModal = ({
     const opening = vehicleCheck?.odometer_reading ?? null;
 
     if (Number.isNaN(closing)) {
-      Alert.alert('Invalid odometer', 'Enter a valid closing odometer reading or leave it blank.');
+      Alert.alert(t('endShiftConfirmation.checklist.invalidOdometerTitle'), t('endShiftConfirmation.checklist.invalidOdometerBody'));
       return;
     }
 
     if (Number.isNaN(litres)) {
-      Alert.alert('Invalid fuel amount', 'Enter fuel added in litres as a number or leave it blank.');
+      Alert.alert(t('endShiftConfirmation.checklist.invalidFuelTitle'), t('endShiftConfirmation.checklist.invalidFuelBody'));
       return;
     }
 
     if (typeof closing === 'number' && typeof opening === 'number' && closing < opening) {
-      Alert.alert('Invalid odometer', 'Closing odometer cannot be lower than opening odometer.');
+      Alert.alert(t('endShiftConfirmation.checklist.invalidOdometerTitle'), t('endShiftConfirmation.checklist.closingLowerThanOpening'));
       return;
     }
 
     if (selectedFuelExpenseId && litres === null) {
-      Alert.alert('Fuel litres required', 'Enter the litres added before matching the fuel receipt.');
+      Alert.alert(t('endShiftConfirmation.checklist.fuelLitresRequiredTitle'), t('endShiftConfirmation.checklist.fuelLitresRequiredBody'));
       return;
     }
 
@@ -219,7 +219,7 @@ const EndShiftConfirmationModal = ({
             <View className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 mb-4">
               <View className="flex-row items-center gap-2 mb-3">
                 <Truck size={18} color="#60a5fa" />
-                <Text className="text-white font-bold text-lg">End Shift Checklist</Text>
+                <Text className="text-white font-bold text-lg">{t('endShiftConfirmation.checklist.title')}</Text>
               </View>
 
               {isLoadingChecklist ? (
@@ -227,26 +227,26 @@ const EndShiftConfirmationModal = ({
               ) : vehicleCheck ? (
                 <>
                   <View className="flex-row justify-between py-1">
-                    <Text className="text-slate-400">Vehicle reg</Text>
+                    <Text className="text-slate-400">{t('endShiftConfirmation.checklist.vehicleReg')}</Text>
                     <Text className="text-white font-semibold">{vehicleCheck.reg_number}</Text>
                   </View>
                   <View className="flex-row justify-between py-1">
-                    <Text className="text-slate-400">Opening odometer</Text>
-                    <Text className="text-white font-semibold">{vehicleCheck.odometer_reading ?? 'Not entered'}</Text>
+                    <Text className="text-slate-400">{t('endShiftConfirmation.checklist.openingOdometer')}</Text>
+                    <Text className="text-white font-semibold">{vehicleCheck.odometer_reading ?? t('endShiftConfirmation.checklist.notEntered')}</Text>
                   </View>
-                  <Text className="text-slate-400 text-xs font-bold uppercase mt-3 mb-2">Closing odometer</Text>
+                  <Text className="text-slate-400 text-xs font-bold uppercase mt-3 mb-2">{t('endShiftConfirmation.checklist.closingOdometer')}</Text>
                   <TextInput
                     value={closingOdometer}
                     onChangeText={setClosingOdometer}
                     keyboardType="numeric"
-                    placeholder="Enter closing reading"
+                    placeholder={t('endShiftConfirmation.checklist.enterClosingReading')}
                     placeholderTextColor="#64748b"
                     className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-3 text-white mb-2"
                   />
                 </>
               ) : (
                 <Text className="text-amber-300 text-sm">
-                  No vehicle check was found for this shift. You can still end the shift, but no odometer record will be updated.
+                  {t('endShiftConfirmation.checklist.noVehicleCheck')}
                 </Text>
               )}
             </View>
@@ -254,10 +254,10 @@ const EndShiftConfirmationModal = ({
             <View className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 mb-4">
               <View className="flex-row items-center gap-2 mb-3">
                 <DollarSign size={18} color="#22c55e" />
-                <Text className="text-white font-bold text-lg">Fuel Added</Text>
+                <Text className="text-white font-bold text-lg">{t('endShiftConfirmation.checklist.fuelAdded')}</Text>
               </View>
 
-              <Text className="text-slate-400 text-xs font-bold uppercase mb-2">Litres</Text>
+              <Text className="text-slate-400 text-xs font-bold uppercase mb-2">{t('endShiftConfirmation.checklist.litres')}</Text>
               <TextInput
                 value={fuelLitres}
                 onChangeText={setFuelLitres}
@@ -267,7 +267,7 @@ const EndShiftConfirmationModal = ({
                 className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-3 text-white mb-3"
               />
 
-              <Text className="text-slate-400 text-xs font-bold uppercase mb-2">Match fuel receipt</Text>
+              <Text className="text-slate-400 text-xs font-bold uppercase mb-2">{t('endShiftConfirmation.checklist.matchFuelReceipt')}</Text>
               {fuelExpenses.length > 0 ? fuelExpenses.map((expense) => {
                 const active = selectedFuelExpenseId === expense.id;
                 return (
@@ -281,11 +281,11 @@ const EndShiftConfirmationModal = ({
                   </TouchableOpacity>
                 );
               }) : (
-                <Text className="text-slate-400 text-sm">No fuel receipts found for today.</Text>
+                <Text className="text-slate-400 text-sm">{t('endShiftConfirmation.checklist.noFuelReceipts')}</Text>
               )}
 
               {selectedFuelExpense ? (
-                <Text className="text-green-300 text-xs mt-1">Selected receipt will be linked to this shift and vehicle.</Text>
+                <Text className="text-green-300 text-xs mt-1">{t('endShiftConfirmation.checklist.selectedReceiptLinked')}</Text>
               ) : null}
             </View>
 

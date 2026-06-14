@@ -180,9 +180,9 @@ const MessagesScreen = () => {
       });
       if (error) throw error;
       setReplyText('');
-      Alert.alert('Sent', 'Your reply has been sent to your fleet manager.');
+      Alert.alert(t('messages.replySentTitle'), t('messages.replySentBody'));
     } catch (err) {
-      Alert.alert('Error', 'Failed to send reply. Please try again.');
+      Alert.alert(t('common.error'), t('messages.replyFailed'));
     } finally {
       setIsSending(false);
     }
@@ -256,14 +256,14 @@ const MessagesScreen = () => {
           const isSystem = item.type === 'system';
           const isDirect = item.type === 'direct';
 
-          const badgeLabel = isSystem ? 'SYSTEM' : isDirect ? 'DIRECT' : 'FLEET';
+          const badgeLabel = isSystem ? t('messages.badges.system') : isDirect ? t('messages.badges.direct') : t('messages.badges.fleet');
           const badgeStyle = isSystem ? styles.systemBadge : isDirect ? styles.directBadge : styles.fleetBadge;
           const badgeTextStyle = isSystem ? styles.systemBadgeText : isDirect ? styles.directBadgeText : styles.fleetBadgeText;
 
           const defaultTitle = isSystem
             ? t('messages.systemNotificationTitle', 'System Announcement')
             : isDirect
-            ? 'Direct Message'
+            ? t('messages.directMessage')
             : t('messages.notificationTitle', 'Fleet Message');
 
           return (
@@ -323,10 +323,10 @@ const MessagesScreen = () => {
             <View style={styles.modalHeader}>
               <Text style={styles.modalType}>
                 {selectedMessage?.type === 'system'
-                  ? 'System Update'
+                  ? t('messages.systemUpdate')
                   : selectedMessage?.type === 'direct'
-                  ? 'Direct Message'
-                  : 'Fleet Alert'}
+                  ? t('messages.directMessage')
+                  : t('messages.fleetAlert')}
               </Text>
               <TouchableOpacity onPress={() => { setSelectedMessage(null); setReplyText(''); }}>
                 <X color="#94a3b8" />
@@ -339,7 +339,7 @@ const MessagesScreen = () => {
                   (selectedMessage?.type === 'system'
                     ? t('messages.systemNotificationTitle')
                     : selectedMessage?.type === 'direct'
-                    ? 'Direct Message'
+                    ? t('messages.directMessage')
                     : t('messages.notificationTitle'))}
               </Text>
               <Text style={styles.modalDate}>{formatDate(selectedMessage?.created_at)}</Text>
@@ -351,7 +351,7 @@ const MessagesScreen = () => {
               <View style={styles.replyContainer}>
                 <TextInput
                   style={styles.replyInput}
-                  placeholder="Type a reply to your manager..."
+                  placeholder={t('messages.replyPlaceholder')}
                   placeholderTextColor="#64748b"
                   value={replyText}
                   onChangeText={setReplyText}

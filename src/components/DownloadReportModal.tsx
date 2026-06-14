@@ -644,7 +644,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
                       onChangeText={setManualInvoiceNumber}
                       keyboardType="numeric"
                       className="bg-white border-2 border-gray-100 rounded-xl p-4 font-bold text-gray-700"
-                      placeholder="e.g. 0014"
+                      placeholder={t('invoiceGeneration.invoiceNumberPlaceholder')}
                     />
                   </View>
 
@@ -654,7 +654,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
                       value={invoiceDescription}
                       onChangeText={setInvoiceDescription}
                       className="bg-white border-2 border-gray-100 rounded-xl p-4 text-gray-700"
-                      placeholder="e.g. HGV Driving Services"
+                      placeholder={t('invoiceGeneration.descriptionPlaceholder')}
                     />
                   </View>
 
@@ -680,7 +680,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
 
                   <View className="pt-2">
                     <View className="flex-row justify-between items-center mb-2">
-                        <Text className="text-sm font-bold text-gray-500 uppercase tracking-wider">Manual Line Items</Text>
+                        <Text className="text-sm font-bold text-gray-500 uppercase tracking-wider">{t('invoiceGeneration.manualLineItems')}</Text>
                         <TouchableOpacity onPress={addManualLineItem} className="bg-blue-100 px-3 py-1 rounded-full"><Text className="text-blue-600 text-xs font-bold">{t('invoiceGeneration.addManualLineItem')}</Text></TouchableOpacity>
                     </View>
                     {manualLineItems.map((item, index) => (
@@ -688,7 +688,7 @@ export default function DownloadReportModal({ onClose, visible }: DownloadReport
                             <TextInput
                                 value={item.description}
                                 onChangeText={(val) => updateManualLineItem(index, 'description', val)}
-                                placeholder="Description"
+                                placeholder={t('invoiceGeneration.lineDescriptionPlaceholder')}
                                 className="flex-1 bg-white border border-gray-200 rounded-lg p-2 text-xs"
                             />
                             <TextInput

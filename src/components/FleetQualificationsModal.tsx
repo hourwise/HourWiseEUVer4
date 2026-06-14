@@ -69,7 +69,7 @@ export default function FleetQualificationsModal({ visible, onClose, userId, com
   const takePhoto = async (type: DocType) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Camera access is required.');
+      Alert.alert(t('permissions.cameraTitle'), t('qualifications.alerts.cameraRequired'));
       return;
     }
 
@@ -107,10 +107,10 @@ export default function FleetQualificationsModal({ visible, onClose, userId, com
         verified_at: null,
       });
 
-      Alert.alert('Success', 'Document uploaded and pending verification.');
+      Alert.alert(t('common.success'), t('qualifications.alerts.uploadedPending'));
       onClose();
     } catch (e: any) {
-      Alert.alert('Upload Error', e.message);
+      Alert.alert(t('qualifications.alerts.uploadError'), e.message);
     } finally {
       setLoading(false);
     }
@@ -118,18 +118,18 @@ export default function FleetQualificationsModal({ visible, onClose, userId, com
 
   const renderSelect = () => (
     <View style={styles.menu}>
-      <Text style={styles.subtitle}>Select document type to upload</Text>
+      <Text style={styles.subtitle}>{t('qualifications.selectDocumentType')}</Text>
       <TouchableOpacity style={styles.typeBtn} onPress={() => takePhoto('HGV_Licence')}>
         <Award size={24} color="#3b82f6" />
-        <Text style={styles.typeBtnText}>HGV Driving Licence</Text>
+        <Text style={styles.typeBtnText}>{t('qualifications.docTypes.hgvLicence')}</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.typeBtn} onPress={() => takePhoto('CPC_Card')}>
         <Shield size={24} color="#f59e0b" />
-        <Text style={styles.typeBtnText}>CPC Card (DQC)</Text>
+        <Text style={styles.typeBtnText}>{t('qualifications.docTypes.cpcCard')}</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.typeBtn} onPress={() => takePhoto('Tacho_Card')}>
         <CreditCard size={24} color="#94a3b8" />
-        <Text style={styles.typeBtnText}>Digital Tacho Card</Text>
+        <Text style={styles.typeBtnText}>{t('qualifications.docTypes.tachoCard')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -140,41 +140,41 @@ export default function FleetQualificationsModal({ visible, onClose, userId, com
         {imageUri && <Image source={{ uri: imageUri }} style={styles.preview} />}
         <View style={styles.pendingBadge}>
           <Clock size={14} color="#fbbf24" />
-          <Text style={styles.pendingText}>Pending Verification</Text>
+          <Text style={styles.pendingText}>{t('qualifications.pendingVerification')}</Text>
         </View>
       </View>
 
-      <Text style={styles.label}>Document Type</Text>
+      <Text style={styles.label}>{t('qualifications.documentType')}</Text>
       <View style={styles.readOnlyInput}>
         <Text style={styles.readOnlyText}>{selectedType?.replace('_', ' ')}</Text>
       </View>
 
-      <Text style={styles.label}>ID / Card Number</Text>
+      <Text style={styles.label}>{t('qualifications.idCardNumber')}</Text>
       <TextInput
         style={styles.input}
         value={idNumber}
         onChangeText={setIdNumber}
-        placeholder="Extracted number..."
+        placeholder={t('qualifications.extractedNumberPlaceholder')}
         placeholderTextColor="#64748b"
         autoCapitalize="characters"
       />
 
-      <Text style={styles.label}>Expiry Date (YYYY-MM-DD)</Text>
+      <Text style={styles.label}>{t('qualifications.expiryDateIso')}</Text>
       <TextInput
         style={styles.input}
         value={expiryDate}
         onChangeText={setExpiryDate}
-        placeholder="YYYY-MM-DD"
+        placeholder={t('qualifications.expiryDatePlaceholder')}
         placeholderTextColor="#64748b"
         keyboardType="numeric"
       />
 
       <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={loading}>
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Confirm & Upload</Text>}
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>{t('qualifications.confirmUpload')}</Text>}
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.backBtn} onPress={() => setStep('select')}>
-        <Text style={styles.backBtnText}>Retake Photo</Text>
+        <Text style={styles.backBtnText}>{t('qualifications.retakePhoto')}</Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -184,7 +184,7 @@ export default function FleetQualificationsModal({ visible, onClose, userId, com
       <View style={styles.backdrop}>
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Fleet Document Upload</Text>
+            <Text style={styles.headerTitle}>{t('qualifications.fleetUploadTitle')}</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <X size={24} color="#fff" />
             </TouchableOpacity>
@@ -193,7 +193,7 @@ export default function FleetQualificationsModal({ visible, onClose, userId, com
           {loading && step === 'select' ? (
             <View style={styles.loadingOverlay}>
               <ActivityIndicator size="large" color="#2563eb" />
-              <Text style={styles.loadingText}>Processing OCR...</Text>
+              <Text style={styles.loadingText}>{t('qualifications.processingOcr')}</Text>
             </View>
           ) : (
             step === 'select' ? renderSelect() : renderForm()

@@ -7,7 +7,9 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
+  InteractionManager,
   StyleSheet,
   Linking,
   ScrollView,
@@ -34,6 +36,26 @@ type Props = {
 
 const CATEGORIES = ['Fuel', 'Tolls', 'Parking', 'Meals', 'Accommodation', 'Supplies', 'Other'];
 const CURRENCIES = ['GBP', 'EUR'];
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForAppActive = () => new Promise<void>((resolve) => {
+  if (AppState.currentState === 'active') {
+    resolve();
+    return;
+  }
+
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      subscription.remove();
+      resolve();
+    }
+  });
+});
+
+const waitForInteractions = () => new Promise<void>((resolve) => {
+  InteractionManager.runAfterInteractions(() => resolve());
+});
 
 function normalizeAmountText(s: string) {
   return s.replace(/\s/g, '').replace(/,/g, '.');
@@ -156,7 +178,10 @@ export default function AddExpenseModal({
   }, [amount, busy]);
 
   const handleImagePicked = async (result: ImagePicker.ImagePickerResult) => {
-    if (result.canceled) return;
+    if (result.canceled) {
+      setBusy(false);
+      return;
+    }
 
     const uri = result.assets?.[0]?.uri;
     if (!uri) return;
@@ -188,7 +213,42 @@ export default function AddExpenseModal({
     }
   };
 
+  useEffect(() => {
+    if (!visible) return;
+
+    let cancelled = false;
+
+    const recoverPendingPickerResult = async () => {
+      try {
+        const pendingResults = await ImagePicker.getPendingResultAsync();
+        if (cancelled || pendingResults.length === 0) return;
+
+        const pending = pendingResults[0];
+        if ('canceled' in pending) {
+          await handleImagePicked(pending);
+        } else if ('message' in pending) {
+          console.warn('Pending image picker error:', pending.message);
+        }
+      } catch (error) {
+        console.warn('Pending image picker recovery failed:', error);
+      }
+    };
+
+    recoverPendingPickerResult();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') recoverPendingPickerResult();
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, [visible]);
+
   const takePhoto = async () => {
+    if (busy) return;
+    setBusy(true);
+
     try {
       const current = await ImagePicker.getCameraPermissionsAsync();
       let finalStatus = current.status;
@@ -207,21 +267,25 @@ export default function AddExpenseModal({
             { text: t('common.openSettings'), onPress: () => Linking.openSettings() },
           ]
         );
+        setBusy(false);
         return;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await waitForAppActive();
+      await waitForInteractions();
+      await wait(400);
 
       const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
-        quality: 0.7,
-        cameraType: ImagePicker.CameraType.back,
+        quality: 0.45,
         exif: false,
       });
 
       await handleImagePicked(result);
     } catch (error: any) {
       console.error('Camera Launch Error:', error);
+      setBusy(false);
       Alert.alert(
         t('expenses.cameraError'),
         error?.message || t('expenses.cameraErrorMessage')
@@ -377,7 +441,7 @@ export default function AddExpenseModal({
             <TextInput
               value={merchant}
               onChangeText={setMerchant}
-              placeholder="e.g. Shell"
+              placeholder={t('expenses.merchantPlaceholder')}
               placeholderTextColor="#64748b"
               style={styles.input}
             />
@@ -399,12 +463,12 @@ export default function AddExpenseModal({
 
             {category === 'Fuel' ? (
               <>
-                <Text style={styles.label}>Fuel Added (litres)</Text>
+                <Text style={styles.label}>{t('expenses.fuelLitres')}</Text>
                 <TextInput
                   value={fuelLitres}
                   onChangeText={setFuelLitres}
                   keyboardType="numeric"
-                  placeholder="e.g. 58.42"
+                  placeholder={t('expenses.fuelLitresPlaceholder')}
                   placeholderTextColor="#64748b"
                   style={styles.input}
                 />

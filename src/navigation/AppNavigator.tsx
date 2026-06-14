@@ -18,6 +18,7 @@ import SettingsScreen from '../screens/SettingsScreen';
 import MyScheduleScreen from '../screens/MyScheduleScreen';
 import BootstrappingScreen from '../screens/BootstrappingScreen';
 import CalendarView from '../components/CalendarView';
+import { useTranslation } from 'react-i18next';
 
 const Stack = createNativeStackNavigator();
 
@@ -34,6 +35,7 @@ const SetupStack = () => {
 };
 
 const OnboardingCalendar = () => {
+  const { t } = useTranslation();
   const { session, completeLastShiftEntry } = useAuth();
   if (!session) return null;
 
@@ -42,8 +44,8 @@ const OnboardingCalendar = () => {
       <StatusBar barStyle="light-content" />
       <View style={{ flex: 1 }}>
         <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#334155' }}>
-          <Text style={{ fontSize: 18, fontWeight: 'bold', color: 'white', textAlign: 'center' }}>Add Your Last Completed Shift</Text>
-          <Text style={{ color: '#94A3B8', textAlign: 'center', marginTop: 4 }}>This is crucial for correct daily rest calculation. Tap a date to add a shift.</Text>
+          <Text style={{ fontSize: 18, fontWeight: 'bold', color: 'white', textAlign: 'center' }}>{t('onboardingLastShift.title')}</Text>
+          <Text style={{ color: '#94A3B8', textAlign: 'center', marginTop: 4 }}>{t('onboardingLastShift.body')}</Text>
         </View>
         <CalendarView
           userId={session.user.id}
@@ -53,7 +55,7 @@ const OnboardingCalendar = () => {
         />
         <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#334155' }}>
           <TouchableOpacity onPress={completeLastShiftEntry} style={{ backgroundColor: '#2563EB', padding: 12, borderRadius: 8 }}>
-            <Text style={{ color: 'white', fontWeight: 'bold', textAlign: 'center' }}>Done, Continue Setup</Text>
+            <Text style={{ color: 'white', fontWeight: 'bold', textAlign: 'center' }}>{t('onboardingLastShift.done')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -63,6 +65,7 @@ const OnboardingCalendar = () => {
 
 
 export default function AppNavigator() {
+  const { t } = useTranslation();
   const bootState = useBootState();
   const { session, stage } = bootState;
 
@@ -83,8 +86,8 @@ export default function AppNavigator() {
   if (stage === 'error') {
     return (
       <BootstrappingScreen
-        title="Startup needs attention"
-        message={bootState.error || 'HourWise could not finish startup. Please restart the app.'}
+        title={t('startup.needsAttention')}
+        message={bootState.error || t('startup.failed')}
       />
     );
   }

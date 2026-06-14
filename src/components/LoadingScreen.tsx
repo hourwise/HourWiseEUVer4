@@ -1,13 +1,16 @@
 import React from 'react';
 import { View, ActivityIndicator, Text, StyleSheet, StatusBar } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 const LoadingScreen = () => {
+  const { t } = useTranslation();
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       <View style={styles.content}>
         <ActivityIndicator size="large" color="#3b82f6" />
-        <Text style={styles.text}>Synchronizing...</Text>
+        <Text style={styles.text}>{t('loading.synchronizing')}</Text>
       </View>
     </View>
   );

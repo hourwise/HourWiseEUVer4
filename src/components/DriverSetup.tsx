@@ -121,8 +121,8 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
     };
 
     const handleSave = async () => {
-        if (!session?.user) return Alert.alert("Error", "You are not logged in.");
-        if (!fullName.trim()) return Alert.alert("Validation Error", "Please enter your full name.");
+        if (!session?.user) return Alert.alert(t('common.error'), t('driverSetup.notLoggedIn'));
+        if (!fullName.trim()) return Alert.alert(t('driverSetup.validationError'), t('driverSetup.pleaseEnterFullName'));
 
         setIsSaving(true);
         try {
@@ -168,7 +168,7 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
             if (onClose) onClose();
 
         } catch (error: any) {
-            Alert.alert("Save Error", error.message);
+            Alert.alert(t('driverSetup.saveError'), error.message);
         } finally {
             setIsSaving(false);
         }
@@ -199,7 +199,7 @@ const DriverSetup: React.FC<DriverSetupProps> = ({ session, onClose, route }) =>
                                 style={isFleetDriver ? [styles.input, styles.disabled] : styles.input}
                                 value={fullName}
                                 onChangeText={setFullName}
-                                placeholder="e.g. John Smith"
+                                placeholder={t('auth.fields.driverName.placeholder')}
                                 placeholderTextColor="#64748B"
                                 editable={!isFleetDriver}
                             />

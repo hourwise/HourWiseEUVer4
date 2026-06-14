@@ -156,7 +156,7 @@ export default function AccountManagementScreen() {
               setIsBusy(true);
               await clearStoredBiometricSignIn();
               setBiometricEnabled(false);
-              Alert.alert('Disabled', 'Biometric sign-in has been removed from this device.');
+              Alert.alert(t('auth.biometric.disabledTitle'), t('auth.biometric.disabledBody'));
             } catch (error: any) {
               Alert.alert(t('common.error'), error?.message || 'Could not disable biometric sign-in.');
             } finally {
@@ -185,9 +185,9 @@ export default function AccountManagementScreen() {
           <View className="mb-4 p-4 rounded-xl bg-blue-900/20 border border-blue-500/30">
             <View className="flex-row items-center mb-1">
               <Info size={16} color="#60a5fa" />
-              <Text className="text-blue-400 text-xs font-bold uppercase ml-2 tracking-wider">Fleet Account</Text>
+              <Text className="text-blue-400 text-xs font-bold uppercase ml-2 tracking-wider">{t('account.fleetAccount')}</Text>
             </View>
-            <Text className="text-white text-lg font-bold">Linked to: {companyName}</Text>
+            <Text className="text-white text-lg font-bold">{t('account.linkedTo', { companyName })}</Text>
           </View>
         )}
 
@@ -197,7 +197,7 @@ export default function AccountManagementScreen() {
           <MenuItem label={t('account.changeEmail', 'Change Email')} icon={<Mail color="white" />} onPress={() => openEditModal('email')} />
           <MenuItem label={t('account.changePassword', 'Change Password')} icon={<Lock color="white" />} onPress={() => openEditModal('password')} />
           {biometricAvailable && biometricEnabled ? (
-            <MenuItem label="Disable Biometric Sign-In" icon={<Shield color="white" />} onPress={handleDisableBiometricSignIn} />
+            <MenuItem label={t('auth.biometric.disableSignIn')} icon={<Shield color="white" />} onPress={handleDisableBiometricSignIn} />
           ) : null}
         </View>
 

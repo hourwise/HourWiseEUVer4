@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 type BiometricSignInSectionProps = {
   visible: boolean;
@@ -16,17 +17,19 @@ export default function BiometricSignInSection({
   onSignIn,
   onDisable,
 }: BiometricSignInSectionProps) {
+  const { t } = useTranslation();
+
   if (!visible) return null;
 
   return (
     <>
       <TouchableOpacity style={styles.secondaryButton} onPress={onSignIn} disabled={loading}>
         <Text style={styles.secondaryButtonText}>
-          {email ? `Sign in as ${email}` : 'Sign in with biometrics'}
+          {email ? t('auth.biometric.signInAs', { email }) : t('auth.biometric.signIn')}
         </Text>
       </TouchableOpacity>
       <TouchableOpacity onPress={onDisable} disabled={loading}>
-        <Text style={styles.switch}>Disable biometric sign-in on this device</Text>
+        <Text style={styles.switch}>{t('auth.biometric.disableOnDevice')}</Text>
       </TouchableOpacity>
     </>
   );

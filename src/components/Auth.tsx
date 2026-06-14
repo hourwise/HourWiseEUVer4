@@ -28,11 +28,13 @@ import {
 import BiometricSignInSection from './auth/BiometricSignInSection';
 import SignInFields from './auth/SignInFields';
 import SignUpFields, { type AccountType } from './auth/SignUpFields';
+import { useTranslation } from 'react-i18next';
 
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
 type InviteVerificationFailure = Exclude<InviteVerificationResult, { ok: true }>;
 
 export default function Auth() {
+  const { t } = useTranslation();
   const { signUp, signIn } = useAuth();
   const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
   const [accountType, setAccountType] = useState<AccountType>('solo');
@@ -86,17 +88,17 @@ export default function Auth() {
     }
 
     const promptTitle = hasStoredSession
-      ? 'Replace biometric sign-in?'
-      : 'Enable biometric sign-in?';
+      ? t('auth.biometric.replaceTitle')
+      : t('auth.biometric.enableTitle');
     const promptMessage =
       hasStoredSession && storedMetadata?.email
-        ? `This device is currently set to sign in as ${storedMetadata.email}. Replace it with ${currentEmail}?`
-        : 'Use fingerprint or face unlock for faster sign-in on this device.';
+        ? t('auth.biometric.replaceBody', { storedEmail: storedMetadata.email, currentEmail })
+        : t('auth.biometric.enableBody');
 
     Alert.alert(promptTitle, promptMessage, [
-      { text: 'Not now', style: 'cancel' },
+      { text: t('auth.biometric.notNow'), style: 'cancel' },
       {
-        text: hasStoredSession ? 'Replace' : 'Enable',
+        text: hasStoredSession ? t('auth.biometric.replace') : t('auth.biometric.enable'),
         onPress: async () => {
           try {
             await saveBiometricSession(session.access_token, session.refresh_token, {
@@ -109,11 +111,11 @@ export default function Auth() {
               userId: currentUserId,
               email: currentEmail,
             });
-            Alert.alert('Enabled', 'Biometric sign-in is now available on this device.');
+            Alert.alert(t('auth.biometric.enabledTitle'), t('auth.biometric.enabledBody'));
           } catch (error: any) {
             Alert.alert(
-              'Biometric setup failed',
-              error?.message || 'Could not enable biometric sign-in.',
+              t('auth.biometric.setupFailedTitle'),
+              error?.message || t('auth.biometric.setupFailedBody'),
             );
           }
         },
@@ -123,8 +125,8 @@ export default function Auth() {
 
   const showInviteVerificationFailure = (result: InviteVerificationFailure) => {
     const detailLines = [
-      result.status ? `Status: ${result.status}` : null,
-      result.expiresAt ? `Expiry: ${result.expiresAt}` : null,
+      result.status ? t('auth.invite.statusLine', { status: result.status }) : null,
+      result.expiresAt ? t('auth.invite.expiryLine', { expiresAt: result.expiresAt }) : null,
       result.guidance ?? null,
     ].filter(Boolean);
 
@@ -133,7 +135,7 @@ export default function Auth() {
         ? `${result.message}\n\n${detailLines.join('\n')}`
         : result.message;
 
-    Alert.alert(result.title ?? 'Invite verification failed', message);
+    Alert.alert(result.title ?? t('auth.invite.failedTitle'), message);
   };
 
   const handleVerifyCode = async () => {
@@ -142,7 +144,7 @@ export default function Auth() {
       const result = await verifyInviteCode(inviteCode);
 
       if (result.ok) {
-        Alert.alert('Success', 'Invite code is valid. Your details have been pre-filled.');
+        Alert.alert(t('common.success'), t('auth.invite.validBody'));
         setVerifiedInvite(result.invite);
         setEmail(result.invite.email || '');
         setFullName(result.invite.full_name || '');
@@ -156,13 +158,13 @@ export default function Auth() {
 
   const handleSignUp = async () => {
     if (accountType === 'fleet' && !verifiedInvite) {
-      return Alert.alert('Error', 'Please verify your invite code before creating an account.');
+      return Alert.alert(t('common.error'), t('auth.alerts.verifyInviteFirst'));
     }
     if (!email || !password) {
-      return Alert.alert('Error', 'Email and password are required.');
+      return Alert.alert(t('common.error'), t('auth.alerts.emailPasswordRequired'));
     }
     if (accountType === 'solo' && !fullName) {
-      return Alert.alert('Error', 'Please enter your full name.');
+      return Alert.alert(t('common.error'), t('auth.alerts.fullNameRequired'));
     }
 
     setLoading(true);
@@ -178,7 +180,7 @@ export default function Auth() {
         await promptForBiometricEnable(session, email);
       }
     } catch (error: any) {
-      Alert.alert('Sign-Up Error', error.message);
+      Alert.alert(t('auth.alerts.signUpError.title'), error.message);
     } finally {
       setLoading(false);
     }
@@ -192,7 +194,7 @@ export default function Auth() {
         await promptForBiometricEnable(session, email);
       }
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message);
+      Alert.alert(t('auth.alerts.loginFailed'), error.message);
     } finally {
       setLoading(false);
     }
@@ -208,8 +210,8 @@ export default function Auth() {
         setBiometricSessionMetadata(null);
       }
       Alert.alert(
-        'Biometric Sign-In Failed',
-        error?.message || 'Could not sign in with biometrics.',
+        t('auth.biometric.signInFailedTitle'),
+        error?.message || t('auth.biometric.signInFailedBody'),
       );
     } finally {
       setLoading(false);
@@ -222,11 +224,11 @@ export default function Auth() {
       await clearBiometricSession();
       setBiometricEnabled(false);
       setBiometricSessionMetadata(null);
-      Alert.alert('Disabled', 'Biometric sign-in has been removed from this device.');
+      Alert.alert(t('auth.biometric.disabledTitle'), t('auth.biometric.disabledBody'));
     } catch (error: any) {
       Alert.alert(
-        'Disable failed',
-        error?.message || 'Could not remove biometric sign-in from this device.',
+        t('auth.biometric.disableFailedTitle'),
+        error?.message || t('auth.biometric.disableFailedBody'),
       );
     } finally {
       setLoading(false);
@@ -240,12 +242,12 @@ export default function Auth() {
     >
       <View style={styles.brandBlock}>
         <Image source={require('../../assets/splash-icon.png')} style={styles.logo} />
-        <Text style={styles.appName}>HourWise EU</Text>
-        <Text style={styles.tagline}>EU Compliance & Work Time Tracking Made Simple</Text>
+        <Text style={styles.appName}>{t('app.title')}</Text>
+        <Text style={styles.tagline}>{t('auth.tagline')}</Text>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.title}>{mode === 'signIn' ? 'Sign In' : 'Create Account'}</Text>
+        <Text style={styles.title}>{mode === 'signIn' ? t('auth.title.signIn') : t('auth.title.signUp')}</Text>
 
         {mode === 'signUp' ? (
           <SignUpFields
@@ -277,7 +279,7 @@ export default function Auth() {
           onPress={mode === 'signIn' ? handleLogin : handleSignUp}
           disabled={loading}
         >
-          {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue</Text>}
+          {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>{t('common.continue')}</Text>}
         </TouchableOpacity>
 
         <BiometricSignInSection
@@ -291,8 +293,8 @@ export default function Auth() {
         <TouchableOpacity onPress={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}>
           <Text style={styles.switch}>
             {mode === 'signIn'
-              ? "Don't have an account? Sign Up"
-              : 'Already have an account? Sign In'}
+              ? t('auth.switchTo.signUp')
+              : t('auth.switchTo.signIn')}
           </Text>
         </TouchableOpacity>
       </View>

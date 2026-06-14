@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'rea
 import { ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, XCircle, X, AlertCircle as AlertCircleIcon, Clock, Coffee, Truck, User } from 'react-native-feather';
 import { DayComplianceInfo } from '../hooks/useComplianceData';
 import { getViolationInfo } from '../lib/compliance';
+import { useTranslation } from 'react-i18next';
 
 interface ComplianceHeatmapProps {
   onClose?: () => void;
@@ -49,6 +50,7 @@ const DetailRow = ({ icon, label, value }: { icon: React.ReactNode, label: strin
 );
 
 function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, setCurrentDate }: ComplianceHeatmapProps) {
+  const { t } = useTranslation();
   const [selectedDayInfo, setSelectedDayInfo] = useState<DayComplianceInfo | null>(null);
 
   const { monthScore, weekScore } = useMemo(() => {
@@ -111,20 +113,20 @@ function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, set
           </View>
           <ScrollView contentContainerStyle={{ padding: 24 }}>
             <View className="items-center bg-slate-900 p-4 rounded-xl mb-6">
-                <Text className="text-slate-400 text-xs mb-2">Compliance Score</Text>
+                <Text className="text-slate-400 text-xs mb-2">{t('compliance.score')}</Text>
                 <View className="flex-row items-center gap-2">
                     {getScoreIcon(selectedDayInfo.score)}
                     <Text className="text-3xl font-bold text-white">{selectedDayInfo.score}%</Text>
                 </View>
             </View>
-            <DetailRow icon={<Clock size={20} color="#4ade80"/>} label="Total Work" value={formatDuration(selectedDayInfo.totalWork)} />
-            <DetailRow icon={<Truck size={20} color="#60a5fa"/>} label="Total Driving" value={formatDuration(selectedDayInfo.totalDrive)} />
-            <DetailRow icon={<Coffee size={20} color="#facc15"/>} label="Total Breaks" value={formatDuration(selectedDayInfo.totalBreak)} />
-            <DetailRow icon={<User size={20} color="#fb923c"/>} label="Total POA" value={formatDuration(selectedDayInfo.totalPoa)} />
+            <DetailRow icon={<Clock size={20} color="#4ade80"/>} label={t('shiftSummary.totalWork')} value={formatDuration(selectedDayInfo.totalWork)} />
+            <DetailRow icon={<Truck size={20} color="#60a5fa"/>} label={t('shiftSummary.totalDriving')} value={formatDuration(selectedDayInfo.totalDrive)} />
+            <DetailRow icon={<Coffee size={20} color="#facc15"/>} label={t('shiftSummary.totalBreaks')} value={formatDuration(selectedDayInfo.totalBreak)} />
+            <DetailRow icon={<User size={20} color="#fb923c"/>} label={t('shiftSummary.totalPOA')} value={formatDuration(selectedDayInfo.totalPoa)} />
 
             {selectedDayInfo.violations.length > 0 && (
               <View className="mt-6">
-                <Text className="text-lg font-bold text-white mb-2">Violations Recorded</Text>
+                <Text className="text-lg font-bold text-white mb-2">{t('complianceScorecard.violationsRecorded')}</Text>
                 <View className="bg-slate-900/50 p-4 rounded-lg">
                     {selectedDayInfo.violations.map((v, i) => {
                       const info = getViolationInfo(v);
@@ -141,7 +143,7 @@ function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, set
           </ScrollView>
           <View className="p-6 border-t border-slate-700">
             <TouchableOpacity onPress={() => setSelectedDayInfo(null)} className="w-full px-6 py-3 bg-blue-600 rounded-lg">
-              <Text className="text-white font-semibold text-center">Back to Calendar</Text>
+              <Text className="text-white font-semibold text-center">{t('calendar.backToCalendar')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -154,7 +156,7 @@ function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, set
       <View className="bg-slate-800 rounded-2xl w-full h-[90%]">
         <View className="border-b border-slate-700 p-6 flex-row justify-between items-center">
           <View className="flex-row items-center gap-2">
-            <AlertCircleIcon size={24} color="#60a5fa" /><Text className="text-2xl font-bold text-white">Compliance Score</Text>
+            <AlertCircleIcon size={24} color="#60a5fa" /><Text className="text-2xl font-bold text-white">{t('compliance.score')}</Text>
           </View>
           {onClose && <TouchableOpacity onPress={onClose} className="p-2 rounded-lg"><X color="white" size={24} /></TouchableOpacity>}
         </View>
@@ -166,17 +168,17 @@ function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, set
           </View>
           <View className="flex-row gap-4 mb-8 justify-center">
             <View className="items-center bg-slate-900 p-4 rounded-xl flex-1">
-                <Text className="text-slate-400 text-xs mb-2">This Week</Text>
+                <Text className="text-slate-400 text-xs mb-2">{t('calendar.currentWeek')}</Text>
                 <View className="flex-row items-center gap-2">{getScoreIcon(weekScore)}<Text className="text-3xl font-bold text-white">{weekScore}%</Text></View>
             </View>
             <View className="items-center bg-slate-900 p-4 rounded-xl flex-1">
-                <Text className="text-slate-400 text-xs mb-2">This Month</Text>
+                <Text className="text-slate-400 text-xs mb-2">{t('calendar.monthToDate')}</Text>
                  <View className="flex-row items-center gap-2">{getScoreIcon(monthScore)}<Text className="text-3xl font-bold text-white">{monthScore}%</Text></View>
             </View>
           </View>
           {isLoading ? <View className="h-64 justify-center items-center"><ActivityIndicator size="large" color="#60a5fa" /></View> : (
             <>
-              <View className="flex-row mb-2">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (<View key={day} className="w-[14.28%] items-center py-2"><Text className="text-xs font-semibold text-slate-500">{day}</Text></View>))}</View>
+              <View className="flex-row mb-2">{['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => (<View key={day} className="w-[14.28%] items-center py-2"><Text className="text-xs font-semibold text-slate-500">{t(`day.${day}`)}</Text></View>))}</View>
               <View className="flex-row flex-wrap">
                 {days.map((day, index) => {
                   if (day === null) return <View key={`empty-${index}`} className="w-[14.28%] aspect-square" />;
@@ -194,7 +196,7 @@ function ComplianceHeatmap({ onClose, complianceMap, isLoading, currentDate, set
             </>
           )}
         </ScrollView>
-        {onClose && (<View className="p-6 border-t border-slate-700"><TouchableOpacity onPress={onClose} className="w-full px-6 py-3 bg-blue-600 rounded-lg"><Text className="text-white font-semibold text-center">Close</Text></TouchableOpacity></View>)}
+        {onClose && (<View className="p-6 border-t border-slate-700"><TouchableOpacity onPress={onClose} className="w-full px-6 py-3 bg-blue-600 rounded-lg"><Text className="text-white font-semibold text-center">{t('common.close')}</Text></TouchableOpacity></View>)}
       </View>
     </View>
   );

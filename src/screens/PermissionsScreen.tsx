@@ -62,19 +62,19 @@ const PermissionsScreen = () => {
         </Text>
 
         <View style={styles.statusContainer}>
-          <StatusRow label="Foreground Location" isGranted={state.location.isGranted} />
-          <StatusRow label="Background Location" isGranted={state.backgroundLocation.isGranted} />
-          <StatusRow label="Notifications" isGranted={state.notifications.isGranted} />
+          <StatusRow label={i18n.t('permissions.foregroundLocation')} isGranted={state.location.isGranted} />
+          <StatusRow label={i18n.t('permissions.backgroundLocation')} isGranted={state.backgroundLocation.isGranted} />
+          <StatusRow label={i18n.t('permissions.notifications')} isGranted={state.notifications.isGranted} />
         </View>
 
         {areAllGranted ? (
           <View className="items-center py-2">
-             <Text className="text-green-400 font-bold mb-4 text-center">All permissions granted!</Text>
+             <Text className="text-green-400 font-bold mb-4 text-center">{i18n.t('permissions.allGranted')}</Text>
              {/* Note: In a bug-free world, AppNavigator would have already switched screens.
                  This button is here as a failsafe. */}
              <TouchableOpacity style={[styles.grantButton, { backgroundColor: '#16a34a', width: '100%' }]} onPress={() => refresh()}>
                 <View className="flex-row items-center gap-2">
-                    <Text style={styles.grantButtonText}>Continue to App</Text>
+                    <Text style={styles.grantButtonText}>{i18n.t('permissions.continueToApp')}</Text>
                     <ArrowRight size={20} color="white" />
                 </View>
              </TouchableOpacity>
@@ -88,12 +88,12 @@ const PermissionsScreen = () => {
         <View style={styles.footerRow}>
             <TouchableOpacity style={styles.footerBtn} onPress={() => refresh()}>
                 <RefreshCw size={16} color="#94a3b8" />
-                <Text style={styles.footerBtnText}>Refresh Status</Text>
+                <Text style={styles.footerBtnText}>{i18n.t('permissions.refreshStatus')}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.footerBtn} onPress={() => Linking.openSettings()}>
                 <Settings size={16} color="#94a3b8" />
-                <Text style={styles.footerBtnText}>Open Settings</Text>
+                <Text style={styles.footerBtnText}>{i18n.t('common.openSettings')}</Text>
             </TouchableOpacity>
         </View>
       </View>

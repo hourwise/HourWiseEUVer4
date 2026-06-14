@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Modal, TouchableOpacity, FlatList } from 'react-native';
 import { X, Check } from 'react-native-feather';
+import { useTranslation } from 'react-i18next';
 
 interface LanguageSelectorProps {
   visible: boolean;
@@ -31,6 +32,8 @@ const languages = [
 ];
 
 export default function LanguageSelector({ visible, onClose, onSelectLanguage, currentLanguage }: LanguageSelectorProps) {
+  const { t } = useTranslation();
+
   return (
     <Modal
       visible={visible}
@@ -43,7 +46,7 @@ export default function LanguageSelector({ visible, onClose, onSelectLanguage, c
 
           {/* Header */}
           <View className="flex-row justify-between items-center p-4 border-b border-slate-700 bg-slate-800">
-            <Text className="text-white text-lg font-bold">Select Language</Text>
+            <Text className="text-white text-lg font-bold">{t('selectLanguage')}</Text>
             <TouchableOpacity onPress={onClose} className="p-1">
               <X size={24} color="white" />
             </TouchableOpacity>
