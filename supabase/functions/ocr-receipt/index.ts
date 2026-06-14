@@ -1,7 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { corsHeaders } from '../_shared/cors.ts';
 
-// IMPORTANT: Paste your OCR.space API key here
 const OCR_API_KEY = Deno.env.get('OCR_API_KEY');
 
 serve(async (req) => {
@@ -11,6 +10,10 @@ serve(async (req) => {
   }
 
   try {
+    if (!OCR_API_KEY) {
+      throw new Error('OCR service is not configured.');
+    }
+
     const { image } = await req.json();
     if (!image) {
       throw new Error('No image data provided.');
@@ -32,7 +35,10 @@ serve(async (req) => {
     const ocrData = await ocrResponse.json();
 
     if (ocrData.IsErroredOnProcessing) {
-      throw new Error(ocrData.ErrorMessage || 'Failed to process image with OCR service.');
+      const message = Array.isArray(ocrData.ErrorMessage)
+        ? ocrData.ErrorMessage.join(', ')
+        : ocrData.ErrorMessage;
+      throw new Error(message || 'Failed to process image with OCR service.');
     }
 
     const extractedText = ocrData.ParsedResults[0]?.ParsedText || '';

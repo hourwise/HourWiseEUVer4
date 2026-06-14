@@ -9,6 +9,9 @@ gitignore
 /dist
 /web-build
 
+# Local agent/worktree state
+/.claude
+
 # Native build artifacts
 .kotlin/
 *.orig.*
@@ -62,3 +65,6 @@ credentials.json
 # /android <- Removed this line
 
 /credentials/
+
+# Supabase CLI local state
+/supabase/.temp

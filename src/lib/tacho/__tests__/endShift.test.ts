@@ -66,5 +66,6 @@ test('buildEndSessionRequest keeps merged shift metadata for final save', () => 
   assert.equal(request.existingOtherData.keep, 'me');
   assert.equal(request.existingOtherData.dailyRestSecondsBeforeShift, 39600);
   assert.equal(request.existingOtherData.workCycle, 63);
+  assert.equal(request.existingOtherData.workIncludesDrivingReference, true);
   assert.equal(request.complianceScore, 88);
 });

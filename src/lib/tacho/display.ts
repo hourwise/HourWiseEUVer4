@@ -96,6 +96,7 @@ export const deriveLiveDisplayState = ({
     nextTotals.poa += elapsedSec;
   } else if (status === 'working') {
     if (isDriving) {
+      nextTotals.work += elapsedSec;
       nextTotals.driving += elapsedSec;
       nextDrivingCycle += elapsedSec;
     } else {

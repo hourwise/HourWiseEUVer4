@@ -13,8 +13,8 @@ import {
   ScrollView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import Constants from 'expo-constants';
 import { expenseService } from '../services/expenseService';
+import { ocrService } from '../services/ocrService';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
@@ -31,9 +31,6 @@ type Props = {
   onSaveSuccess: () => void;
   userId: string;
 };
-
-const OCR_SPACE_ENDPOINT = 'https://api.ocr.space/parse/image';
-const OCR_SPACE_API_KEY = Constants.expoConfig?.extra?.EXPO_PUBLIC_OCR_SPACE_API_KEY ?? '';
 
 const CATEGORIES = ['Fuel', 'Tolls', 'Parking', 'Meals', 'Accommodation', 'Supplies', 'Other'];
 const CURRENCIES = ['GBP', 'EUR'];
@@ -111,40 +108,6 @@ function pickBestAmount(rawText: string): number | null {
   return (reasonable.length ? Math.max(...reasonable) : Math.max(...all)) ?? null;
 }
 
-async function ocrSpaceFromUri(imageUri: string): Promise<{ text: string }> {
-  if (!OCR_SPACE_API_KEY) throw new Error('Missing OCR.space API key.');
-
-  const form = new FormData();
-  const filename = `receipt_${Date.now()}.jpg`;
-
-  form.append('file', {
-    uri: imageUri,
-    name: filename,
-    type: 'image/jpeg',
-  } as any);
-
-  form.append('apikey', OCR_SPACE_API_KEY);
-  form.append('language', 'eng');
-  form.append('isOverlayRequired', 'false');
-  form.append('OCREngine', '2');
-
-  const res = await fetch(OCR_SPACE_ENDPOINT, {
-    method: 'POST',
-    body: form,
-  });
-
-  const json = await res.json();
-
-  if (!res.ok) throw new Error(`OCR request failed (${res.status})`);
-
-  if (json?.IsErroredOnProcessing) {
-    const msg = json?.ErrorMessage?.[0] || 'OCR processing failed.';
-    throw new Error(String(msg));
-  }
-
-  return { text: json?.ParsedResults?.[0]?.ParsedText ?? '' };
-}
-
 export default function AddExpenseModal({
   visible,
   onClose,
@@ -190,7 +153,7 @@ export default function AddExpenseModal({
     setBusy(true);
 
     try {
-      const { text } = await ocrSpaceFromUri(uri);
+      const text = await ocrService.parseImage(uri);
       setRawOcrText(text);
 
       const bestAmt = pickBestAmount(text);

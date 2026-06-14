@@ -76,6 +76,40 @@ test('createTachoStateFromSnapshot preserves runtime fields and round-trips to p
   assert.equal(persistedState.alertWindow?.prevRemaining.work, machineState.alerts.prevRemaining.work);
 });
 
+test('createTachoStateFromPersisted preserves pending motion transition metadata', () => {
+  const pendingStartedAtMs = Date.UTC(2026, 5, 12, 9, 30, 0);
+  const machineState = createTachoStateFromPersisted({
+    status: 'working',
+    sessionId: 'session-motion',
+    timerMode: '6h',
+    workStartTime: '2026-06-12T08:00:00.000Z',
+    currentSegmentStart: '2026-06-12T09:00:00.000Z',
+    totals: { work: 3600, poa: 0, break: 0, driving: 1200 },
+    workCycleTotal: 3600,
+    drivingCycleTotal: 1200,
+    breakTracker: { has15min: false },
+    isDriving: true,
+    lastTickMs: pendingStartedAtMs,
+    weeklyDrivingAccumulator: 0,
+    motionState: {
+      lastSpeedKmh: 3,
+      lastSpeedTs: pendingStartedAtMs,
+      lastLocationTs: pendingStartedAtMs,
+      lastAccuracyM: 18,
+      drivingScore: 8,
+      movingSinceMs: 0,
+      stationarySinceMs: pendingStartedAtMs,
+      pendingTransitionType: 'stationary',
+      pendingTransitionStartedAtMs: pendingStartedAtMs,
+    },
+  });
+
+  assert.equal(machineState.motion.pendingTransitionType, 'stationary');
+  assert.equal(machineState.motion.pendingTransitionStartedAtMs, pendingStartedAtMs);
+  assert.equal(machineState.motion.lastLocationTs, pendingStartedAtMs);
+  assert.equal(machineState.motion.lastAccuracyM, 18);
+});
+
 test('createTachoStateFromSessionRow maps database session fields while preserving runtime-only state', () => {
   const fallbackState = createTachoStateFromSnapshot({
     status: 'working',

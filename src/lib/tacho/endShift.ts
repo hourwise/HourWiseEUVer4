@@ -63,6 +63,7 @@ export const buildEndSessionRequest = ({
     ...(shiftMetadata ?? {}),
     workCycle: toMins(effectiveWorkCycle),
     drivingCycle: toMins(effectiveDrivingCycle),
+    workIncludesDrivingReference: true,
   },
   latitude,
   longitude,

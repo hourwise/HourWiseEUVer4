@@ -10,17 +10,28 @@ import { ALERT_TEXT, BACKGROUND_DRIVE_ALERT_KEYS, type AlertKey } from './src/li
 import {
   clearBackgroundAlertState,
   loadActiveTimerState,
+  appendMotionDiagnosticsRing,
   saveBackgroundTaskDiagnostics,
   saveActiveTimerState,
 } from './src/lib/tacho/runtimeStorage';
 import {
   createTachoStateFromPersisted,
   toPersistedTachoState,
+  type TachoCommand,
 } from './src/lib/tacho/machine';
 import { reduceTachoEvent } from './src/lib/tacho/reducer';
+import type { MotionDiagnosticRecord } from './src/lib/tacho/diagnostics';
 
 export const LOCATION_TASK_NAME = 'background-location-task';
 export const BACKGROUND_SPEED_KEY = 'bg_last_speed_v1';
+const BACKGROUND_SAMPLE_STALE_MS = 10_000;
+
+const getSafeLocationTimestamp = (timestamp: unknown, receiptMs: number): number => {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) {
+    return receiptMs;
+  }
+  return timestamp > receiptMs ? receiptMs : timestamp;
+};
 
 const scheduleBackgroundAlert = async (alertKey: AlertKey) => {
   const cfg = ALERT_TEXT[alertKey];
@@ -57,18 +68,39 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
 
   if (!data?.locations?.length) return;
 
-  const speed = Math.max(0, (data.locations[0].coords.speed || 0) * 3.6);
-  const nowMs = Date.now();
+  const receiptMs = Date.now();
+  const samples = data.locations
+    .map((location: any) => ({
+      speedKmh:
+        typeof location?.coords?.speed === 'number' && Number.isFinite(location.coords.speed)
+          ? Math.max(0, location.coords.speed * 3.6)
+          : null,
+      accuracyM:
+        typeof location?.coords?.accuracy === 'number' && Number.isFinite(location.coords.accuracy)
+          ? location.coords.accuracy
+          : null,
+      sampleTs: getSafeLocationTimestamp(location?.timestamp, receiptMs),
+    }))
+    .filter((sample: { sampleTs: number }) => Number.isFinite(sample.sampleTs))
+    .sort((a: { sampleTs: number }, b: { sampleTs: number }) => a.sampleTs - b.sampleTs);
+
+  if (!samples.length) return;
+
+  const latestSample = samples[samples.length - 1];
 
   await AsyncStorage.setItem(
     BACKGROUND_SPEED_KEY,
-    JSON.stringify({ speedKmh: speed, ts: nowMs })
+    JSON.stringify({
+      speedKmh: latestSample.speedKmh ?? 0,
+      ts: latestSample.sampleTs,
+      receiptTs: receiptMs,
+    })
   );
 
   const persistedState = await loadActiveTimerState();
   await saveBackgroundTaskDiagnostics({
-    lastRunAtMs: nowMs,
-    lastSpeedKmh: speed,
+    lastRunAtMs: receiptMs,
+    lastSpeedKmh: latestSample.speedKmh ?? 0,
     persistedStatus: persistedState?.status ?? 'missing',
     lastTriggeredAlertKey: null,
   });
@@ -77,34 +109,100 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
     return;
   }
 
-  const machineState = createTachoStateFromPersisted(persistedState, nowMs);
+  let machineState = createTachoStateFromPersisted(persistedState, receiptMs);
   const segmentStartMs = new Date(machineState.currentSegmentStart || '').getTime();
   if (!Number.isFinite(segmentStartMs)) {
     await clearBackgroundAlertState();
     return;
   }
 
+  const commands: TachoCommand[] = [];
+  const diagnosticRecords: MotionDiagnosticRecord[] = [];
+  if (machineState.status === 'working') {
+    for (const sample of samples) {
+      const totalsBefore = { ...machineState.totals };
+      const previousDriving = machineState.isDriving;
+      const ignoredReason =
+        receiptMs - sample.sampleTs > BACKGROUND_SAMPLE_STALE_MS
+          ? 'stale'
+          : sample.sampleTs <= machineState.motion.lastLocationTs
+            ? 'duplicate'
+            : null;
+      if (ignoredReason) {
+        diagnosticRecords.push({
+          receiptTimeMs: receiptMs,
+          sampleTimeMs: sample.sampleTs,
+          appState: 'background',
+          source: 'background_location',
+          gpsSpeedKmh: sample.speedKmh,
+          computedSpeedKmh: null,
+          selectedSpeedKmh: sample.speedKmh,
+          selectedSpeedSource: sample.speedKmh === null ? 'none' : 'gps',
+          accuracyM: sample.accuracyM,
+          previousDriving,
+          nextDriving: previousDriving,
+          movingSinceMs: machineState.motion.movingSinceMs,
+          stationarySinceMs: machineState.motion.stationarySinceMs,
+          ignoredReason,
+          reducerEventApplied: null,
+          totalsBefore,
+          totalsAfter: totalsBefore,
+        });
+        continue;
+      }
+      const speedResult = reduceTachoEvent(machineState, {
+        type: 'BACKGROUND_SPEED_SAMPLE_RECEIVED',
+        nowMs: sample.sampleTs,
+        receiptTs: receiptMs,
+        speedKmh: sample.speedKmh ?? 0,
+        sampleTs: sample.sampleTs,
+      });
+      machineState = speedResult.state;
+      commands.push(...speedResult.commands);
+      diagnosticRecords.push({
+        receiptTimeMs: receiptMs,
+        sampleTimeMs: sample.sampleTs,
+        appState: 'background',
+        source: 'background_location',
+        gpsSpeedKmh: sample.speedKmh,
+        computedSpeedKmh: null,
+        selectedSpeedKmh: sample.speedKmh ?? 0,
+        selectedSpeedSource: sample.speedKmh === null ? 'none' : 'gps',
+        accuracyM: sample.accuracyM,
+        previousDriving,
+        nextDriving: machineState.isDriving,
+        movingSinceMs: machineState.motion.movingSinceMs,
+        stationarySinceMs: machineState.motion.stationarySinceMs,
+        ignoredReason: speedResult.commands.length === 0 && machineState.isDriving === previousDriving
+          ? 'no_reducer_change'
+          : null,
+        reducerEventApplied: 'BACKGROUND_SPEED_SAMPLE_RECEIVED',
+        totalsBefore,
+        totalsAfter: { ...machineState.totals },
+      });
+    }
+  }
+
   const tickResult = reduceTachoEvent(machineState, {
     type: 'TIMER_TICK',
-    nowMs,
+    nowMs: receiptMs,
   });
-
-  const speedResult = tickResult.state.status === 'working'
-    ? reduceTachoEvent(tickResult.state, {
-        type: 'BACKGROUND_SPEED_SAMPLE_RECEIVED',
-        nowMs,
-        speedKmh: speed,
-        sampleTs: nowMs,
-      })
-    : { state: tickResult.state, commands: [] };
-
-  const finalState = speedResult.state;
-  const commands = [...tickResult.commands, ...speedResult.commands];
+  const finalState = tickResult.state;
+  commands.push(...tickResult.commands);
+  if (diagnosticRecords.length > 0) {
+    await appendMotionDiagnosticsRing(diagnosticRecords);
+  }
 
   await saveActiveTimerState(
     toPersistedTachoState(
       finalState,
       persistedState.userStorageKey ? persistedState.userStorageKey : undefined,
+      {
+        userId: persistedState.userId,
+        savedAtMs: receiptMs,
+        lastCheckpointAtMs: persistedState.lastCheckpointAtMs,
+        activitySegmentStartTime: persistedState.activitySegmentStartTime,
+      },
     ),
   );
 
@@ -115,8 +213,8 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
     ) {
       await scheduleBackgroundAlert(command.alertKey);
       await saveBackgroundTaskDiagnostics({
-        lastRunAtMs: nowMs,
-        lastSpeedKmh: speed,
+        lastRunAtMs: receiptMs,
+        lastSpeedKmh: latestSample.speedKmh ?? 0,
         persistedStatus: finalState.status,
         lastTriggeredAlertKey: command.alertKey,
       });

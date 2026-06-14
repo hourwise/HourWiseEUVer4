@@ -37,11 +37,14 @@ export const workSessionService = {
     timezone: string,
     latitude?: number,
     longitude?: number,
+    startedAtIso?: string,
+    sessionId?: string,
   ) => {
-    const now = new Date();
+    const now = startedAtIso ? new Date(startedAtIso) : new Date();
     return supabase
       .from('work_sessions')
       .insert({
+        ...(sessionId ? { id: sessionId } : {}),
         start_time:      now.toISOString(),
         date:            toLocalDateString(now),
         user_id:         userId,
@@ -90,11 +93,12 @@ export const workSessionService = {
     longitude?: number,
     complianceScore?: number,
     complianceViolations?: string[],
+    endedAtIso?: string,
   ) => {
     return supabase
       .from('work_sessions')
       .update({
-        end_time:              new Date().toISOString(),
+        end_time:              endedAtIso ?? new Date().toISOString(),
         total_work_minutes:    workMins,
         total_poa_minutes:     poaMins,
         total_break_minutes:   breakMins,

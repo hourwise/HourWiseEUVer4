@@ -70,6 +70,7 @@ export const applyElapsedToCounters = (
   }
 
   if (lastDriving) {
+    nextState.totals.work += elapsedSec;
     nextState.totals.driving += elapsedSec;
     nextState.drivingCycle += elapsedSec;
   } else {

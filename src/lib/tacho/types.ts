@@ -29,9 +29,14 @@ export type ScheduledAlertDescriptor = {
 };
 
 export type PersistedState = {
+  stateVersion?: number;
+  userId?: string | null;
   status: WorkStatus;
   sessionId: string | null;
   userStorageKey?: string | null;
+  lastSavedAtMs?: number;
+  lastCheckpointAtMs?: number | null;
+  activitySegmentStartTime?: string | null;
   drivingDetectionPaused?: boolean;
   timerMode: TimerMode;
   workStartTime: string | null;
@@ -52,9 +57,17 @@ export type PersistedState = {
   motionState?: {
     lastSpeedKmh: number;
     lastSpeedTs: number;
+    lastLocationTs?: number;
+    lastLatitude?: number | null;
+    lastLongitude?: number | null;
+    lastAccuracyM?: number | null;
+    lastComputedSpeedKmh?: number | null;
+    lastSelectedSpeedSource?: 'gps' | 'computed' | 'none';
     drivingScore: number;
     movingSinceMs: number;
     stationarySinceMs: number;
+    pendingTransitionType?: 'moving' | 'stationary' | null;
+    pendingTransitionStartedAtMs?: number;
   };
   alertWindow?: {
     prevShiftElapsed: number;
@@ -151,6 +164,8 @@ export type EndShiftSnapshot = {
       exceededShiftSpreadLimit?: boolean;
       dailyRestSecondsBeforeShift?: number;
       reducedDailyRestTaken?: boolean;
+      activitySegmentStartTime?: string | null;
+      workIncludesDrivingReference?: boolean;
     };
   };
 };
@@ -215,7 +230,9 @@ export type SessionOtherData = Record<string, any> & {
   drivingCycle?: number;
   legalBreakDisplay?: number;
   currentSegmentStart?: string | null;
+  activitySegmentStartTime?: string | null;
   isDriving?: boolean;
+  workIncludesDrivingReference?: boolean;
   timerMode?: TimerMode;
   shiftDurationMinutes?: number;
   usedShiftExtension?: boolean;
@@ -236,6 +253,7 @@ export type SessionCounterSnapshotInput = {
 
 export type SessionCheckpointPayloadInput = SessionCounterSnapshotInput & {
   currentSegmentStart: string | null;
+  activitySegmentStartTime?: string | null;
   status: WorkStatus;
   breakStartMs: number;
   currentPoaStart: string | null;
@@ -245,6 +263,7 @@ export type SessionCheckpointPayloadInput = SessionCounterSnapshotInput & {
 export type SessionStatusUpdatePayloadInput = SessionCounterSnapshotInput & {
   status: WorkStatus;
   currentSegmentStart: string;
+  activitySegmentStartTime?: string | null;
   currentBreakStart: string | null;
   currentPoaStart: string | null;
   isDriving?: boolean;
@@ -362,6 +381,7 @@ export type LocationSampleDecisionInput = {
 export type LocationSampleDecision = {
   shouldIgnore: boolean;
   nextDriving: boolean | null;
+  drivingChangedAtMs: number | null;
   nextMovingSinceMs: number;
   nextStationarySinceMs: number;
   nextDrivingScore: number | null;
@@ -391,4 +411,5 @@ export type AccelerometerDecision = {
   shouldIgnore: boolean;
   nextDrivingScore: number;
   nextDriving: boolean;
+  drivingChangedAtMs: number | null;
 };

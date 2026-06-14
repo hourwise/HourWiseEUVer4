@@ -9,6 +9,7 @@
     "types": ["node"]
   },
   "include": [
+    "app.d.ts",
     "src/lib/tacho/**/*.ts"
   ],
   "exclude": [

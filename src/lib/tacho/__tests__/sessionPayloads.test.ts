@@ -35,6 +35,7 @@ test('buildSessionSyncPayload creates status change payloads with break timestam
   assert.equal((payload.other_data as any).driving, 20);
   assert.equal((payload.other_data as any).currentSegmentStart, null);
   assert.equal((payload.other_data as any).isDriving, false);
+  assert.equal((payload.other_data as any).workIncludesDrivingReference, true);
   assert.equal((payload.other_data as any).keep, 'me');
 });
 
@@ -66,6 +67,7 @@ test('buildSessionSyncPayload creates checkpoint payloads for poa without overri
   assert.equal(payload.current_poa_start, '2026-05-17T10:00:00.000Z');
   assert.equal('current_segment_start' in payload, false);
   assert.equal((payload.other_data as any).currentSegmentStart, null);
+  assert.equal((payload.other_data as any).workIncludesDrivingReference, true);
 });
 
 test('buildSessionSyncPayload creates drive-stop payloads without totals fields', () => {
@@ -88,6 +90,7 @@ test('buildSessionSyncPayload creates drive-stop payloads without totals fields'
   assert.equal((payload.other_data as any).driving, 3);
   assert.equal((payload.other_data as any).currentSegmentStart, '2026-05-17T11:00:00.000Z');
   assert.equal((payload.other_data as any).isDriving, false);
+  assert.equal((payload.other_data as any).workIncludesDrivingReference, true);
   assert.equal((payload.other_data as any).marker, true);
 });
 
@@ -108,5 +111,6 @@ test('buildSessionSyncPayload keeps the active working segment checkpoint in oth
 
   assert.equal((payload.other_data as any).currentSegmentStart, '2026-06-08T13:49:00.000Z');
   assert.equal((payload.other_data as any).isDriving, false);
+  assert.equal((payload.other_data as any).workIncludesDrivingReference, true);
   assert.equal((payload.other_data as any).keep, 'checkpoint');
 });

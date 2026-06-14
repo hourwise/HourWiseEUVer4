@@ -70,10 +70,14 @@ export const useComplianceData = (userId: string, currentDate: Date) => {
       const existing = map.get(session.date);
 
       // Convert database minutes to seconds for the UI (Heatmap formatDuration expects seconds)
-      const workSec = (session.total_work_minutes || 0) * 60;
+      const drivingMinutes = session.other_data?.driving || 0;
+      const workMinutes = session.other_data?.workIncludesDrivingReference
+        ? session.total_work_minutes || 0
+        : (session.total_work_minutes || 0) + drivingMinutes;
+      const workSec = workMinutes * 60;
       const breakSec = (session.total_break_minutes || 0) * 60;
       const poaSec = (session.total_poa_minutes || 0) * 60;
-      const driveSec = (session.other_data?.driving || 0) * 60;
+      const driveSec = drivingMinutes * 60;
 
       if (existing) {
         map.set(session.date, {

@@ -191,18 +191,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       // Setup is complete if marked in DB OR if all data is present
       const setupComplete = setupAlreadyMarkedComplete || requiredDataPresent;
 
-      // Debug logging for setup determination
-      console.log('[AuthProvider] Setup Determination:', {
-        user_id: session.user?.id?.substring(0, 8),
-        setupAlreadyMarkedComplete,
-        requiredDataPresent,
-        account_type: profileData?.account_type,
-        has_full_name: !!profileData?.full_name,
-        has_pay_config: !!effectivePayConfig,
-        last_shift_onboarding_completed_at: profileData?.last_shift_onboarding_completed_at,
-        legacy_any_session_found: !!anySession,
-        willShowSetup: !setupComplete,
-      });
+      if (__DEV__) {
+        console.log('[AuthProvider] Setup Determination:', {
+          setupAlreadyMarkedComplete,
+          requiredDataPresent,
+          account_type: profileData?.account_type,
+          has_full_name: !!profileData?.full_name,
+          has_pay_config: !!effectivePayConfig,
+          has_last_shift_onboarding_completed_at: !!profileData?.last_shift_onboarding_completed_at,
+          legacy_any_session_found: !!anySession,
+          willShowSetup: !setupComplete,
+        });
+      }
 
       setNeedsSetup(!setupComplete);
       applyNeedsLastShiftEntry(!lastShiftOnboardingComplete);
@@ -228,12 +228,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         isTimeoutError(error);
 
       if (canReuseCachedBootstrap) {
-        console.log('[AuthProvider] Reusing cached bootstrap state after timeout', {
-          user_id: session.user.id.substring(0, 8),
-          reason: message,
-          needsSetup: cachedBootstrap.needsSetup,
-          needsLastShiftEntry: cachedBootstrap.needsLastShiftEntry,
-        });
+        if (__DEV__) {
+          console.log('[AuthProvider] Reusing cached bootstrap state after timeout', {
+            reason: message,
+            needsSetup: cachedBootstrap.needsSetup,
+            needsLastShiftEntry: cachedBootstrap.needsLastShiftEntry,
+          });
+        }
         applyCachedBootstrapState(cachedBootstrap);
         return true;
       }

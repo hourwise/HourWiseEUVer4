@@ -67,6 +67,7 @@ export const buildEndShiftSnapshot = ({
         shiftDurationMinutes: toMins(shiftDurationSeconds),
         usedShiftExtension: usedSpreadExtension,
         exceededShiftSpreadLimit: exceededSpreadLimit,
+        workIncludesDrivingReference: true,
       },
     },
   };

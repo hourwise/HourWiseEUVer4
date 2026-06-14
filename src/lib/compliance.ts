@@ -139,7 +139,8 @@ const drivingCycleMins = (s: any): number | null =>
 const workCycleMins = (s: any): number | null =>
   typeof s.other_data?.workCycle === 'number' ? s.other_data.workCycle : null;
 const otherWorkMins = (s: any): number => s.total_work_minutes ?? 0;
-const workMins   = (s: any): number => otherWorkMins(s) + driveMins(s);
+const workMins = (s: any): number =>
+  s.other_data?.workIncludesDrivingReference ? otherWorkMins(s) : otherWorkMins(s) + driveMins(s);
 const breakMins  = (s: any): number => s.total_break_minutes    ?? 0;
 
 /**

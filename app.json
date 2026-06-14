@@ -55,6 +55,11 @@
         "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
+      "allowBackup": false,
       "foregroundService": {
         "location": {
           "description": "Actively tracking your location to monitor driving time."
@@ -92,7 +97,15 @@
         }
       ],
       "expo-localization",
-      "expo-location",
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "locationWhenInUsePermission": "HourWise uses your location while a shift is active to monitor driving time.",
+          "locationAlwaysAndWhenInUsePermission": "HourWise uses background location during an active shift to keep work and driving timers reliable."
+        }
+      ],
       [
         "expo-notifications",
         {
@@ -115,8 +128,7 @@
     "extra": {
       "eas": {
         "projectId": "dcfc655c-3967-47b9-9466-aab75e53f5e4"
-      },
-      "EXPO_PUBLIC_OCR_SPACE_API_KEY": "K86409945288957"
+      }
     }
   }
 }

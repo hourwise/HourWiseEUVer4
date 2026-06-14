@@ -39,6 +39,7 @@ test('applyElapsedToCounters adds driving and both cycles for driving work', () 
     true,
   );
 
+  assert.equal(result.totals.work, 300);
   assert.equal(result.totals.driving, 900);
   assert.equal(result.workCycle, 1200);
   assert.equal(result.drivingCycle, 900);

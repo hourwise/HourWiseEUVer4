@@ -3,6 +3,7 @@ import {
   MAX_DRIVE,
   MAX_SHIFT_TIME_13H,
   MAX_WEEKLY_DRIVE,
+  PERSISTED_STATE_VERSION,
 } from './constants';
 import type { Database } from '../database.types';
 import type { AlertKey } from './alerts';
@@ -12,9 +13,17 @@ import type { PersistedState, SessionOtherData, TimerMode, Totals, WorkStatus } 
 export type TachoMotionState = {
   lastSpeedKmh: number;
   lastSpeedTs: number;
+  lastLocationTs: number;
+  lastLatitude: number | null;
+  lastLongitude: number | null;
+  lastAccuracyM: number | null;
+  lastComputedSpeedKmh: number | null;
+  lastSelectedSpeedSource: 'gps' | 'computed' | 'none';
   drivingScore: number;
   movingSinceMs: number;
   stationarySinceMs: number;
+  pendingTransitionType: 'moving' | 'stationary' | null;
+  pendingTransitionStartedAtMs: number;
 };
 
 export type TachoAlertWindowState = {
@@ -89,6 +98,7 @@ export type TachoEvent =
       nowMs: number;
       nextDriving: boolean;
       source: 'location' | 'accelerometer' | 'background';
+      effectiveTransitionMs?: number | null;
     }
   | {
       type: 'LOCATION_SAMPLE_RECEIVED';
@@ -106,6 +116,7 @@ export type TachoEvent =
   | {
       type: 'BACKGROUND_SPEED_SAMPLE_RECEIVED';
       nowMs: number;
+      receiptTs?: number;
       speedKmh: number;
       sampleTs: number;
     };
@@ -140,9 +151,17 @@ const createInitialTotals = (): Totals => ({
 export const createInitialMotionState = (): TachoMotionState => ({
   lastSpeedKmh: 0,
   lastSpeedTs: 0,
+  lastLocationTs: 0,
+  lastLatitude: null,
+  lastLongitude: null,
+  lastAccuracyM: null,
+  lastComputedSpeedKmh: null,
+  lastSelectedSpeedSource: 'none',
   drivingScore: 0,
   movingSinceMs: 0,
   stationarySinceMs: 0,
+  pendingTransitionType: null,
+  pendingTransitionStartedAtMs: 0,
 });
 
 export const createInitialAlertWindowState = (
@@ -315,10 +334,21 @@ export const createTachoStateFromSessionRow = (
 export const toPersistedTachoState = (
   state: TachoState,
   userStorageKey?: string | null,
+  metadata: {
+    userId?: string | null;
+    savedAtMs?: number;
+    lastCheckpointAtMs?: number | null;
+    activitySegmentStartTime?: string | null;
+  } = {},
 ): PersistedState => ({
+  stateVersion: PERSISTED_STATE_VERSION,
+  userId: metadata.userId ?? null,
   status: state.status,
   sessionId: state.sessionId,
   userStorageKey,
+  lastSavedAtMs: metadata.savedAtMs ?? Date.now(),
+  lastCheckpointAtMs: metadata.lastCheckpointAtMs ?? null,
+  activitySegmentStartTime: metadata.activitySegmentStartTime ?? null,
   timerMode: state.timerMode,
   workStartTime: state.workStartTime,
   currentSegmentStart: state.currentSegmentStart,

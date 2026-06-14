@@ -19,6 +19,7 @@ export type SessionSyncPayloadInput = SessionCounterSnapshotInput & {
   currentBreakStart?: string | null;
   breakStartMs?: number;
   isDriving?: boolean;
+  activitySegmentStartTime?: string | null;
   nowMs?: number;
 };
 
@@ -31,10 +32,12 @@ export const buildSessionOtherData = ({
   timerMode,
   existingOtherData,
   currentSegmentStart,
+  activitySegmentStartTime,
   status,
   isDriving,
 }: SessionCounterSnapshotInput & {
   currentSegmentStart?: string | null;
+  activitySegmentStartTime?: string | null;
   status?: WorkStatus;
   isDriving?: boolean;
 }): SessionOtherData => ({
@@ -45,7 +48,9 @@ export const buildSessionOtherData = ({
   workCycle: toMins(workCycle),
   drivingCycle: toMins(drivingCycle),
   currentSegmentStart: status === 'working' ? (currentSegmentStart ?? null) : null,
+  activitySegmentStartTime: activitySegmentStartTime ?? null,
   isDriving: status === 'working' ? !!isDriving : false,
+  workIncludesDrivingReference: true,
   timerMode,
 });
 
@@ -58,10 +63,12 @@ const buildCounterPayload = ({
   timerMode,
   existingOtherData,
   currentSegmentStart,
+  activitySegmentStartTime,
   status,
   isDriving,
 }: SessionCounterSnapshotInput & {
   currentSegmentStart?: string | null;
+  activitySegmentStartTime?: string | null;
   status?: WorkStatus;
   isDriving?: boolean;
 }) => ({
@@ -77,6 +84,7 @@ const buildCounterPayload = ({
     timerMode,
     existingOtherData,
     currentSegmentStart,
+    activitySegmentStartTime,
     status,
     isDriving,
   }),
@@ -101,6 +109,7 @@ export const buildSessionSyncPayload = ({
   currentPoaStart,
   currentBreakStart,
   breakStartMs,
+  activitySegmentStartTime,
   nowMs = Date.now(),
   ...counterState
 }: SessionSyncPayloadInput) => {
@@ -109,6 +118,7 @@ export const buildSessionSyncPayload = ({
       other_data: buildSessionOtherData({
         ...counterState,
         currentSegmentStart,
+        activitySegmentStartTime,
         status,
         isDriving: false,
       }),
@@ -121,6 +131,7 @@ export const buildSessionSyncPayload = ({
       ...buildCounterPayload({
         ...counterState,
         currentSegmentStart,
+        activitySegmentStartTime,
         status,
         isDriving: counterState.isDriving,
       }),
@@ -135,6 +146,7 @@ export const buildSessionSyncPayload = ({
     ...buildCounterPayload({
       ...counterState,
       currentSegmentStart,
+      activitySegmentStartTime,
       status,
       isDriving: counterState.isDriving,
     }),
@@ -155,7 +167,11 @@ export const buildDriveStopUpdatePayload = ({
   timerMode,
   existingOtherData,
   currentSegmentStart,
-}: SessionCounterSnapshotInput & { currentSegmentStart: string | null }) =>
+  activitySegmentStartTime,
+}: SessionCounterSnapshotInput & {
+  currentSegmentStart: string | null;
+  activitySegmentStartTime?: string | null;
+}) =>
   buildSessionSyncPayload({
     reason: 'drive_stop',
     status: 'working',
@@ -167,6 +183,7 @@ export const buildDriveStopUpdatePayload = ({
     timerMode,
     existingOtherData,
     currentSegmentStart,
+    activitySegmentStartTime,
     isDriving: false,
   });
 
@@ -183,6 +200,7 @@ export const buildStatusUpdatePayload = ({
   currentBreakStart,
   currentPoaStart,
   isDriving,
+  activitySegmentStartTime,
 }: SessionStatusUpdatePayloadInput) =>
   buildSessionSyncPayload({
     reason: 'status_change',
@@ -195,6 +213,7 @@ export const buildStatusUpdatePayload = ({
     timerMode,
     existingOtherData,
     currentSegmentStart,
+    activitySegmentStartTime,
     currentBreakStart,
     currentPoaStart,
     isDriving,
@@ -213,6 +232,7 @@ export const buildPeriodicCheckpointPayload = ({
   breakStartMs,
   currentPoaStart,
   isDriving,
+  activitySegmentStartTime,
 }: SessionCheckpointPayloadInput) =>
   buildSessionSyncPayload({
     reason: 'checkpoint',
@@ -225,6 +245,7 @@ export const buildPeriodicCheckpointPayload = ({
     timerMode,
     existingOtherData,
     currentSegmentStart,
+    activitySegmentStartTime,
     breakStartMs,
     currentPoaStart,
     isDriving,

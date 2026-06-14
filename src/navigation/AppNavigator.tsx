@@ -4,8 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, TouchableOpacity, Text, SafeAreaView, StatusBar } from 'react-native';
 
 import { useAuth } from '../providers/AuthProvider';
-import { useSubscriptionData } from '../providers/SubscriptionProvider';
-import { usePermissions } from '../providers/PermissionsProvider';
+import { useBootState } from '../hooks/useBootState';
 
 import Auth from '../components/Auth';
 import Dashboard from '../screens/Dashboard';
@@ -19,15 +18,6 @@ import SettingsScreen from '../screens/SettingsScreen';
 import MyScheduleScreen from '../screens/MyScheduleScreen';
 import BootstrappingScreen from '../screens/BootstrappingScreen';
 import CalendarView from '../components/CalendarView';
-
-type BootStage =
-  | 'bootstrapping'
-  | 'signed_out'
-  | 'onboarding_setup'
-  | 'onboarding_last_shift'
-  | 'permissions_gate'
-  | 'paywall_gate'
-  | 'ready';
 
 const Stack = createNativeStackNavigator();
 
@@ -73,70 +63,48 @@ const OnboardingCalendar = () => {
 
 
 export default function AppNavigator() {
-  const {
-    session,
-    needsSetup,
-    needsLastShiftEntry,
-    loading: authLoading,
-    bootstrapping,
-  } = useAuth();
-  const {
-    hasAccess,
-    isLoading: subscriptionLoading,
-    paywallPolicy,
-    subscriptionActive,
-  } = useSubscriptionData();
-  const { areAllGranted } = usePermissions();
+  const bootState = useBootState();
+  const { session, stage } = bootState;
 
-  const shouldBlockOnSubscription =
-    !!session && paywallPolicy === 'enforce' && subscriptionLoading;
-
-  let bootStage: BootStage;
-  if (authLoading || bootstrapping || shouldBlockOnSubscription) {
-    bootStage = 'bootstrapping';
-  } else if (!session) {
-    bootStage = 'signed_out';
-  } else if (needsSetup) {
-    bootStage = 'onboarding_setup';
-  } else if (needsLastShiftEntry) {
-    bootStage = 'onboarding_last_shift';
-  } else if (areAllGranted !== true) {
-    bootStage = 'permissions_gate';
-  } else if (!hasAccess) {
-    bootStage = 'paywall_gate';
-  } else {
-    bootStage = 'ready';
+  if (__DEV__) {
+    console.log('[AppNavigator] boot stage', {
+      bootStage: stage,
+      session: !!session,
+      needsSetup: bootState.needsSetup,
+      needsLastShiftEntry: bootState.needsLastShiftEntry,
+      permissionsReady: bootState.permissionsReady,
+      subscriptionReady: bootState.subscriptionReady,
+      paywallPolicy: bootState.paywallPolicy,
+      subscriptionActive: bootState.subscriptionActive,
+      hasAccess: bootState.hasAccess,
+    });
   }
 
-  console.log('[AppNavigator] boot stage', {
-    bootStage,
-    authLoading,
-    bootstrapping,
-    subscriptionLoading,
-    paywallPolicy,
-    session: !!session,
-    needsSetup,
-    needsLastShiftEntry,
-    areAllGranted,
-    subscriptionActive,
-  });
+  if (stage === 'error') {
+    return (
+      <BootstrappingScreen
+        title="Startup needs attention"
+        message={bootState.error || 'HourWise could not finish startup. Please restart the app.'}
+      />
+    );
+  }
 
-  if (bootStage === 'bootstrapping') {
+  if (stage === 'app_init' || stage === 'auth_resolving' || stage === 'profile_bootstrapping') {
     return <BootstrappingScreen />;
   }
 
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {bootStage === 'signed_out' ? (
+        {stage === 'signed_out' ? (
           <Stack.Screen name="Auth" component={Auth} />
-        ) : bootStage === 'onboarding_setup' ? (
+        ) : stage === 'onboarding_setup' ? (
           <Stack.Screen name="Setup" component={SetupStack} />
-        ) : bootStage === 'onboarding_last_shift' ? (
+        ) : stage === 'onboarding_last_shift' ? (
           <Stack.Screen name="OnboardingCalendar" component={OnboardingCalendar} />
-        ) : bootStage === 'permissions_gate' ? (
+        ) : stage === 'permissions_gate' ? (
           <Stack.Screen name="Permissions" component={PermissionsScreen} />
-        ) : bootStage === 'paywall_gate' ? (
+        ) : stage === 'paywall_gate' ? (
           <Stack.Screen name="Paywall" component={PaywallScreen} />
         ) : (
           <>

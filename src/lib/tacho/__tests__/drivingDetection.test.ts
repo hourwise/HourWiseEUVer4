@@ -55,6 +55,7 @@ test('evaluateLocationSample stops driving after stationary confirmation window'
 
   assert.equal(result.nextDriving, false);
   assert.equal(result.nextDrivingScore, 0);
+  assert.equal(result.drivingChangedAtMs, stationarySinceMs);
 });
 
 test('evaluateLocationSample accepts slightly weaker GPS accuracy for stop decisions', () => {
@@ -80,6 +81,7 @@ test('evaluateLocationSample accepts slightly weaker GPS accuracy for stop decis
 
   assert.equal(result.shouldIgnore, false);
   assert.equal(result.nextDriving, false);
+  assert.equal(result.drivingChangedAtMs, stationarySinceMs);
 });
 
 test('evaluateLocationSample still ignores weak GPS accuracy for driving start decisions', () => {

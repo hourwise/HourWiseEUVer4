@@ -1,6 +1,7 @@
 export const BASE_STORAGE_KEY = 'timerState_v11';
 export const LOCATION_TASK_NAME = 'background-location-task';
 export const BG_SPEED_KEY = 'bg_last_speed_v1';
+export const PERSISTED_STATE_VERSION = 2;
 
 export const DRIVING_SPEED_THRESHOLD_KMH = 8;
 export const DRIVING_IMMEDIATE_START_THRESHOLD_KMH = 12;

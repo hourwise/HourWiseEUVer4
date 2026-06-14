@@ -7,6 +7,7 @@ import {
   Text,
   ActivityIndicator,
   AppState,
+  Share,
 } from 'react-native';
 import {
   Menu,
@@ -121,7 +122,7 @@ const ShiftInfoBar = ({ display }: { display: any }) => {
   const { t } = useTranslation();
   const MAX_WEEKLY_DRIVE = 56 * 3600;
   const weeklyUsed = MAX_WEEKLY_DRIVE - (display?.weeklyDrivingRemaining ?? MAX_WEEKLY_DRIVE);
-  const totalWork = (display?.work ?? 0) + (display?.driving ?? 0);
+  const totalWork = display?.work ?? 0;
   return (
     <View className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 mt-6 w-full">
       <Text className="text-white font-bold mb-3 text-lg border-b border-slate-700 pb-2">{t('shiftSummary.title')}</Text>
@@ -177,6 +178,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     isStarting,
     shiftSummaryData,
     setShiftSummaryData,
+    exportTimerDiagnostics,
   } = useWorkTimer(userId, Intl.DateTimeFormat().resolvedOptions().timeZone);
 
   const display = useMemo(() => displaySeconds || {
@@ -222,6 +224,18 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const [dailyReportData, setDailyReportData] = useState<{ violations: string[]; date: string } | null>(null);
 
   const unreadCheckInFlight = useRef(false);
+
+  const handleExportTimerDiagnostics = useCallback(async () => {
+    try {
+      const diagnostics = await exportTimerDiagnostics();
+      await Share.share({
+        title: 'HourWise Timer Diagnostics',
+        message: diagnostics,
+      });
+    } catch (e) {
+      console.warn('Failed to export timer diagnostics:', e);
+    }
+  }, [exportTimerDiagnostics]);
 
   const checkUnreadMessages = useCallback(async () => {
     if (unreadCheckInFlight.current || !userId) return;
@@ -400,11 +414,9 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
 
   const dailyCumulativeTotals = useMemo(() => {
     // During an active shift, display already has live totals for today.
-    // Driving is stored separately from other work, but the dashboard's
-    // "Total Work" figure should include both buckets.
     if (status !== 'idle') {
       return {
-        work: display.work + display.driving,
+        work: display.work,
         break: display.break,
         driving: display.driving,
         poa: display.poa,
@@ -414,7 +426,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
     const todayStr = toLocalDateString(new Date());
     const historicalToday = complianceMap.get(todayStr);
     return {
-      work: (historicalToday?.totalWork || 0) + (historicalToday?.totalDrive || 0),
+      work: historicalToday?.totalWork || 0,
       break: historicalToday?.totalBreak || 0,
       driving: historicalToday?.totalDrive || 0,
       poa: historicalToday?.totalPoa || 0,
@@ -549,6 +561,7 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
                   onOpenBusinessProfile={() => setShowBusinessProfile(true)}
                   onOpenSubscription={() => navigation.navigate('Subscription')}
                   onOpenVehicleSettings={() => setShowSoloVehicle(true)}
+                  onExportTimerDiagnostics={handleExportTimerDiagnostics}
                 />
             </View>
         </View>

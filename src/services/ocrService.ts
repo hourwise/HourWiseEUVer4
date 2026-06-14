@@ -1,8 +1,5 @@
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
-
-const OCR_SPACE_ENDPOINT = 'https://api.ocr.space/parse/image';
-const OCR_SPACE_API_KEY = Constants.expoConfig?.extra?.EXPO_PUBLIC_OCR_SPACE_API_KEY ?? '';
+import * as FileSystem from 'expo-file-system';
+import { supabase } from '../lib/supabase';
 
 export interface OcrResult {
   text: string;
@@ -10,38 +7,26 @@ export interface OcrResult {
 
 export const ocrService = {
   async parseImage(imageUri: string): Promise<string> {
-    if (!OCR_SPACE_API_KEY) throw new Error('Missing OCR.space API key.');
-
-    const form = new FormData();
-    const fileExt = imageUri.split('.').pop() || 'jpg';
-    const filename = `scan_${Date.now()}.${fileExt}`;
-
-    form.append('file', {
-      uri: Platform.OS === 'ios' ? imageUri.replace('file://', '') : imageUri,
-      name: filename,
-      type: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
-    } as any);
-
-    form.append('apikey', OCR_SPACE_API_KEY);
-    form.append('language', 'eng');
-    form.append('isOverlayRequired', 'false');
-    form.append('OCREngine', '2');
-
-    const res = await fetch(OCR_SPACE_ENDPOINT, {
-      method: 'POST',
-      body: form,
+    const image = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
     });
 
-    const json = await res.json();
+    const { data, error } = await supabase.functions.invoke<{ text?: string; error?: string }>(
+      'ocr-receipt',
+      {
+        body: { image },
+      },
+    );
 
-    if (!res.ok) throw new Error(`OCR request failed (${res.status})`);
-
-    if (json?.IsErroredOnProcessing) {
-      const msg = json?.ErrorMessage?.[0] || 'OCR processing failed.';
-      throw new Error(String(msg));
+    if (error) {
+      throw new Error(error.message || 'OCR request failed.');
     }
 
-    return json?.ParsedResults?.[0]?.ParsedText ?? '';
+    if (data?.error) {
+      throw new Error(data.error);
+    }
+
+    return data?.text ?? '';
   },
 
   extractDate(text: string): string | null {

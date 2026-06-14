@@ -39,7 +39,7 @@ const EndShiftConfirmationModal = ({
   isConfirming = false,
 }: EndShiftConfirmationModalProps) => {
   const { t } = useTranslation();
-  const totalWork = shiftTotals.work + shiftTotals.driving;
+  const totalWork = shiftTotals.work;
 
   const getScoreColor = () => {
     if (score >= 95) return 'text-green-400';

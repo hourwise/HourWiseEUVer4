@@ -1,4 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  appendMotionDiagnosticRecords,
+  formatMotionDiagnosticsExport,
+  type MotionDiagnosticRecord,
+} from './diagnostics';
+import { PERSISTED_STATE_VERSION } from './constants';
 import type {
   PersistedState,
   ScheduledAlertDescriptor,
@@ -17,6 +23,7 @@ export const SCHEDULED_DRIVE_ALERTS_KEY =
 export const BACKGROUND_ALERT_STATE_KEY = 'background_alert_state_v1';
 export const BACKGROUND_TASK_DIAGNOSTICS_KEY =
   'background_task_diagnostics_v1';
+export const MOTION_DIAGNOSTICS_RING_KEY = 'motion_diagnostics_ring_v1';
 
 export type BackgroundAlertState = {
   status: WorkStatus;
@@ -33,11 +40,43 @@ export type BackgroundTaskDiagnostics = {
   lastTriggeredAlertKey: string | null;
 };
 
+const isFiniteNonNegative = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
 // Validation helper to ensure persisted state integrity
 const validatePersistedState = (state: PersistedState): boolean => {
   // Check critical fields
   if (!state || typeof state.status !== 'string') return false;
   if (typeof state.totals !== 'object') return false;
+  if (
+    state.stateVersion !== undefined &&
+    state.stateVersion !== PERSISTED_STATE_VERSION
+  ) {
+    return false;
+  }
+  if (state.userId !== undefined && state.userId !== null && typeof state.userId !== 'string') {
+    return false;
+  }
+  if (state.status !== 'idle' && !state.sessionId) return false;
+  if (state.status !== 'idle' && !state.workStartTime) return false;
+  if (!isFiniteNonNegative(state.totals.work)) return false;
+  if (!isFiniteNonNegative(state.totals.poa)) return false;
+  if (!isFiniteNonNegative(state.totals.break)) return false;
+  if (!isFiniteNonNegative(state.totals.driving)) return false;
+  if (!isFiniteNonNegative(state.lastTickMs)) return false;
+  if (
+    state.lastSavedAtMs !== undefined &&
+    (!isFiniteNonNegative(state.lastSavedAtMs) || state.lastSavedAtMs > Date.now() + 86400000)
+  ) {
+    return false;
+  }
+  if (
+    state.lastCheckpointAtMs !== undefined &&
+    state.lastCheckpointAtMs !== null &&
+    !isFiniteNonNegative(state.lastCheckpointAtMs)
+  ) {
+    return false;
+  }
 
   // Validate segment start is valid ISO string when not idle
   if (state.status !== 'idle' && state.currentSegmentStart) {
@@ -279,5 +318,45 @@ export const clearBackgroundTaskDiagnostics = async () => {
     await AsyncStorage.removeItem(BACKGROUND_TASK_DIAGNOSTICS_KEY);
   } catch (e) {
     console.error('Failed to clear background task diagnostics:', e);
+  }
+};
+
+export const loadMotionDiagnosticsRing = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(MOTION_DIAGNOSTICS_RING_KEY);
+    if (!raw) return [] as MotionDiagnosticRecord[];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as MotionDiagnosticRecord[] : [];
+  } catch (e) {
+    console.warn('Failed to load motion diagnostics:', e);
+    return [] as MotionDiagnosticRecord[];
+  }
+};
+
+export const appendMotionDiagnosticsRing = async (
+  records: MotionDiagnosticRecord | MotionDiagnosticRecord[],
+) => {
+  try {
+    const existing = await loadMotionDiagnosticsRing();
+    const next = appendMotionDiagnosticRecords(
+      existing,
+      Array.isArray(records) ? records : [records],
+    );
+    await AsyncStorage.setItem(MOTION_DIAGNOSTICS_RING_KEY, JSON.stringify(next));
+  } catch (e) {
+    console.warn('Failed to save motion diagnostics:', e);
+  }
+};
+
+export const exportMotionDiagnosticsRing = async () => {
+  const records = await loadMotionDiagnosticsRing();
+  return formatMotionDiagnosticsExport(records);
+};
+
+export const clearMotionDiagnosticsRing = async () => {
+  try {
+    await AsyncStorage.removeItem(MOTION_DIAGNOSTICS_RING_KEY);
+  } catch (e) {
+    console.error('Failed to clear motion diagnostics:', e);
   }
 };

@@ -191,14 +191,16 @@ const reduceStatusChange = (
     lastTickMs: transition.nextSegmentStartMs,
     lastBreakDuration: transition.lastBreakDuration,
     lastBreakEndTime: transition.lastBreakEndTime,
-    isDriving: nextStatus === 'working' ? state.isDriving : false,
+    isDriving: nextStatus === 'working' && prevStatus === 'working' ? state.isDriving : false,
     motion:
-      nextStatus === 'working'
+      nextStatus === 'working' && prevStatus === 'working'
         ? state.motion
         : {
             ...state.motion,
             movingSinceMs: 0,
             stationarySinceMs: 0,
+            pendingTransitionType: null,
+            pendingTransitionStartedAtMs: 0,
           },
   };
 
@@ -227,7 +229,12 @@ const reduceDrivingDecision = (
   state: TachoState,
   nowMs: number,
   nextDriving: boolean,
+  effectiveTransitionMs?: number | null,
 ): TachoReducerResult => {
+  if (state.status !== 'working') {
+    return { state, commands: [] };
+  }
+
   const transition = deriveDrivingTransition({
     nowMs,
     status: state.status,
@@ -262,11 +269,33 @@ const reduceDrivingDecision = (
         },
       };
 
+  const stopOverrunSec =
+    state.isDriving &&
+    !nextDriving &&
+    typeof effectiveTransitionMs === 'number' &&
+    Number.isFinite(effectiveTransitionMs) &&
+    effectiveTransitionMs < nowMs
+      ? Math.max(0, Math.floor((nowMs - effectiveTransitionMs) / 1000))
+      : 0;
+  const drivingCorrection = Math.min(stopOverrunSec, catchUp.counterState.totals.driving);
+  const drivingCycleCorrection = Math.min(stopOverrunSec, catchUp.counterState.drivingCycle);
+  const correctedCounterState =
+    drivingCorrection > 0 || drivingCycleCorrection > 0
+      ? {
+          totals: {
+            ...catchUp.counterState.totals,
+            driving: catchUp.counterState.totals.driving - drivingCorrection,
+          },
+          workCycle: catchUp.counterState.workCycle,
+          drivingCycle: catchUp.counterState.drivingCycle - drivingCycleCorrection,
+        }
+      : catchUp.counterState;
+
   const nextState: TachoState = {
     ...state,
-    totals: catchUp.counterState.totals,
-    workCycle: catchUp.counterState.workCycle,
-    drivingCycle: catchUp.counterState.drivingCycle,
+    totals: correctedCounterState.totals,
+    workCycle: correctedCounterState.workCycle,
+    drivingCycle: correctedCounterState.drivingCycle,
     isDriving: nextDriving,
     currentSegmentStart: transition.nextSegmentStartIso,
     lastTickMs: transition.nextSegmentStartMs ?? nowMs,
@@ -274,6 +303,8 @@ const reduceDrivingDecision = (
       ...state.motion,
       movingSinceMs: 0,
       stationarySinceMs: 0,
+      pendingTransitionType: null,
+      pendingTransitionStartedAtMs: 0,
     },
   };
 
@@ -292,11 +323,20 @@ const reduceDrivingDecision = (
 const reduceBackgroundSpeedSample = (
   state: TachoState,
   nowMs: number,
+  receiptTs: number,
   speedKmh: number,
   sampleTs: number,
 ): TachoReducerResult => {
+  if (
+    !Number.isFinite(sampleTs) ||
+    sampleTs <= state.motion.lastLocationTs ||
+    receiptTs - sampleTs > 10000
+  ) {
+    return { state, commands: [] };
+  }
+
   const decision = evaluateBackgroundSpeedDecision({
-    nowMs,
+    nowMs: receiptTs,
     sampleTs,
     speedKmh,
     isDriving: state.isDriving,
@@ -308,10 +348,36 @@ const reduceBackgroundSpeedSample = (
   });
 
   if (!decision.shouldApply || decision.nextDriving === null) {
-    return { state, commands: [] };
+    return {
+      state: {
+        ...state,
+        motion: {
+          ...state.motion,
+          lastSpeedKmh: speedKmh,
+          lastSpeedTs: sampleTs,
+          lastLocationTs: sampleTs,
+          lastAccuracyM: null,
+        },
+      },
+      commands: [],
+    };
   }
 
-  return reduceDrivingDecision(state, nowMs, decision.nextDriving);
+  return reduceDrivingDecision(
+    {
+      ...state,
+      motion: {
+        ...state.motion,
+        lastSpeedKmh: speedKmh,
+        lastSpeedTs: sampleTs,
+        lastLocationTs: sampleTs,
+        lastAccuracyM: null,
+      },
+    },
+    nowMs,
+    decision.nextDriving,
+    decision.nextDriving ? null : sampleTs,
+  );
 };
 
 export const reduceTachoEvent = (
@@ -326,9 +392,20 @@ export const reduceTachoEvent = (
     case 'STATUS_CHANGE_REQUESTED':
       return reduceStatusChange(state, event.nowMs, event.nextStatus);
     case 'DRIVING_DECISION_RECEIVED':
-      return reduceDrivingDecision(state, event.nowMs, event.nextDriving);
+      return reduceDrivingDecision(
+        state,
+        event.nowMs,
+        event.nextDriving,
+        event.effectiveTransitionMs,
+      );
     case 'BACKGROUND_SPEED_SAMPLE_RECEIVED':
-      return reduceBackgroundSpeedSample(state, event.nowMs, event.speedKmh, event.sampleTs);
+      return reduceBackgroundSpeedSample(
+        state,
+        event.nowMs,
+        event.receiptTs ?? event.nowMs,
+        event.speedKmh,
+        event.sampleTs,
+      );
     default:
       return { state, commands: [] };
   }

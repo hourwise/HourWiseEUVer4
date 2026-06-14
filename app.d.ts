@@ -78,3 +78,30 @@ declare module 'lucide-react-native' {
   export const MapPin: FC<LucideIconProps>;
   export const X: FC<LucideIconProps>;
 }
+
+declare module 'aes-js' {
+  export const utils: {
+    utf8: {
+      toBytes(value: string): number[];
+      fromBytes(value: ArrayLike<number>): string;
+    };
+    hex: {
+      toBytes(value: string): number[];
+      fromBytes(value: ArrayLike<number>): string;
+    };
+  };
+
+  export class Counter {
+    constructor(initialValue?: number);
+  }
+
+  export const ModeOfOperation: {
+    ctr: new (
+      key: ArrayLike<number>,
+      counter?: Counter,
+    ) => {
+      encrypt(value: ArrayLike<number>): number[];
+      decrypt(value: ArrayLike<number>): number[];
+    };
+  };
+}

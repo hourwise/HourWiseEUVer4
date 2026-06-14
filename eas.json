@@ -19,12 +19,7 @@
       }
     },
     "preview": {
-      "distribution": "internal",
-      "env": {
-        "KEYSTORE_PASSWORD": "KEYSTORE_PASSWORD",
-        "KEYSTORE_ALIAS": "KEYSTORE_ALIAS",
-        "KEYSTORE_ALIAS_PASSWORD": "KEYSTORE_ALIAS_PASSWORD"
-      }
+      "distribution": "internal"
     },
     "internal-test": {
       "channel": "internal-test",
@@ -35,10 +30,7 @@
       },
       "env": {
         "APP_ENV": "internal-test",
-        "EXPO_PUBLIC_BYPASS_SUBSCRIPTION": "true",
-        "KEYSTORE_PASSWORD": "KEYSTORE_PASSWORD",
-        "KEYSTORE_ALIAS": "KEYSTORE_ALIAS",
-        "KEYSTORE_ALIAS_PASSWORD": "KEYSTORE_ALIAS_PASSWORD"
+        "EXPO_PUBLIC_BYPASS_SUBSCRIPTION": "true"
       }
     },
     "simulator": {
@@ -59,10 +51,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "APP_ENV": "production",
-        "KEYSTORE_PASSWORD": "KEYSTORE_PASSWORD",
-        "KEYSTORE_ALIAS": "KEYSTORE_ALIAS",
-        "KEYSTORE_ALIAS_PASSWORD": "KEYSTORE_ALIAS_PASSWORD"
+        "APP_ENV": "production"
       }
     },
     "production-aab": {
@@ -71,10 +60,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "APP_ENV": "production",
-        "KEYSTORE_PASSWORD": "KEYSTORE_PASSWORD",
-        "KEYSTORE_ALIAS": "KEYSTORE_ALIAS",
-        "KEYSTORE_ALIAS_PASSWORD": "KEYSTORE_ALIAS_PASSWORD"
+        "APP_ENV": "production"
       }
     },
     "development-simulator": {

@@ -69,6 +69,7 @@ export const evaluateLocationSample = ({
     return {
       shouldIgnore: true,
       nextDriving: null,
+      drivingChangedAtMs: null,
       nextMovingSinceMs: movingSinceMs,
       nextStationarySinceMs: stationarySinceMs,
       nextDrivingScore: null,
@@ -87,6 +88,7 @@ export const evaluateLocationSample = ({
     return {
       shouldIgnore: false,
       nextDriving: shouldStop ? false : null,
+      drivingChangedAtMs: shouldStop ? nextStationarySinceMs : null,
       nextMovingSinceMs: 0,
       nextStationarySinceMs,
       nextDrivingScore: shouldStop ? 0 : null,
@@ -99,6 +101,7 @@ export const evaluateLocationSample = ({
     return {
       shouldIgnore: false,
       nextDriving: true,
+      drivingChangedAtMs: nowMs,
       nextMovingSinceMs: 0,
       nextStationarySinceMs: 0,
       nextDrivingScore: accelScoreMax,
@@ -113,6 +116,7 @@ export const evaluateLocationSample = ({
     return {
       shouldIgnore: false,
       nextDriving: shouldStart ? true : null,
+      drivingChangedAtMs: shouldStart ? nextMovingSinceMs : null,
       nextMovingSinceMs: shouldStart ? 0 : nextMovingSinceMs,
       nextStationarySinceMs: 0,
       nextDrivingScore: shouldStart ? accelScoreMax : null,
@@ -124,6 +128,7 @@ export const evaluateLocationSample = ({
   return {
     shouldIgnore: false,
     nextDriving: null,
+    drivingChangedAtMs: null,
     nextMovingSinceMs: 0,
     nextStationarySinceMs: 0,
     nextDrivingScore: null,
@@ -156,6 +161,7 @@ export const evaluateAccelerometerDecision = ({
       shouldIgnore: true,
       nextDrivingScore: currentDrivingScore,
       nextDriving: isDriving,
+      drivingChangedAtMs: null,
     };
   }
   if (gpsIsFresh && lastSpeedKmh <= stillThresholdKmh) {
@@ -163,6 +169,7 @@ export const evaluateAccelerometerDecision = ({
       shouldIgnore: true,
       nextDrivingScore: currentDrivingScore,
       nextDriving: isDriving,
+      drivingChangedAtMs: null,
     };
   }
 
@@ -189,5 +196,6 @@ export const evaluateAccelerometerDecision = ({
     shouldIgnore: false,
     nextDrivingScore,
     nextDriving,
+    drivingChangedAtMs: nextDriving === isDriving ? null : nowMs,
   };
 };
