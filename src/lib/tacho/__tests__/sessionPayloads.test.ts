@@ -33,10 +33,34 @@ test('buildSessionSyncPayload creates status change payloads with break timestam
   assert.equal(payload.current_poa_start, null);
   assert.equal('current_segment_start' in payload, false);
   assert.equal((payload.other_data as any).driving, 20);
-  assert.equal((payload.other_data as any).currentSegmentStart, null);
+  assert.equal((payload.other_data as any).currentSegmentStart, '2026-05-17T09:00:00.000Z');
   assert.equal((payload.other_data as any).isDriving, false);
   assert.equal((payload.other_data as any).workIncludesDrivingReference, true);
   assert.equal((payload.other_data as any).keep, 'me');
+});
+
+test('buildSessionSyncPayload keeps break activity start separate from checkpoint start', () => {
+  const payload = buildSessionSyncPayload({
+    reason: 'checkpoint',
+    status: 'break',
+    totals: { work: 7200, poa: 0, break: 1800, driving: 0 },
+    legalBreakDisplayTotal: 900,
+    has15minBreak: true,
+    workCycle: 7200,
+    drivingCycle: 0,
+    timerMode: '9h',
+    existingOtherData: { activitySegmentStartTime: '2026-05-17T10:00:00.000Z' },
+    currentSegmentStart: '2026-05-17T10:30:00.000Z',
+    currentBreakStart: '2026-05-17T10:00:00.000Z',
+  });
+
+  if (!('current_break_start' in payload)) {
+    assert.fail('Expected checkpoint payload shape');
+  }
+
+  assert.equal(payload.current_break_start, '2026-05-17T10:00:00.000Z');
+  assert.equal((payload.other_data as any).currentSegmentStart, '2026-05-17T10:30:00.000Z');
+  assert.equal((payload.other_data as any).activitySegmentStartTime, '2026-05-17T10:00:00.000Z');
 });
 
 test('buildSessionSyncPayload creates checkpoint payloads for poa without overriding break fields', () => {
@@ -66,8 +90,32 @@ test('buildSessionSyncPayload creates checkpoint payloads for poa without overri
   assert.equal(payload.current_break_start, null);
   assert.equal(payload.current_poa_start, '2026-05-17T10:00:00.000Z');
   assert.equal('current_segment_start' in payload, false);
-  assert.equal((payload.other_data as any).currentSegmentStart, null);
+  assert.equal((payload.other_data as any).currentSegmentStart, '2026-05-17T10:00:00.000Z');
   assert.equal((payload.other_data as any).workIncludesDrivingReference, true);
+});
+
+test('buildSessionSyncPayload keeps POA activity start separate from checkpoint start', () => {
+  const payload = buildSessionSyncPayload({
+    reason: 'checkpoint',
+    status: 'poa',
+    totals: { work: 1200, poa: 2100, break: 0, driving: 0 },
+    legalBreakDisplayTotal: 0,
+    has15minBreak: false,
+    workCycle: 1200,
+    drivingCycle: 0,
+    timerMode: '6h',
+    existingOtherData: { activitySegmentStartTime: '2026-05-17T10:00:00.000Z' },
+    currentSegmentStart: '2026-05-17T10:35:00.000Z',
+    currentPoaStart: '2026-05-17T10:00:00.000Z',
+  });
+
+  if (!('current_poa_start' in payload)) {
+    assert.fail('Expected checkpoint payload shape');
+  }
+
+  assert.equal(payload.current_poa_start, '2026-05-17T10:00:00.000Z');
+  assert.equal((payload.other_data as any).currentSegmentStart, '2026-05-17T10:35:00.000Z');
+  assert.equal((payload.other_data as any).activitySegmentStartTime, '2026-05-17T10:00:00.000Z');
 });
 
 test('buildSessionSyncPayload creates drive-stop payloads without totals fields', () => {

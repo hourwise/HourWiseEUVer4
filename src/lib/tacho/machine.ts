@@ -283,18 +283,24 @@ export const createTachoStateFromSessionRow = (
   const otherData = (session.other_data ?? null) as SessionOtherData | null;
   const status = (session.status ?? fallbackState.status) as WorkStatus;
   const timerMode = otherData?.timerMode === '9h' ? '9h' : '6h';
-  // The database does not persist a generic current segment start for "working".
-  // Rehydration falls back to the shift start for working sessions and uses the
-  // dedicated break/POA timestamps when those statuses are active.
+  const activitySegmentStart =
+    status === 'break'
+      ? (otherData?.activitySegmentStartTime || session.current_break_start || session.start_time)
+      : status === 'poa'
+        ? (otherData?.activitySegmentStartTime || session.current_poa_start || session.start_time)
+        : (otherData?.activitySegmentStartTime || session.start_time);
+  // `currentSegmentStart` is the counter checkpoint start. During active break
+  // or POA it can be later than the activity start because DB totals are
+  // checkpointed while the activity remains open.
   const currentSegmentStart =
     status === 'break'
-      ? (session.current_break_start || session.start_time)
+      ? (otherData?.currentSegmentStart || session.current_break_start || activitySegmentStart)
       : status === 'poa'
-        ? (session.current_poa_start || session.start_time)
+        ? (otherData?.currentSegmentStart || session.current_poa_start || activitySegmentStart)
         : (otherData?.currentSegmentStart || session.start_time);
   const breakStartMs =
     status === 'break'
-      ? new Date(session.current_break_start || currentSegmentStart || session.start_time).getTime()
+      ? new Date(activitySegmentStart || currentSegmentStart || session.start_time).getTime()
       : 0;
   const totals: Totals = {
     work: (session.total_work_minutes || 0) * 60,

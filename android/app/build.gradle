@@ -41,10 +41,18 @@ def readSigningValue = { String envName, String propertyName ->
     return null
 }
 
-def releaseKeystoreFile = readSigningValue("KEYSTORE_FILE", "android.injected.signing.store.file")
-def releaseKeystorePassword = readSigningValue("KEYSTORE_PASSWORD", "android.injected.signing.store.password")
-def releaseKeyAlias = readSigningValue("KEYSTORE_ALIAS", "android.injected.signing.key.alias")
-def releaseKeyPassword = readSigningValue("KEYSTORE_ALIAS_PASSWORD", "android.injected.signing.key.password")
+def releaseKeystoreFile =
+    readSigningValue("KEYSTORE_FILE", "android.injected.signing.store.file")
+    ?: System.getenv("EAS_BUILD_ANDROID_KEYSTORE_PATH")
+def releaseKeystorePassword =
+    readSigningValue("KEYSTORE_PASSWORD", "android.injected.signing.store.password")
+    ?: System.getenv("EAS_BUILD_ANDROID_KEYSTORE_PASSWORD")
+def releaseKeyAlias =
+    readSigningValue("KEYSTORE_ALIAS", "android.injected.signing.key.alias")
+    ?: System.getenv("EAS_BUILD_ANDROID_KEY_ALIAS")
+def releaseKeyPassword =
+    readSigningValue("KEYSTORE_ALIAS_PASSWORD", "android.injected.signing.key.password")
+    ?: System.getenv("EAS_BUILD_ANDROID_KEY_PASSWORD")
 def releaseSigningConfigured = [
     releaseKeystoreFile,
     releaseKeystorePassword,
@@ -167,9 +175,7 @@ android {
         release {
             if (releaseSigningConfigured) {
                 signingConfig signingConfigs.release
-            } else if (System.getenv("CI") == "true" || System.getenv("EAS_BUILD") == "true") {
-                throw new GradleException("Release signing is not configured. Provide KEYSTORE_FILE, KEYSTORE_PASSWORD, KEYSTORE_ALIAS, and KEYSTORE_ALIAS_PASSWORD through secure CI/EAS secrets, or Android Gradle injected signing properties.")
-            } else {
+            } else if (System.getenv("CI") != "true" && System.getenv("EAS_BUILD") != "true") {
                 signingConfig signingConfigs.debug
             }
             shrinkResources (findProperty('android.enableShrinkResourcesInReleaseBuilds')?.toBoolean() ?: false)

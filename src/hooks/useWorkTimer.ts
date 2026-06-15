@@ -41,18 +41,23 @@ import {
   clearScheduledComplianceAlerts,
   loadActiveTimerState,
   clearScheduledDriveAlerts,
+  appendTimerDiagnosticsRing,
+  exportCombinedTimerDiagnostics,
   loadBackgroundTaskDiagnostics,
   loadScheduledComplianceAlerts,
   loadScheduledComplianceNotificationIds,
   loadScheduledDriveAlerts,
   loadScheduledDriveNotificationIds,
   appendMotionDiagnosticsRing,
-  exportMotionDiagnosticsRing,
   saveActiveTimerState,
   saveScheduledComplianceAlerts,
   saveScheduledDriveAlerts,
 } from '../lib/tacho/runtimeStorage';
-import type { MotionDiagnosticRecord } from '../lib/tacho/diagnostics';
+import type {
+  MotionDiagnosticRecord,
+  TimerDiagnosticRecord,
+  TimerDiagnosticSnapshot,
+} from '../lib/tacho/diagnostics';
 import { deriveLiveDisplayState } from '../lib/tacho/display';
 import {
   createInitialTachoState,
@@ -83,6 +88,7 @@ import {
 import {
   chooseResumeRehydrationState,
 } from '../lib/tacho/rehydration';
+import { clearAllHourwiseTimerNotifications } from '../lib/tacho/notificationCleanup';
 import {
   shouldRunDebouncedResumeRefresh,
   shouldRunInitialRestore,
@@ -130,11 +136,6 @@ const APP_BUNDLE_ID = 'com.PCGsoft.hourwise.eu';
 export type { WorkStatus } from '../lib/tacho/types';
 
 const notificationSetupDone = { current: false };
-const ALERT_CHANNEL_IDS = new Set<string>(
-  Object.values(ALERT_TEXT)
-    .map(config => config.channelId)
-    .filter(channelId => !!channelId)
-);
 async function ensureNotificationSetup() {
   if (notificationSetupDone.current) return;
   await ensureNotificationChannelsInitialized();
@@ -260,6 +261,19 @@ const createClientUuid = (): string =>
     return value.toString(16);
   });
 
+const summarizeDiagnosticError = (error: unknown): string => {
+  if (!error) return '';
+  if (typeof error === 'string') return error.slice(0, 240);
+  if (error instanceof Error) return error.message.slice(0, 240);
+  const maybeMessage = (error as any)?.message ?? (error as any)?.error_description;
+  if (typeof maybeMessage === 'string') return maybeMessage.slice(0, 240);
+  try {
+    return JSON.stringify(error).slice(0, 240);
+  } catch {
+    return String(error).slice(0, 240);
+  }
+};
+
 type ShiftSummaryModalState = EndShiftSummaryState & {
   onConfirm: () => Promise<boolean>;
 };
@@ -362,10 +376,10 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
 
     const otherData = (session.other_data ?? null) as SessionOtherData | null;
     if (session.status === 'break') {
-      return session.current_break_start || otherData?.activitySegmentStartTime || session.start_time;
+      return otherData?.activitySegmentStartTime || session.current_break_start || session.start_time;
     }
     if (session.status === 'poa') {
-      return session.current_poa_start || otherData?.activitySegmentStartTime || session.start_time;
+      return otherData?.activitySegmentStartTime || session.current_poa_start || session.start_time;
     }
     return otherData?.activitySegmentStartTime || session.start_time;
   }, []);
@@ -470,6 +484,35 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     }),
   []);
 
+  const buildTimerDiagnosticSnapshot = useCallback((): TimerDiagnosticSnapshot => ({
+    status: statusRef.current,
+    sessionId: sessionIdRef.current,
+    workStartTime: workStartRef.current,
+    currentSegmentStart: segmentStartRef.current,
+    activitySegmentStartTime: activitySegmentStartRef.current,
+    totals: { ...totalsRef.current },
+    legalBreakDisplayTotal: legalBreakDisplayTotalRef.current,
+    workCycle: workCycleRef.current,
+    drivingCycle: drivingCycleRef.current,
+    timerMode: timerModeRef.current,
+    isDriving: isDrivingRef.current,
+    breakStartMs: breakStartTimeRef.current,
+    lastTickMs: lastTickMsRef.current,
+    lastCheckpointAtMs: lastDbCheckpointAtRef.current,
+  }), []);
+
+  const appendTimerDiagnostic = useCallback((
+    record: Omit<TimerDiagnosticRecord, 'ts' | 'sessionId'> & {
+      sessionId?: string | null;
+    },
+  ) => {
+    appendTimerDiagnosticsRing({
+      ...record,
+      ts: Date.now(),
+      sessionId: record.sessionId ?? sessionIdRef.current,
+    }).catch(e => console.warn('Timer diagnostic save failed:', e));
+  }, []);
+
   const resetDrivingMotionState = useCallback(() => {
     drivingScoreRef.current = 0;
     movingSinceRef.current = 0;
@@ -552,15 +595,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     fireDateMs: number,
   ) => `${scope}:${alertKey}:${Math.floor(fireDateMs / 1000)}`, []);
 
-  const isHourwiseAlertRequest = useCallback((request: any) => {
-    const data = request?.content?.data as Record<string, any> | undefined;
-    if (data?.hourwiseAlert === true) return true;
-
-    const channelId = request?.content?.channelId;
-    const categoryIdentifier = request?.content?.categoryIdentifier;
-    return categoryIdentifier === 'alarm' && typeof channelId === 'string' && ALERT_CHANNEL_IDS.has(channelId);
-  }, []);
-
   const extractScheduledAlertDescriptor = useCallback((request: any) => {
     const data = request?.content?.data as Record<string, any> | undefined;
     if (!data?.hourwiseAlert) return null;
@@ -588,19 +622,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, []);
 
   const cancelAllTrackedHourwiseAlerts = useCallback(async () => {
-    const scheduledRequests = await Notifications.getAllScheduledNotificationsAsync()
-      .catch(() => [] as any[]);
-    const identifiers = scheduledRequests
-      .filter(request => isHourwiseAlertRequest(request))
-      .map(request => request.identifier)
-      .filter((identifier): identifier is string => !!identifier);
-
-    await Promise.all(
-      identifiers.map(identifier =>
-        Notifications.cancelScheduledNotificationAsync(identifier).catch(() => {})
-      )
-    );
-  }, [isHourwiseAlertRequest]);
+    await clearAllHourwiseTimerNotifications();
+  }, []);
 
   const setScopeScheduledAlerts = useCallback((
     scope: ScheduledAlertScope,
@@ -709,7 +732,23 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     );
 
     await clearScopeScheduledAlerts(scope);
-  }, [clearScopeScheduledAlerts, extractScheduledAlertDescriptor]);
+    appendTimerDiagnostic({
+      event: 'alerts',
+      source: 'cancel_scope',
+      reason: scope,
+      snapshotAfter: buildTimerDiagnosticSnapshot(),
+      success: true,
+      details: {
+        scope,
+        cancelledIdentifierCount: identifiers.size,
+      },
+    });
+  }, [
+    appendTimerDiagnostic,
+    buildTimerDiagnosticSnapshot,
+    clearScopeScheduledAlerts,
+    extractScheduledAlertDescriptor,
+  ]);
 
   const cancelAllScheduledAlertNotifications = useCallback(async (
     options?: { clearBackgroundState?: boolean },
@@ -720,7 +759,19 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     if (options?.clearBackgroundState) {
       await clearBackgroundAlertState();
     }
-  }, [cancelAllTrackedHourwiseAlerts, cancelScheduledAlertsForScope]);
+    appendTimerDiagnostic({
+      event: 'alerts',
+      source: 'cancel_all',
+      reason: options?.clearBackgroundState ? 'clear_background_state' : 'timer_alerts_only',
+      snapshotAfter: buildTimerDiagnosticSnapshot(),
+      success: true,
+    });
+  }, [
+    appendTimerDiagnostic,
+    buildTimerDiagnosticSnapshot,
+    cancelAllTrackedHourwiseAlerts,
+    cancelScheduledAlertsForScope,
+  ]);
 
   const scheduleDesiredAlert = useCallback(async (
     desiredAlert: DesiredScheduledAlert,
@@ -815,8 +866,23 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     }
 
     await saveScopeScheduledAlerts(scope, nextPersistedAlerts);
+    appendTimerDiagnostic({
+      event: 'alerts',
+      source: context,
+      reason: scope,
+      snapshotAfter: buildTimerDiagnosticSnapshot(),
+      success: true,
+      details: {
+        scope,
+        desiredCount: desiredAlerts.length,
+        persistedCount: nextPersistedAlerts.length,
+        staleCount: staleAlerts.length,
+      },
+    });
     await logNotificationDiagnostics(context);
   }, [
+    appendTimerDiagnostic,
+    buildTimerDiagnosticSnapshot,
     extractScheduledAlertDescriptor,
     logNotificationDiagnostics,
     saveScopeScheduledAlerts,
@@ -980,12 +1046,22 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
      if (isRefreshingSessionRef.current && !options?.forceDuringRefresh) return;
      if (isEndingRef.current && statusRef.current !== 'idle') return;
      isPersistingRef.current = true;
+     const snapshotBefore = buildTimerDiagnosticSnapshot();
      try {
        const nowMs = Date.now();
        if (statusRef.current !== 'idle' && segmentStartRef.current) {
          // ========== CRITICAL FIX #4: Validate segment start before using ==========
          if (!isValidSegmentStart(segmentStartRef.current)) {
            console.warn('Invalid segmentStart, resetting to now:', segmentStartRef.current);
+           appendTimerDiagnostic({
+             event: 'local_persist',
+             source: 'persistFromRefs',
+             reason: 'invalid_segment_start',
+             snapshotBefore,
+             snapshotAfter: buildTimerDiagnosticSnapshot(),
+             success: false,
+             errorSummary: `Invalid segmentStart: ${segmentStartRef.current}`,
+           });
            segmentStartRef.current = new Date(nowMs).toISOString();
            return;
          }
@@ -1011,10 +1087,33 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         await clearActiveTimerState(userStorageKey);
         await clearBackgroundAlertState();
       }
+      appendTimerDiagnostic({
+        event: 'local_persist',
+        source: 'persistFromRefs',
+        reason: state.status !== 'idle' ? 'save_active_state' : 'clear_idle_state',
+        statusBefore: snapshotBefore.status,
+        statusAfter: normalizedState.status,
+        snapshotBefore,
+        snapshotAfter: buildTimerDiagnosticSnapshot(),
+        success: true,
+        details: {
+          forceDuringRefresh: !!options?.forceDuringRefresh,
+          stateVersion: state.stateVersion,
+          lastSavedAtMs: state.lastSavedAtMs ?? null,
+          lastCheckpointAtMs: state.lastCheckpointAtMs ?? null,
+        },
+      });
     } finally {
       isPersistingRef.current = false;
     }
-  }, [applyMachineStateToRefs, createMachineStateFromRefs, userId, userStorageKey]);
+  }, [
+    appendTimerDiagnostic,
+    applyMachineStateToRefs,
+    buildTimerDiagnosticSnapshot,
+    createMachineStateFromRefs,
+    userId,
+    userStorageKey,
+  ]);
 
   const refreshCriticalTimerWriteHealth = useCallback(async () => {
     const health = await offlineQueueService.getHealth();
@@ -1048,6 +1147,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     }
 
     const nowMs = Date.now();
+    const snapshotBefore = buildTimerDiagnosticSnapshot();
     const normalizedState =
       statusRef.current !== 'idle' && segmentStartRef.current
         ? reduceTachoEvent(createMachineStateFromRefs(nowMs), { type: 'TIMER_TICK', nowMs }).state
@@ -1067,9 +1167,17 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       existingOtherData: sessionDataRef.current?.other_data,
       currentSegmentStart: normalizedState.currentSegmentStart,
       currentBreakStart:
-        normalizedState.status === 'break' ? normalizedState.currentSegmentStart : null,
+        normalizedState.status === 'break'
+          ? (activitySegmentStartRef.current || (
+              normalizedState.breakStartMs > 0
+                ? new Date(normalizedState.breakStartMs).toISOString()
+                : normalizedState.currentSegmentStart
+            ))
+          : null,
       currentPoaStart:
-        normalizedState.status === 'poa' ? normalizedState.currentSegmentStart : null,
+        normalizedState.status === 'poa'
+          ? (activitySegmentStartRef.current || normalizedState.currentSegmentStart)
+          : null,
       breakStartMs: normalizedState.breakStartMs,
       isDriving: normalizedState.isDriving,
       activitySegmentStartTime: activitySegmentStartRef.current,
@@ -1103,6 +1211,28 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         });
         await refreshCriticalTimerWriteHealth();
       }
+      appendTimerDiagnostic({
+        event: 'db_sync',
+        source: 'syncSessionToDb',
+        reason,
+        statusBefore: snapshotBefore.status,
+        statusAfter: normalizedState.status,
+        snapshotBefore,
+        snapshotAfter: buildTimerDiagnosticSnapshot(),
+        success: false,
+        errorSummary: summarizeDiagnosticError(result.error),
+        details: {
+          queuedOfflineWrite: !!userId && !!sessionIdRef.current,
+          payloadStatus: (payload as any).status ?? null,
+          totalWorkMinutes: (payload as any).total_work_minutes ?? null,
+          totalBreakMinutes: (payload as any).total_break_minutes ?? null,
+          totalPoaMinutes: (payload as any).total_poa_minutes ?? null,
+          currentBreakStart: (payload as any).current_break_start ?? null,
+          currentPoaStart: (payload as any).current_poa_start ?? null,
+          otherDataCurrentSegmentStart: (payload as any).other_data?.currentSegmentStart ?? null,
+          otherDataActivitySegmentStartTime: (payload as any).other_data?.activitySegmentStartTime ?? null,
+        },
+      });
     } else if (result.data) {
       lastDbCheckpointAtRef.current = nowMs;
       setSessionData(result.data);
@@ -1119,11 +1249,33 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         });
       }
       await flushCriticalWrites();
+      appendTimerDiagnostic({
+        event: 'db_sync',
+        source: 'syncSessionToDb',
+        reason,
+        statusBefore: snapshotBefore.status,
+        statusAfter: normalizedState.status,
+        snapshotBefore,
+        snapshotAfter: buildTimerDiagnosticSnapshot(),
+        success: true,
+        details: {
+          payloadStatus: (payload as any).status ?? null,
+          totalWorkMinutes: (payload as any).total_work_minutes ?? null,
+          totalBreakMinutes: (payload as any).total_break_minutes ?? null,
+          totalPoaMinutes: (payload as any).total_poa_minutes ?? null,
+          currentBreakStart: (payload as any).current_break_start ?? null,
+          currentPoaStart: (payload as any).current_poa_start ?? null,
+          otherDataCurrentSegmentStart: (payload as any).other_data?.currentSegmentStart ?? null,
+          otherDataActivitySegmentStartTime: (payload as any).other_data?.activitySegmentStartTime ?? null,
+        },
+      });
     }
 
     return result;
   }, [
+    appendTimerDiagnostic,
     applyMachineStateToRefs,
+    buildTimerDiagnosticSnapshot,
     createMachineStateFromRefs,
     flushCriticalWrites,
     refreshCriticalTimerWriteHealth,
@@ -1135,6 +1287,27 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     commands: TachoCommand[],
     options?: { skipPersist?: boolean; skipSyncSession?: boolean },
   ) => {
+    const significantCommands = commands.filter(command => command.type !== 'persist');
+    if (significantCommands.length > 0) {
+      appendTimerDiagnostic({
+        event: 'reducer_commands',
+        source: 'executeReducerCommands',
+        snapshotAfter: buildTimerDiagnosticSnapshot(),
+        success: true,
+        details: {
+          commands: significantCommands.map(command => ({
+            type: command.type,
+            target: (command as any).target ?? null,
+            reason: (command as any).reason ?? null,
+            alertKey: (command as any).alertKey ?? null,
+            speechKey: (command as any).speechKey ?? null,
+          })),
+          skipPersist: !!options?.skipPersist,
+          skipSyncSession: !!options?.skipSyncSession,
+        },
+      });
+    }
+
     for (const command of commands) {
       switch (command.type) {
         case 'persist':
@@ -1182,6 +1355,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       }
     }
   }, [
+    appendTimerDiagnostic,
+    buildTimerDiagnosticSnapshot,
     persistFromRefs,
     cancelScheduledAlertsForScope,
     buildComplianceSchedule,
@@ -1194,6 +1369,16 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const refreshSession = useCallback(async () => {
     if (!userId || isStartingRef.current || isRefreshingSessionRef.current) return;
     isRefreshingSessionRef.current = true;
+    const refreshStartSnapshot = buildTimerDiagnosticSnapshot();
+    let refreshSuccess = false;
+    let refreshErrorSummary: string | null = null;
+    appendTimerDiagnostic({
+      event: 'resume_refresh',
+      source: 'refreshSession',
+      reason: 'start',
+      snapshotBefore: refreshStartSnapshot,
+      success: true,
+    });
     try {
       while (isPersistingRef.current) {
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -1234,6 +1419,22 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
           syncStateFromRefs();
           await persistFromRefs({ forceDuringRefresh: true });
         }
+        appendTimerDiagnostic({
+          event: 'restore',
+          source: 'refreshSession',
+          reason: 'db_error_fallback',
+          statusBefore: refreshStartSnapshot.status,
+          statusAfter: statusRef.current,
+          snapshotBefore: refreshStartSnapshot,
+          snapshotAfter: buildTimerDiagnosticSnapshot(),
+          success: !!fallbackRuntimeState,
+          errorSummary: summarizeDiagnosticError(error),
+          details: {
+            selectedSource: currentRuntimeState.status !== 'idle' ? 'current_runtime' : 'persisted_runtime',
+            persistedStatePresent: !!persistedState,
+          },
+        });
+        refreshSuccess = true;
         return;
       }
 
@@ -1274,6 +1475,22 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
           syncStateFromRefs();
           await persistFromRefs({ forceDuringRefresh: true });
           await refreshCriticalTimerWriteHealth();
+          appendTimerDiagnostic({
+            event: 'restore',
+            source: 'refreshSession',
+            reason: 'pending_start_restore',
+            statusBefore: refreshStartSnapshot.status,
+            statusAfter: queuedRuntimeState.status,
+            snapshotBefore: refreshStartSnapshot,
+            snapshotAfter: buildTimerDiagnosticSnapshot(),
+            success: true,
+            details: {
+              selectedSource: currentRuntimeState.sessionId === pendingStart.sessionId
+                ? 'current_runtime'
+                : 'persisted_runtime',
+            },
+          });
+          refreshSuccess = true;
           return;
         }
 
@@ -1287,6 +1504,17 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         syncStateFromRefs();
         await clearActiveTimerState(userStorageKey);
         await cancelAllScheduledAlertNotifications({ clearBackgroundState: true });
+        appendTimerDiagnostic({
+          event: 'restore',
+          source: 'refreshSession',
+          reason: 'no_active_db_session',
+          statusBefore: refreshStartSnapshot.status,
+          statusAfter: 'idle',
+          snapshotBefore: refreshStartSnapshot,
+          snapshotAfter: buildTimerDiagnosticSnapshot(),
+          success: true,
+        });
+        refreshSuccess = true;
         return;
       }
 
@@ -1326,6 +1554,13 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         sessionId: data.id,
         nowMs: resumeNowMs,
       });
+      const selectedSource = reconciledState === dbState
+        ? 'db'
+        : reconciledState === currentRuntimeState
+          ? 'current_runtime'
+          : reconciledState === persistedRuntimeState
+            ? 'persisted_runtime'
+            : 'unknown';
 
       applyMachineStateToRefs(reconciledState);
       if (reconciledState !== dbState) {
@@ -1349,9 +1584,44 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       applyMachineStateToRefs(tickResult.state);
 
       syncStateFromRefs();
-    } catch (e) { console.warn('refreshSession failed:', e); }
-    finally { isRefreshingSessionRef.current = false; }
+      appendTimerDiagnostic({
+        event: 'restore',
+        source: 'refreshSession',
+        reason: 'active_db_session',
+        statusBefore: refreshStartSnapshot.status,
+        statusAfter: tickResult.state.status,
+        snapshotBefore: refreshStartSnapshot,
+        snapshotAfter: buildTimerDiagnosticSnapshot(),
+        success: true,
+        details: {
+          selectedSource,
+          dbStatus: data.status ?? null,
+          hasMatchingPersistedSessionState,
+          repairedDbFromLocal: reconciledState !== dbState,
+        },
+      });
+      refreshSuccess = true;
+    } catch (e) {
+      refreshErrorSummary = summarizeDiagnosticError(e);
+      console.warn('refreshSession failed:', e);
+    }
+    finally {
+      appendTimerDiagnostic({
+        event: 'resume_refresh',
+        source: 'refreshSession',
+        reason: 'finish',
+        statusBefore: refreshStartSnapshot.status,
+        statusAfter: statusRef.current,
+        snapshotBefore: refreshStartSnapshot,
+        snapshotAfter: buildTimerDiagnosticSnapshot(),
+        success: refreshSuccess,
+        errorSummary: refreshErrorSummary,
+      });
+      isRefreshingSessionRef.current = false;
+    }
   }, [
+    appendTimerDiagnostic,
+    buildTimerDiagnosticSnapshot,
     userId,
     userStorageKey,
     syncStateFromRefs,
@@ -1396,8 +1666,15 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, [applyMachineStateToRefs, createMachineStateFromRefs, executeReducerCommands, syncStateFromRefs]);
 
   const exportTimerDiagnostics = useCallback(async () => {
-    return exportMotionDiagnosticsRing();
-  }, []);
+    appendTimerDiagnostic({
+      event: 'resume_refresh',
+      source: 'exportTimerDiagnostics',
+      reason: 'manual_export',
+      snapshotAfter: buildTimerDiagnosticSnapshot(),
+      success: true,
+    });
+    return exportCombinedTimerDiagnostics();
+  }, [appendTimerDiagnostic, buildTimerDiagnosticSnapshot]);
 
   const toggleDrivingDetectionPause = useCallback(async () => {
     const nextPaused = !isDrivingDetectionPausedRef.current;
@@ -1426,6 +1703,14 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
      const sub = AppState.addEventListener('change', async (next) => {
        const prev = appStateRef.current;
        appStateRef.current = next;
+       appendTimerDiagnostic({
+         event: 'app_state',
+         source: 'AppState',
+         reason: `${prev}->${next}`,
+         snapshotAfter: buildTimerDiagnosticSnapshot(),
+         success: true,
+         details: { previousAppState: prev, nextAppState: next },
+       });
 
         if ((next === 'inactive' || next === 'background') && statusRef.current !== 'idle') {
          await persistFromRefs({ forceDuringRefresh: true });
@@ -1498,7 +1783,22 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
        }
     });
     return () => sub.remove();
-  }, [applyMachineStateToRefs, buildComplianceSchedule, buildDriveAlertSchedule, cancelAllScheduledAlertNotifications, cancelScheduledAlertsForScope, createMachineStateFromRefs, executeReducerCommands, logNotificationDiagnostics, persistFromRefs, refreshSession, syncSessionToDb, syncStateFromRefs]);
+  }, [
+    appendTimerDiagnostic,
+    applyMachineStateToRefs,
+    buildComplianceSchedule,
+    buildDriveAlertSchedule,
+    buildTimerDiagnosticSnapshot,
+    cancelAllScheduledAlertNotifications,
+    cancelScheduledAlertsForScope,
+    createMachineStateFromRefs,
+    executeReducerCommands,
+    logNotificationDiagnostics,
+    persistFromRefs,
+    refreshSession,
+    syncSessionToDb,
+    syncStateFromRefs,
+  ]);
 
   const stopTracking = useCallback(async () => {
     locationSubRef.current?.remove();
@@ -1726,6 +2026,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     const nowMs = Date.now();
     const transitionIso = new Date(nowMs).toISOString();
     const previousStatus = statusRef.current;
+    const snapshotBefore = buildTimerDiagnosticSnapshot();
     const previousActivitySegmentStart =
       activitySegmentStartRef.current || workStartRef.current || segmentStartRef.current;
     const machineState = createMachineStateFromRefs(nowMs);
@@ -1739,6 +2040,22 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     activitySegmentStartRef.current = transitionIso;
     syncStateFromRefs();
     vibrateAlert();
+    appendTimerDiagnostic({
+      event: 'status_change',
+      source: 'updateTotalsAndSwitchStatus',
+      reason: `${previousStatus}->${newStatus}`,
+      statusBefore: previousStatus,
+      statusAfter: result.state.status,
+      snapshotBefore,
+      snapshotAfter: buildTimerDiagnosticSnapshot(),
+      success: true,
+      details: {
+        transitionTime: transitionIso,
+        previousActivitySegmentStart,
+        nextActivitySegmentStart: activitySegmentStartRef.current,
+        commandTypes: result.commands.map(command => command.type),
+      },
+    });
 
     const syncCommand = result.commands.find(
       (command): command is Extract<TachoCommand, { type: 'sync_session' }> =>
@@ -1768,9 +2085,11 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       skipSyncSession: true,
     });
   }, [
+    appendTimerDiagnostic,
     cancelAllScheduledAlertNotifications,
     createMachineStateFromRefs,
     applyMachineStateToRefs,
+    buildTimerDiagnosticSnapshot,
     persistFromRefs,
     syncSessionToDb,
     syncStateFromRefs,

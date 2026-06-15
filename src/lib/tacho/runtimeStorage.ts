@@ -1,8 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   appendMotionDiagnosticRecords,
+  appendTimerDiagnosticRecords,
+  formatCombinedDiagnosticsExport,
   formatMotionDiagnosticsExport,
   type MotionDiagnosticRecord,
+  type TimerDiagnosticRecord,
 } from './diagnostics';
 import { PERSISTED_STATE_VERSION } from './constants';
 import type {
@@ -24,6 +27,7 @@ export const BACKGROUND_ALERT_STATE_KEY = 'background_alert_state_v1';
 export const BACKGROUND_TASK_DIAGNOSTICS_KEY =
   'background_task_diagnostics_v1';
 export const MOTION_DIAGNOSTICS_RING_KEY = 'motion_diagnostics_ring_v1';
+export const TIMER_DIAGNOSTICS_RING_KEY = 'timer_diagnostics_ring_v1';
 
 export type BackgroundAlertState = {
   status: WorkStatus;
@@ -348,9 +352,44 @@ export const appendMotionDiagnosticsRing = async (
   }
 };
 
+export const loadTimerDiagnosticsRing = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(TIMER_DIAGNOSTICS_RING_KEY);
+    if (!raw) return [] as TimerDiagnosticRecord[];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as TimerDiagnosticRecord[] : [];
+  } catch (e) {
+    console.warn('Failed to load timer diagnostics:', e);
+    return [] as TimerDiagnosticRecord[];
+  }
+};
+
+export const appendTimerDiagnosticsRing = async (
+  records: TimerDiagnosticRecord | TimerDiagnosticRecord[],
+) => {
+  try {
+    const existing = await loadTimerDiagnosticsRing();
+    const next = appendTimerDiagnosticRecords(
+      existing,
+      Array.isArray(records) ? records : [records],
+    );
+    await AsyncStorage.setItem(TIMER_DIAGNOSTICS_RING_KEY, JSON.stringify(next));
+  } catch (e) {
+    console.warn('Failed to save timer diagnostics:', e);
+  }
+};
+
 export const exportMotionDiagnosticsRing = async () => {
   const records = await loadMotionDiagnosticsRing();
   return formatMotionDiagnosticsExport(records);
+};
+
+export const exportCombinedTimerDiagnostics = async () => {
+  const [motionRecords, timerRecords] = await Promise.all([
+    loadMotionDiagnosticsRing(),
+    loadTimerDiagnosticsRing(),
+  ]);
+  return formatCombinedDiagnosticsExport({ motionRecords, timerRecords });
 };
 
 export const clearMotionDiagnosticsRing = async () => {
@@ -358,5 +397,13 @@ export const clearMotionDiagnosticsRing = async () => {
     await AsyncStorage.removeItem(MOTION_DIAGNOSTICS_RING_KEY);
   } catch (e) {
     console.error('Failed to clear motion diagnostics:', e);
+  }
+};
+
+export const clearTimerDiagnosticsRing = async () => {
+  try {
+    await AsyncStorage.removeItem(TIMER_DIAGNOSTICS_RING_KEY);
+  } catch (e) {
+    console.error('Failed to clear timer diagnostics:', e);
   }
 };

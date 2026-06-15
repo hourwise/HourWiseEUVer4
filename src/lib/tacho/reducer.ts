@@ -1,5 +1,7 @@
 import type { AlertKey } from './alerts';
 import {
+  BACKGROUND_SAMPLE_STALE_MS,
+  DRIVING_STOP_TAIL_MS,
   DRIVING_IMMEDIATE_START_THRESHOLD_KMH,
   DRIVING_SPEED_THRESHOLD_KMH,
   LOW_SPEED_STOP_THRESHOLD_KMH,
@@ -275,7 +277,10 @@ const reduceDrivingDecision = (
     typeof effectiveTransitionMs === 'number' &&
     Number.isFinite(effectiveTransitionMs) &&
     effectiveTransitionMs < nowMs
-      ? Math.max(0, Math.floor((nowMs - effectiveTransitionMs) / 1000))
+      ? Math.max(
+          0,
+          Math.floor((nowMs - Math.min(nowMs, effectiveTransitionMs + DRIVING_STOP_TAIL_MS)) / 1000),
+        )
       : 0;
   const drivingCorrection = Math.min(stopOverrunSec, catchUp.counterState.totals.driving);
   const drivingCycleCorrection = Math.min(stopOverrunSec, catchUp.counterState.drivingCycle);
@@ -329,9 +334,28 @@ const reduceBackgroundSpeedSample = (
 ): TachoReducerResult => {
   if (
     !Number.isFinite(sampleTs) ||
-    sampleTs <= state.motion.lastLocationTs ||
-    receiptTs - sampleTs > 10000
+    sampleTs <= state.motion.lastLocationTs
   ) {
+    return { state, commands: [] };
+  }
+
+  const isStaleSample = receiptTs - sampleTs > BACKGROUND_SAMPLE_STALE_MS;
+  const nextStateWithSample = {
+    ...state,
+    motion: {
+      ...state.motion,
+      lastSpeedKmh: speedKmh,
+      lastSpeedTs: sampleTs,
+      lastLocationTs: sampleTs,
+      lastAccuracyM: null,
+    },
+  };
+
+  if (isStaleSample) {
+    if (state.status === 'working' && state.isDriving && speedKmh <= STILL_SPEED_THRESHOLD_KMH) {
+      return reduceDrivingDecision(nextStateWithSample, sampleTs, false, sampleTs);
+    }
+
     return { state, commands: [] };
   }
 
@@ -344,36 +368,15 @@ const reduceBackgroundSpeedSample = (
     stillThresholdKmh: STILL_SPEED_THRESHOLD_KMH,
     immediateStartThresholdKmh: DRIVING_IMMEDIATE_START_THRESHOLD_KMH,
     lowSpeedStopThresholdKmh: LOW_SPEED_STOP_THRESHOLD_KMH,
-    staleThresholdMs: 10000,
+    staleThresholdMs: BACKGROUND_SAMPLE_STALE_MS,
   });
 
   if (!decision.shouldApply || decision.nextDriving === null) {
-    return {
-      state: {
-        ...state,
-        motion: {
-          ...state.motion,
-          lastSpeedKmh: speedKmh,
-          lastSpeedTs: sampleTs,
-          lastLocationTs: sampleTs,
-          lastAccuracyM: null,
-        },
-      },
-      commands: [],
-    };
+    return { state: nextStateWithSample, commands: [] };
   }
 
   return reduceDrivingDecision(
-    {
-      ...state,
-      motion: {
-        ...state.motion,
-        lastSpeedKmh: speedKmh,
-        lastSpeedTs: sampleTs,
-        lastLocationTs: sampleTs,
-        lastAccuracyM: null,
-      },
-    },
+    nextStateWithSample,
     nowMs,
     decision.nextDriving,
     decision.nextDriving ? null : sampleTs,

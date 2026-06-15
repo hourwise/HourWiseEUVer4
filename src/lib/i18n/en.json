@@ -277,6 +277,7 @@
     "amount": "Amount",
     "currency": "Currency",
     "merchant": "Merchant",
+    "merchantPlaceholder": "Merchant or supplier name",
     "category": "Category",
     "notes": "Notes",
     "optionalNotes": "Optional notes...",
@@ -299,7 +300,8 @@
       "Supplies": "Supplies",
       "Other": "Other"
     },
-    "fuelLitres": "Fuel Added (litres)"
+    "fuelLitres": "Fuel Added (litres)",
+    "fuelLitresPlaceholder": "e.g. 42.50"
   },
   "shiftSummary": {
     "title": "Current Shift",
@@ -469,9 +471,12 @@
     "hourlyRate": "Hourly Rate",
     "unpaidBreak": "Unpaid Break",
     "minutes": "Minutes",
+    "overtime": "Overtime",
     "overtimeThreshold": "Overtime Threshold",
     "hours": "Hours per week",
     "overtimeMultiplier": "Overtime Rate Multiplier",
+    "unit": "Unit",
+    "multiplier": "OT Multiplier",
     "shiftAllowances": "Shift Allowances",
     "additionalOvertime": "Additional Overtime Tiers",
     "threshold": "Threshold (Hours)",

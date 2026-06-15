@@ -221,7 +221,7 @@ export default function AddExpenseModal({
     const recoverPendingPickerResult = async () => {
       try {
         const pendingResults = await ImagePicker.getPendingResultAsync();
-        if (cancelled || pendingResults.length === 0) return;
+        if (cancelled || !pendingResults || pendingResults.length === 0) return;
 
         const pending = pendingResults[0];
         if ('canceled' in pending) {

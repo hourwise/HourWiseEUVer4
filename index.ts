@@ -8,9 +8,16 @@ import i18n, { ensureI18nInitialized } from './src/lib/i18n';
 import { ensureNotificationChannelsInitialized } from './src/lib/notifications';
 import { ALERT_TEXT, BACKGROUND_DRIVE_ALERT_KEYS, type AlertKey } from './src/lib/tacho/alerts';
 import {
+  BACKGROUND_SAMPLE_STALE_MS,
+  STILL_SPEED_THRESHOLD_KMH,
+} from './src/lib/tacho/constants';
+import { clearHourwiseTimerNotificationsByScope } from './src/lib/tacho/notificationCleanup';
+import {
   clearBackgroundAlertState,
+  clearScheduledDriveAlerts,
   loadActiveTimerState,
   appendMotionDiagnosticsRing,
+  appendTimerDiagnosticsRing,
   saveBackgroundTaskDiagnostics,
   saveActiveTimerState,
 } from './src/lib/tacho/runtimeStorage';
@@ -18,13 +25,16 @@ import {
   createTachoStateFromPersisted,
   toPersistedTachoState,
   type TachoCommand,
+  type TachoState,
 } from './src/lib/tacho/machine';
 import { reduceTachoEvent } from './src/lib/tacho/reducer';
-import type { MotionDiagnosticRecord } from './src/lib/tacho/diagnostics';
+import type {
+  MotionDiagnosticRecord,
+  TimerDiagnosticSnapshot,
+} from './src/lib/tacho/diagnostics';
 
 export const LOCATION_TASK_NAME = 'background-location-task';
 export const BACKGROUND_SPEED_KEY = 'bg_last_speed_v1';
-const BACKGROUND_SAMPLE_STALE_MS = 10_000;
 
 const getSafeLocationTimestamp = (timestamp: unknown, receiptMs: number): number => {
   if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) {
@@ -32,6 +42,25 @@ const getSafeLocationTimestamp = (timestamp: unknown, receiptMs: number): number
   }
   return timestamp > receiptMs ? receiptMs : timestamp;
 };
+
+const buildBackgroundTimerSnapshot = (
+  state: TachoState,
+  activitySegmentStartTime?: string | null,
+): TimerDiagnosticSnapshot => ({
+  status: state.status,
+  sessionId: state.sessionId,
+  workStartTime: state.workStartTime,
+  currentSegmentStart: state.currentSegmentStart,
+  activitySegmentStartTime: activitySegmentStartTime ?? null,
+  totals: { ...state.totals },
+  legalBreakDisplayTotal: state.legalBreakDisplayTotal,
+  workCycle: state.workCycle,
+  drivingCycle: state.drivingCycle,
+  timerMode: state.timerMode,
+  isDriving: state.isDriving,
+  breakStartMs: state.breakStartMs,
+  lastTickMs: state.lastTickMs,
+});
 
 const scheduleBackgroundAlert = async (alertKey: AlertKey) => {
   const cfg = ALERT_TEXT[alertKey];
@@ -110,6 +139,7 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
   }
 
   let machineState = createTachoStateFromPersisted(persistedState, receiptMs);
+  const initialMachineState = machineState;
   const segmentStartMs = new Date(machineState.currentSegmentStart || '').getTime();
   if (!Number.isFinite(segmentStartMs)) {
     await clearBackgroundAlertState();
@@ -122,12 +152,18 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
     for (const sample of samples) {
       const totalsBefore = { ...machineState.totals };
       const previousDriving = machineState.isDriving;
-      const ignoredReason =
-        receiptMs - sample.sampleTs > BACKGROUND_SAMPLE_STALE_MS
+      const isDuplicate = sample.sampleTs <= machineState.motion.lastLocationTs;
+      const isStale = receiptMs - sample.sampleTs > BACKGROUND_SAMPLE_STALE_MS;
+      const canApplyStaleStop =
+        isStale &&
+        machineState.isDriving &&
+        typeof sample.speedKmh === 'number' &&
+        sample.speedKmh <= STILL_SPEED_THRESHOLD_KMH;
+      const ignoredReason = isDuplicate
+        ? 'duplicate'
+        : isStale && !canApplyStaleStop
           ? 'stale'
-          : sample.sampleTs <= machineState.motion.lastLocationTs
-            ? 'duplicate'
-            : null;
+          : null;
       if (ignoredReason) {
         diagnosticRecords.push({
           receiptTimeMs: receiptMs,
@@ -206,6 +242,32 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
     ),
   );
 
+  await appendTimerDiagnosticsRing({
+    ts: receiptMs,
+    event: 'background_task',
+    sessionId: finalState.sessionId,
+    source: 'expo_location_task',
+    reason: 'locations_processed',
+    statusBefore: initialMachineState.status,
+    statusAfter: finalState.status,
+    snapshotBefore: buildBackgroundTimerSnapshot(
+      initialMachineState,
+      persistedState.activitySegmentStartTime,
+    ),
+    snapshotAfter: buildBackgroundTimerSnapshot(
+      finalState,
+      persistedState.activitySegmentStartTime,
+    ),
+    success: true,
+    details: {
+      sampleCount: samples.length,
+      diagnosticRecordCount: diagnosticRecords.length,
+      latestSpeedKmh: latestSample.speedKmh ?? null,
+      latestSampleAgeMs: receiptMs - latestSample.sampleTs,
+      commandTypes: commands.map(command => command.type),
+    },
+  });
+
   for (const command of commands) {
     if (
       command.type === 'trigger_alert' &&
@@ -218,6 +280,13 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
         persistedStatus: finalState.status,
         lastTriggeredAlertKey: command.alertKey,
       });
+    }
+    if (
+      command.type === 'cancel_alerts' &&
+      (command.target === 'all' || command.target === 'drive')
+    ) {
+      await clearHourwiseTimerNotificationsByScope('drive');
+      await clearScheduledDriveAlerts();
     }
   }
 });

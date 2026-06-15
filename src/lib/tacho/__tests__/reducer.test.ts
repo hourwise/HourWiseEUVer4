@@ -190,10 +190,10 @@ test('DRIVING_DECISION_RECEIVED reclassifies delayed stop time as work', () => {
   });
 
   assert.equal(result.state.isDriving, false);
-  assert.equal(result.state.totals.driving, 120);
+  assert.equal(result.state.totals.driving, 123);
   assert.equal(result.state.totals.work, 140);
   assert.equal(result.state.workCycle, 140);
-  assert.equal(result.state.drivingCycle, 120);
+  assert.equal(result.state.drivingCycle, 123);
 });
 
 test('DRIVING_DECISION_RECEIVED is ignored during manual break', () => {
@@ -300,6 +300,95 @@ test('BACKGROUND_SPEED_SAMPLE_RECEIVED applies a resume-time driving stop throug
 
   assert.equal(result.state.isDriving, false);
   assert.ok(result.commands.some(command => command.type === 'sync_session' && command.reason === 'drive_stop'));
+});
+
+test('BACKGROUND_SPEED_SAMPLE_RECEIVED applies stale stop evidence for active driving', () => {
+  const segmentStartMs = Date.UTC(2026, 4, 14, 10, 0, 0);
+  const sampleTs = segmentStartMs + 5 * 60 * 1000;
+  const receiptTs = sampleTs + 15 * 60 * 1000;
+  const state = createTachoStateFromSnapshot({
+    status: 'working',
+    sessionId: 's-bg-stale-stop',
+    timerMode: '6h',
+    workStartTime: '2026-05-14T08:00:00.000Z',
+    currentSegmentStart: new Date(segmentStartMs).toISOString(),
+    totals: { work: 0, poa: 0, break: 0, driving: 0 },
+    legalBreakDisplayTotal: 0,
+    workCycle: 0,
+    drivingCycle: 0,
+    has15minBreak: false,
+    isDriving: true,
+    breakStartMs: 0,
+    weeklyDrivingAccumulator: 0,
+    shiftExtensionsUsedThisWeek: 0,
+    maxShiftTimeSeconds: 13 * 3600,
+    dailyRestSecondsBeforeShift: 0,
+    reducedDailyRestTaken: false,
+    lastTickMs: segmentStartMs,
+    lastBreakDuration: 0,
+    lastBreakEndTime: 0,
+    motion: {
+      lastLocationTs: segmentStartMs - 1000,
+      lastSpeedTs: segmentStartMs - 1000,
+      lastSpeedKmh: 20,
+    },
+  });
+
+  const result = reduceTachoEvent(state, {
+    type: 'BACKGROUND_SPEED_SAMPLE_RECEIVED',
+    nowMs: sampleTs,
+    receiptTs,
+    speedKmh: 0,
+    sampleTs,
+  });
+
+  assert.equal(result.state.isDriving, false);
+  assert.equal(result.state.currentSegmentStart, new Date(sampleTs).toISOString());
+  assert.equal(result.state.totals.work, 5 * 60);
+  assert.equal(result.state.totals.driving, 5 * 60);
+  assert.ok(result.commands.some(command => command.type === 'sync_session' && command.reason === 'drive_stop'));
+});
+
+test('BACKGROUND_SPEED_SAMPLE_RECEIVED still ignores stale driving starts', () => {
+  const sampleTs = Date.UTC(2026, 4, 14, 10, 0, 0);
+  const state = createTachoStateFromSnapshot({
+    status: 'working',
+    sessionId: 's-bg-stale-start',
+    timerMode: '6h',
+    workStartTime: '2026-05-14T08:00:00.000Z',
+    currentSegmentStart: '2026-05-14T09:55:00.000Z',
+    totals: { work: 300, poa: 0, break: 0, driving: 0 },
+    legalBreakDisplayTotal: 0,
+    workCycle: 300,
+    drivingCycle: 0,
+    has15minBreak: false,
+    isDriving: false,
+    breakStartMs: 0,
+    weeklyDrivingAccumulator: 0,
+    shiftExtensionsUsedThisWeek: 0,
+    maxShiftTimeSeconds: 13 * 3600,
+    dailyRestSecondsBeforeShift: 0,
+    reducedDailyRestTaken: false,
+    lastTickMs: sampleTs,
+    lastBreakDuration: 0,
+    lastBreakEndTime: 0,
+    motion: {
+      lastLocationTs: sampleTs - 1000,
+      lastSpeedTs: sampleTs - 1000,
+      lastSpeedKmh: 0,
+    },
+  });
+
+  const result = reduceTachoEvent(state, {
+    type: 'BACKGROUND_SPEED_SAMPLE_RECEIVED',
+    nowMs: sampleTs,
+    receiptTs: sampleTs + 15 * 60 * 1000,
+    speedKmh: 80,
+    sampleTs,
+  });
+
+  assert.equal(result.state, state);
+  assert.deepEqual(result.commands, []);
 });
 
 test('BACKGROUND_SPEED_SAMPLE_RECEIVED ignores stale samples without advancing processed timestamp', () => {

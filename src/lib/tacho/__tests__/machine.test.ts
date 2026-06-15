@@ -264,3 +264,73 @@ test('createTachoStateFromSessionRow restores working segment checkpoint from ot
   assert.equal(machineState.isDriving, true);
   assert.equal(machineState.totals.break, 49 * 60);
 });
+
+test('createTachoStateFromSessionRow separates active break start from counter checkpoint', () => {
+  const fallbackState = createTachoStateFromSnapshot({
+    status: 'break',
+    sessionId: 'local-break',
+    timerMode: '6h',
+    workStartTime: '2026-06-08T07:00:00.000Z',
+    currentSegmentStart: '2026-06-08T10:30:00.000Z',
+    totals: { work: 7200, poa: 0, break: 1800, driving: 0 },
+    legalBreakDisplayTotal: 900,
+    workCycle: 7200,
+    drivingCycle: 0,
+    has15minBreak: true,
+    isDriving: false,
+    breakStartMs: Date.parse('2026-06-08T10:00:00.000Z'),
+    weeklyDrivingAccumulator: 0,
+    shiftExtensionsUsedThisWeek: 0,
+    maxShiftTimeSeconds: 13 * 3600,
+    dailyRestSecondsBeforeShift: 0,
+    reducedDailyRestTaken: false,
+    lastTickMs: Date.parse('2026-06-08T10:30:00.000Z'),
+    lastBreakDuration: 0,
+    lastBreakEndTime: 0,
+  });
+
+  const machineState = createTachoStateFromSessionRow({
+    id: 'db-break-checkpoint',
+    user_id: 'user-break',
+    date: '2026-06-08',
+    start_time: '2026-06-08T07:00:00.000Z',
+    end_time: null,
+    total_work_minutes: 120,
+    total_break_minutes: 30,
+    total_poa_minutes: 0,
+    status: 'break',
+    timezone: 'Europe/London',
+    created_at: '2026-06-08T07:00:00.000Z',
+    updated_at: null,
+    compliance_score: null,
+    compliance_violations: null,
+    current_break_start: '2026-06-08T10:00:00.000Z',
+    current_poa_start: null,
+    drop_count: null,
+    empty_miles: null,
+    end_lat: null,
+    end_lng: null,
+    is_manual_entry: null,
+    job_reference: null,
+    loaded_miles: null,
+    notes: null,
+    other_data: {
+      currentSegmentStart: '2026-06-08T10:30:00.000Z',
+      activitySegmentStartTime: '2026-06-08T10:00:00.000Z',
+      driving: 0,
+      legalBreakDisplay: 15,
+      has15minBreak: true,
+      workCycle: 120,
+      drivingCycle: 0,
+      timerMode: '9h',
+    },
+    start_lat: null,
+    start_lng: null,
+    client_id: null,
+    waiting_minutes: null,
+  }, fallbackState);
+
+  assert.equal(machineState.currentSegmentStart, '2026-06-08T10:30:00.000Z');
+  assert.equal(machineState.breakStartMs, Date.parse('2026-06-08T10:00:00.000Z'));
+  assert.equal(machineState.totals.break, 30 * 60);
+});

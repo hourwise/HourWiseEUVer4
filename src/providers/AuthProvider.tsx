@@ -7,6 +7,7 @@ import React, {
   useRef,
 } from 'react';
 import { Alert } from 'react-native';
+import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import i18n from '../lib/i18n';
 import type { Session, SignInWithPasswordCredentials, SignUpWithPasswordCredentials } from '@supabase/supabase-js';
@@ -17,6 +18,14 @@ import {
   hasStoredBiometricSession,
   saveBiometricSession,
 } from '../lib/biometricAuth';
+import { LOCATION_TASK_NAME } from '../lib/tacho/constants';
+import { clearAllHourwiseTimerNotifications } from '../lib/tacho/notificationCleanup';
+import {
+  clearBackgroundAlertState,
+  clearBackgroundTaskDiagnostics,
+  clearScheduledComplianceAlerts,
+  clearScheduledDriveAlerts,
+} from '../lib/tacho/runtimeStorage';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
@@ -308,6 +317,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOut = async (options?: { forgetBiometric?: boolean }) => {
     const biometricConfigured = await hasStoredBiometricSession();
+
+    try {
+      if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      }
+    } catch (error) {
+      console.warn('Failed to stop timer background tracking during sign-out:', error);
+    }
+    try {
+      await Promise.all([
+        clearAllHourwiseTimerNotifications(),
+        clearScheduledComplianceAlerts(),
+        clearScheduledDriveAlerts(),
+        clearBackgroundAlertState(),
+        clearBackgroundTaskDiagnostics(),
+      ]);
+    } catch (error) {
+      console.warn('Failed to clear timer alerts during sign-out:', error);
+    }
 
     if (options?.forgetBiometric) {
       await clearBiometricSession();

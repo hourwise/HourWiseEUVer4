@@ -47,8 +47,9 @@ export const buildSessionOtherData = ({
   has15minBreak,
   workCycle: toMins(workCycle),
   drivingCycle: toMins(drivingCycle),
-  currentSegmentStart: status === 'working' ? (currentSegmentStart ?? null) : null,
-  activitySegmentStartTime: activitySegmentStartTime ?? null,
+  currentSegmentStart: status && status !== 'idle' ? (currentSegmentStart ?? null) : null,
+  activitySegmentStartTime:
+    activitySegmentStartTime ?? existingOtherData?.activitySegmentStartTime ?? null,
   isDriving: status === 'working' ? !!isDriving : false,
   workIncludesDrivingReference: true,
   timerMode,
