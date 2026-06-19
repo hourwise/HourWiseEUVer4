@@ -26,6 +26,7 @@ import {
   clearScheduledComplianceAlerts,
   clearScheduledDriveAlerts,
 } from '../lib/tacho/runtimeStorage';
+import { acceptInvite } from '../lib/inviteService';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 type Invite = Database['public']['Tables']['driver_invites']['Row'];
@@ -49,15 +50,18 @@ interface AuthContextType {
   clearStoredBiometricSignIn: () => Promise<void>;
   signOut: (options?: { forgetBiometric?: boolean }) => Promise<void>;
   signIn: (credentials: SignInWithPasswordCredentials) => Promise<Session | null>;
-  signUp: (params: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; }) => Promise<Session | null>;
+  signUp: (params: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; inviteCode?: string; }) => Promise<Session | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const PROFILE_QUERY_TIMEOUT_MS = 12000;
-const OPTIONAL_QUERY_TIMEOUT_MS = 6000;
-const AUTH_INIT_TIMEOUT_MS = 10000;
-const AUTH_LISTENER_GRACE_MS = 4000;
+const PROFILE_QUERY_TIMEOUT_MS = 6000;
+const BACKGROUND_PROFILE_QUERY_TIMEOUT_MS = 3000;
+const OPTIONAL_QUERY_TIMEOUT_MS = 2500;
+const BACKGROUND_OPTIONAL_QUERY_TIMEOUT_MS = 1500;
+const AUTH_INIT_TIMEOUT_MS = 5000;
+const AUTH_LISTENER_GRACE_MS = 2500;
+const BACKGROUND_PROFILE_REFRESH_MIN_INTERVAL_MS = 10 * 60 * 1000;
 
 const withTimeout = async <T,>(p: Promise<T>, ms = 8000): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -111,6 +115,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Use a ref to track profile presence without triggering dependency loops
   const hasProfileRef = useRef(false);
   const profileRef = useRef<ProfileWithPay | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  const lastProfileFetchAtRef = useRef(0);
   const lastKnownBootstrapRef = useRef<{
     userId: string;
     profile: ProfileWithPay | null;
@@ -152,9 +158,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const readOptionalBootstrapQuery = useCallback(async <T,>(
     query: PromiseLike<{ data: T | null; error: any }>,
+    timeoutMs = OPTIONAL_QUERY_TIMEOUT_MS,
   ): Promise<T | null> => {
     try {
-      const { data, error } = await withTimeout(Promise.resolve(query), OPTIONAL_QUERY_TIMEOUT_MS);
+      const { data, error } = await withTimeout(Promise.resolve(query), timeoutMs);
       if (error && !isMissingRowError(error)) throw error;
       return data ?? null;
     } catch {
@@ -172,18 +179,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (shouldShowLoading) setLoading(true);
 
     try {
+      const profileTimeoutMs = isBackground
+        ? BACKGROUND_PROFILE_QUERY_TIMEOUT_MS
+        : PROFILE_QUERY_TIMEOUT_MS;
+      const optionalTimeoutMs = isBackground
+        ? BACKGROUND_OPTIONAL_QUERY_TIMEOUT_MS
+        : OPTIONAL_QUERY_TIMEOUT_MS;
       const { data: profileData, error: profileError } = await withTimeout(
         Promise.resolve(supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle()),
-        PROFILE_QUERY_TIMEOUT_MS,
+        profileTimeoutMs,
       );
       if (profileError && !isMissingRowError(profileError)) throw profileError;
 
       const [payConfig, anySession] = await Promise.all([
         readOptionalBootstrapQuery(
           supabase.from('pay_configurations').select('*').eq('user_id', session.user.id).maybeSingle(),
+          optionalTimeoutMs,
         ),
         readOptionalBootstrapQuery(
           supabase.from('work_sessions').select('id').eq('user_id', session.user.id).limit(1).maybeSingle(),
+          optionalTimeoutMs,
         ),
       ]);
 
@@ -227,6 +242,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         needsSetup: !setupComplete,
         needsLastShiftEntry: !lastShiftOnboardingComplete,
       };
+      lastProfileFetchAtRef.current = Date.now();
       return true;
 
     } catch (error: any) {
@@ -246,6 +262,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           });
         }
         applyCachedBootstrapState(cachedBootstrap);
+        lastProfileFetchAtRef.current = Date.now();
         return true;
       }
       if (!isBackground || !hasProfileRef.current || !isTimeoutError(error)) {
@@ -358,7 +375,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return data.session;
   };
 
-  const signUp = async ({ password, fullName, accountType, invite, ...credentials }: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; }) => {
+  const signUp = async ({ password, fullName, accountType, invite, inviteCode, ...credentials }: SignUpWithPasswordCredentials & { fullName: string; accountType: 'solo' | 'fleet'; invite: Invite | null; inviteCode?: string; }) => {
     const email = 'email' in credentials ? credentials.email : undefined;
     if (!email) throw new Error('Email is required.');
     const { data, error: authError } = await supabase.auth.signUp({ email, password });
@@ -391,13 +408,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
 
-      const { error: acceptError } = await supabase.rpc('accept_driver_invite', { invite_id: invite.id, user_id: data.user.id });
-      if (acceptError) {
-        console.warn('Accept invite RPC failed:', acceptError.message, {
-          inviteId: invite.id,
-          userId: data.user.id,
-        });
-      }
+      await acceptInvite(inviteCode || invite.invite_code);
 
       finalProfile = { ...profilePayload, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), pay_configurations: payConfigSnapshot || null } as any;
 
@@ -448,14 +459,52 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       isBackground: boolean,
     ) => {
       if (!isMounted) return;
+      const previousSession = sessionRef.current;
+      const previousUserId = previousSession?.user?.id ?? null;
+      const currentUserId = currentSession?.user?.id ?? null;
+      const isSameUserRefresh =
+        !!currentUserId &&
+        previousUserId === currentUserId;
+      const isBackgroundRefresh = isBackground && isSameUserRefresh;
+
+      if (currentSession && previousUserId && previousUserId !== currentUserId) {
+        applyFailClosedBootstrapState();
+      }
+
       setSession(currentSession);
+      sessionRef.current = currentSession;
       if (currentSession) {
         await syncStoredBiometricSession(currentSession);
-        setBootstrapping(true);
+        const hasCurrentProfile =
+          hasProfileRef.current &&
+          profileRef.current?.id === currentSession.user.id;
+        const cachedBootstrap = lastKnownBootstrapRef.current;
+        const recentlyFetchedProfile =
+          Date.now() - lastProfileFetchAtRef.current < BACKGROUND_PROFILE_REFRESH_MIN_INTERVAL_MS;
+
+        if (isBackgroundRefresh && hasCurrentProfile && recentlyFetchedProfile) {
+          setBootstrapping(false);
+          return;
+        }
+
+        if (
+          isBackgroundRefresh &&
+          !hasCurrentProfile &&
+          cachedBootstrap?.userId === currentSession.user.id
+        ) {
+          applyCachedBootstrapState(cachedBootstrap);
+        }
+
+        const shouldShowBootstrap = !isBackgroundRefresh && !hasCurrentProfile;
+        if (shouldShowBootstrap) {
+          setBootstrapping(true);
+        } else {
+          setBootstrapping(false);
+        }
         try {
-          await fetchProfile(currentSession, isBackground);
+          await fetchProfile(currentSession, isBackgroundRefresh);
         } finally {
-          if (isMounted) setBootstrapping(false);
+          if (isMounted && shouldShowBootstrap) setBootstrapping(false);
         }
       } else {
         setBootstrapping(false);
@@ -476,6 +525,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         fallbackTimer = setTimeout(() => {
           if (!isMounted || initialAuthResolved) return;
           setSession(null);
+          sessionRef.current = null;
           setBootstrapping(false);
           applyFailClosedBootstrapState();
           finishInitialAuth();
@@ -499,7 +549,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (fallbackTimer) clearTimeout(fallbackTimer);
       authListener.subscription.unsubscribe();
     };
-  }, [applyFailClosedBootstrapState, fetchProfile, syncStoredBiometricSession]);
+  }, [applyCachedBootstrapState, applyFailClosedBootstrapState, fetchProfile, syncStoredBiometricSession]);
 
   const refreshProfile = useCallback(async () => {
     const { data: { session: currentSession } } = await supabase.auth.getSession();

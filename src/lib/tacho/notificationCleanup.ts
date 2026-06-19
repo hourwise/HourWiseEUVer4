@@ -14,12 +14,12 @@ export const isHourwiseTimerAlertNotification = (notification: any) => {
   const data = content?.data as Record<string, any> | undefined;
   if (data?.hourwiseAlert === true) return true;
 
-  const channelId = content?.channelId;
+  const channelId = content?.channelId ?? data?.channelId;
   const categoryIdentifier = content?.categoryIdentifier;
   return (
-    categoryIdentifier === 'alarm' &&
     typeof channelId === 'string' &&
-    ALERT_CHANNEL_IDS.has(channelId)
+    ALERT_CHANNEL_IDS.has(channelId) &&
+    (!categoryIdentifier || categoryIdentifier === 'alarm')
   );
 };
 
@@ -34,6 +34,7 @@ const hasHourwiseScope = (
 
 export const clearHourwiseTimerNotificationsByScope = async (
   scope?: ScheduledAlertScope,
+  options?: { cancelAllScheduledFallback?: boolean },
 ) => {
   const [scheduledRequests, presentedNotifications] = await Promise.all([
     Notifications.getAllScheduledNotificationsAsync().catch(() => [] as any[]),
@@ -57,7 +58,11 @@ export const clearHourwiseTimerNotificationsByScope = async (
         Notifications.dismissNotificationAsync(notification.request.identifier).catch(() => {}),
       ),
   ]);
+
+  if (!scope && options?.cancelAllScheduledFallback) {
+    await Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
+  }
 };
 
 export const clearAllHourwiseTimerNotifications = async () =>
-  clearHourwiseTimerNotificationsByScope();
+  clearHourwiseTimerNotificationsByScope(undefined, { cancelAllScheduledFallback: true });

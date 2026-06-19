@@ -376,6 +376,7 @@ export type LocationSampleDecisionInput = {
   movingConfirmMs: number;
   stationaryConfirmMs: number;
   accelScoreMax: number;
+  lowSpeedMovementEvidence: boolean;
 };
 
 export type LocationSampleDecision = {

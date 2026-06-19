@@ -7,8 +7,11 @@ import {
   Text,
   ActivityIndicator,
   AppState,
+  Alert,
   Share,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import {
   Menu,
   Book,
@@ -122,11 +125,11 @@ const ShiftInfoBar = ({ display }: { display: any }) => {
   const { t } = useTranslation();
   const MAX_WEEKLY_DRIVE = 56 * 3600;
   const weeklyUsed = MAX_WEEKLY_DRIVE - (display?.weeklyDrivingRemaining ?? MAX_WEEKLY_DRIVE);
-  const totalWork = display?.work ?? 0;
+  const shiftLength = display?.shift ?? 0;
   return (
     <View className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 mt-6 w-full">
       <Text className="text-white font-bold mb-3 text-lg border-b border-slate-700 pb-2">{t('shiftSummary.title')}</Text>
-      <Row label={t('shiftSummary.totalWork')} value={formatShiftTime(totalWork)} />
+      <Row label={t('shiftSummary.shiftLength')} value={formatShiftTime(shiftLength)} />
       <Row label={t('shiftSummary.totalDriving')} value={formatShiftTime(display?.driving ?? 0)} />
       <Row label={t('shiftSummary.totalBreaks')} value={formatBreakTime(display?.legalBreak ?? 0)} />
       <Row label={t('shiftSummary.totalPOA')} value={formatShiftTime(display?.poa ?? 0)} />
@@ -406,12 +409,35 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const handleExportTimerDiagnostics = useCallback(async () => {
     try {
       const diagnostics = await exportTimerDiagnostics();
+      const exportDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      if (!exportDir) {
+        throw new Error('No writable export directory is available.');
+      }
+      const filename = `hourwise-timer-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      const fileUri = `${exportDir}${filename}`;
+      await FileSystem.writeAsStringAsync(fileUri, diagnostics, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/json',
+          dialogTitle: 'HourWise Timer Diagnostics',
+          UTI: 'public.json',
+        });
+        return;
+      }
+
       await Share.share({
         title: 'HourWise Timer Diagnostics',
         message: diagnostics,
       });
     } catch (e) {
       console.warn('Failed to export timer diagnostics:', e);
+      Alert.alert(
+        'Diagnostics Export Failed',
+        'HourWise could not create the diagnostics export file. Please try again after reopening the app.',
+      );
     }
   }, [exportTimerDiagnostics]);
 

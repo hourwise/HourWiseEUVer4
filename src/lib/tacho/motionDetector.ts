@@ -124,6 +124,13 @@ const getSelectedSpeed = ({
     if (!gpsSpeedIsUsable) {
       return { selectedSpeedKmh: computedSpeedKmh, selectedSpeedSource: 'computed' };
     }
+    if (
+      gpsSpeedKmh <= config.stillThresholdKmh &&
+      computedSpeedKmh >= config.lowSpeedStartThresholdKmh &&
+      computedSpeedKmh < config.drivingThresholdKmh
+    ) {
+      return { selectedSpeedKmh: computedSpeedKmh, selectedSpeedSource: 'computed' };
+    }
     if (gpsSpeedKmh <= config.stillThresholdKmh && computedSpeedKmh >= config.drivingThresholdKmh) {
       return { selectedSpeedKmh: computedSpeedKmh, selectedSpeedSource: 'computed' };
     }
@@ -170,6 +177,7 @@ const getPendingTransition = ({
 
 export type MotionDetectorConfig = {
   stillThresholdKmh: number;
+  lowSpeedStartThresholdKmh: number;
   lowSpeedStopThresholdKmh: number;
   drivingThresholdKmh: number;
   immediateStartThresholdKmh: number;
@@ -234,6 +242,11 @@ export const processLocationMotionSample = ({
     accuracy,
     motionState,
   });
+  const lowSpeedMovementEvidence =
+    isDriving &&
+    computedSpeedKmh !== null &&
+    computedSpeedKmh >= config.lowSpeedStartThresholdKmh &&
+    computedSpeedKmh < config.drivingThresholdKmh;
   const { selectedSpeedKmh, selectedSpeedSource } = getSelectedSpeed({
     gpsSpeedKmh: speedKmh,
     computedSpeedKmh,
@@ -256,6 +269,7 @@ export const processLocationMotionSample = ({
     movingConfirmMs: config.movingConfirmMs,
     stationaryConfirmMs: config.stationaryConfirmMs,
     accelScoreMax: config.accelScoreMax,
+    lowSpeedMovementEvidence,
   });
 
   if (decision.shouldIgnore) {

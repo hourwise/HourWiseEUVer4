@@ -48,6 +48,26 @@ test('deriveBootState waits for enforced subscription loading', () => {
   assert.equal(state.stage, 'profile_bootstrapping');
 });
 
+test('deriveBootState keeps ready route during same-user background bootstrap', () => {
+  const state = deriveBootState({
+    ...baseInput,
+    profile: { id: 'user-1' } as any,
+    bootstrapping: true,
+  });
+
+  assert.equal(state.stage, 'ready');
+});
+
+test('deriveBootState waits when bootstrap profile belongs to another user', () => {
+  const state = deriveBootState({
+    ...baseInput,
+    profile: { id: 'user-2' } as any,
+    bootstrapping: true,
+  });
+
+  assert.equal(state.stage, 'profile_bootstrapping');
+});
+
 test('deriveBootState allows bypass mode through without active subscription', () => {
   const state = deriveBootState(baseInput);
 

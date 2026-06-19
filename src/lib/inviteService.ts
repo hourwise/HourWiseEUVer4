@@ -1,7 +1,10 @@
 import { supabase } from './supabase';
+import type { Database } from './database.types';
+
+type Invite = Database['public']['Tables']['driver_invites']['Row'];
 
 export type InviteVerificationResult =
-  | { ok: true; invite: any }
+  | { ok: true; invite: Invite }
   | {
       ok: false;
       reason: 'empty' | 'missing' | 'expired' | 'already_used' | 'not_pending' | 'error';
@@ -12,20 +15,29 @@ export type InviteVerificationResult =
       status?: string;
     };
 
-const buildInviteCodeCandidates = (inviteCode: string) => {
-  const trimmedCode = inviteCode.trim();
-  const collapsedCode = trimmedCode.replace(/[\s-]+/g, '');
+type InviteFunctionFailure = Extract<InviteVerificationResult, { ok: false }>;
 
-  return Array.from(
-    new Set([
-      trimmedCode,
-      trimmedCode.toUpperCase(),
-      trimmedCode.toLowerCase(),
-      collapsedCode,
-      collapsedCode.toUpperCase(),
-      collapsedCode.toLowerCase(),
-    ]),
-  ).filter(Boolean);
+const getInviteFromLookupResponse = (data: any): Invite | null => {
+  if (!data) return null;
+  if (data.invite) return data.invite as Invite;
+  if (data.data?.invite) return data.data.invite as Invite;
+  if (data.data?.id || data.data?.invite_code) return data.data as Invite;
+  if (data.id || data.invite_code) return data as Invite;
+  return null;
+};
+
+const getFailureFromLookupResponse = (data: any): Partial<InviteFunctionFailure> => {
+  if (!data || typeof data !== 'object') return {};
+
+  const detail = data.error && typeof data.error === 'object' ? data.error : data;
+  return {
+    reason: detail.reason,
+    title: detail.title,
+    message: detail.message ?? (typeof data.error === 'string' ? data.error : undefined),
+    guidance: detail.guidance,
+    expiresAt: detail.expiresAt ?? detail.expires_at,
+    status: detail.status,
+  };
 };
 
 /**
@@ -34,8 +46,8 @@ const buildInviteCodeCandidates = (inviteCode: string) => {
  * @returns A structured verification result with diagnostics for the UI.
  */
 export const verifyInviteCode = async (inviteCode: string) => {
-  const inviteCodeCandidates = buildInviteCodeCandidates(inviteCode);
-  if (inviteCodeCandidates.length === 0) {
+  const trimmedInviteCode = inviteCode.trim();
+  if (!trimmedInviteCode) {
     return {
       ok: false,
       reason: 'empty',
@@ -46,81 +58,75 @@ export const verifyInviteCode = async (inviteCode: string) => {
   }
 
   try {
-    let data: any = null;
+    const { data, error } = await supabase.functions.invoke('lookup-driver-invite', {
+      body: { inviteCode: trimmedInviteCode },
+    });
 
-    for (const codeCandidate of inviteCodeCandidates) {
-      const { data: invite, error } = await supabase
-        .from('driver_invites')
-        .select('*')
-        .ilike('invite_code', codeCandidate)
-        .maybeSingle();
-
-      if (error) {
-        console.warn('Error verifying invite code:', error.message, {
-          attemptedCode: codeCandidate,
-        });
-        return {
-          ok: false,
-          reason: 'error',
-          title: 'Invite lookup failed',
-          message: `Invite lookup failed: ${error.message}`,
-          guidance: 'Try again in a moment. If this keeps happening, confirm the app build matches the invite environment.',
-        } satisfies InviteVerificationResult;
-      }
-
-      if (invite) {
-        data = invite;
-        break;
-      }
-    }
-
-    if (!data) {
+    if (error) {
+      console.warn('Error verifying invite code:', error.message, {
+        attemptedCode: trimmedInviteCode,
+      });
       return {
         ok: false,
-        reason: 'missing',
-        title: 'Invite not found',
-        message: 'Invite code was not found in this environment.',
-        guidance: 'Check the code for typos and confirm the invite was created in the same test or live environment as this app build.',
+        reason: 'error',
+        title: 'Invite lookup failed',
+        message: `Invite lookup failed: ${error.message}`,
+        guidance: 'Try again in a moment. If this keeps happening, confirm the app build matches the invite environment.',
       } satisfies InviteVerificationResult;
     }
 
-    const expiresAt = new Date(data.expires_at);
+    const invite = getInviteFromLookupResponse(data);
+
+    if (!invite) {
+      const failure = getFailureFromLookupResponse(data);
+      return {
+        ok: false,
+        reason: failure.reason ?? 'missing',
+        title: failure.title ?? 'Invite not found',
+        message: failure.message ?? 'Invite code was not found in this environment.',
+        guidance: failure.guidance ?? 'Check the code for typos and confirm the invite was created in the same test or live environment as this app build.',
+        expiresAt: failure.expiresAt,
+        status: failure.status,
+      } satisfies InviteVerificationResult;
+    }
+
+    const expiresAt = new Date(invite.expires_at);
     const now = new Date();
 
     if (Number.isNaN(expiresAt.getTime())) {
-      console.warn('Invite code has invalid expires_at value:', data.expires_at);
+      console.warn('Invite code has invalid expires_at value:', invite.expires_at);
       return {
         ok: false,
         reason: 'error',
         title: 'Invite data invalid',
         message: 'Invite expiry could not be read.',
         guidance: 'The invite record is malformed. Ask the fleet admin to generate a new invite.',
-        expiresAt: data.expires_at,
-        status: data.status,
+        expiresAt: invite.expires_at,
+        status: invite.status,
       } satisfies InviteVerificationResult;
     }
 
-    if (data.status === 'accepted') {
+    if (invite.status === 'accepted') {
       return {
         ok: false,
         reason: 'already_used',
         title: 'Invite already used',
         message: 'This invite has already been accepted.',
         guidance: 'Ask the fleet admin to create a new invite if this driver still needs access.',
-        expiresAt: data.expires_at,
-        status: data.status,
+        expiresAt: invite.expires_at,
+        status: invite.status,
       } satisfies InviteVerificationResult;
     }
 
-    if (data.status !== 'pending') {
+    if (invite.status !== 'pending') {
       return {
         ok: false,
         reason: 'not_pending',
         title: 'Invite not active',
-        message: `Invite is ${data.status}, not pending.`,
+        message: `Invite is ${invite.status}, not pending.`,
         guidance: 'Ask the fleet admin to check the invite status or send a replacement invite.',
-        expiresAt: data.expires_at,
-        status: data.status,
+        expiresAt: invite.expires_at,
+        status: invite.status,
       } satisfies InviteVerificationResult;
     }
 
@@ -131,12 +137,12 @@ export const verifyInviteCode = async (inviteCode: string) => {
         title: 'Invite expired',
         message: 'Invite code has expired.',
         guidance: 'Ask the fleet admin to send a new invite.',
-        expiresAt: data.expires_at,
-        status: data.status,
+        expiresAt: invite.expires_at,
+        status: invite.status,
       } satisfies InviteVerificationResult;
     }
 
-    return { ok: true, invite: data } satisfies InviteVerificationResult;
+    return { ok: true, invite } satisfies InviteVerificationResult;
   } catch (error) {
     console.error('An unexpected error occurred during invite verification:', error);
     return {
@@ -151,25 +157,19 @@ export const verifyInviteCode = async (inviteCode: string) => {
 
 /**
  * Marks a driver invite as accepted after successful registration.
- * @param inviteId The ID of the invite to update.
- * @param userId The ID of the user who accepted the invite.
+ * @param inviteCode The invite code accepted by the current signed-in user.
  */
-export const acceptInvite = async (inviteId: string, userId: string) => {
+export const acceptInvite = async (inviteCode: string) => {
   try {
-    const { error } = await supabase
-      .from('driver_invites')
-      .update({
-        status: 'accepted',
-        accepted_at: new Date().toISOString(),
-        accepted_by_user_id: userId,
-      })
-      .eq('id', inviteId);
+    const { error } = await supabase.functions.invoke('accept-driver-invite', {
+      body: { inviteCode: inviteCode.trim() },
+    });
 
     if (error) {
-      console.error("Failed to update invite status:", error.message);
+      console.error('Failed to accept invite:', error.message);
       // This is not a critical failure for the user, so we just log it.
     }
   } catch (error) {
-    console.error("An unexpected error occurred while accepting invite:", error);
+    console.error('An unexpected error occurred while accepting invite:', error);
   }
 };

@@ -305,6 +305,7 @@
   },
   "shiftSummary": {
     "title": "Current Shift",
+    "shiftLength": "Shift Length",
     "totalWork": "Total Work",
     "totalDriving": "Total Driving",
     "totalBreaks": "Total Breaks",
@@ -523,7 +524,7 @@
       },
       "step2": {
         "title": "3. Automatic Driving Detection",
-        "body": "The app automatically detects driving based on speed and motion, switching your status to 'Driving'. When you stop, it reverts to 'Working'."
+        "body": "The app automatically detects driving based on speed and motion, switching your status to 'Driving'. When you stop, it reverts to 'Working'. For best low-speed detection after a walkaround, unlock your phone in the cab and open HourWise before moving off. Where safe, keep the phone awake in a holder while driving so slow traffic, yard movement, and voice alerts work more reliably. Do not interact with the app while driving."
       },
       "step3": {
         "title": "4. Taking a Break",

@@ -59,8 +59,14 @@ export const deriveBootState = ({
 }: BootStateInput): BootState => {
   const subscriptionReady = !subscriptionLoading;
   const permissionsReady = permissionsGranted === true;
+  const profileReadyForSession =
+    !!session &&
+    !!profile &&
+    profile.id === session.user.id;
   const shouldWaitForSubscription =
     !!session && paywallPolicy === 'enforce' && subscriptionLoading;
+  const shouldWaitForProfileBootstrap =
+    !!session && bootstrapping && !profileReadyForSession;
 
   let stage: BootStage;
   if (error) {
@@ -69,7 +75,7 @@ export const deriveBootState = ({
     stage = 'auth_resolving';
   } else if (!session) {
     stage = 'signed_out';
-  } else if (bootstrapping || shouldWaitForSubscription) {
+  } else if (shouldWaitForProfileBootstrap || shouldWaitForSubscription) {
     stage = 'profile_bootstrapping';
   } else if (needsSetup) {
     stage = 'onboarding_setup';

@@ -175,6 +175,7 @@ export default function Auth() {
         fullName,
         accountType,
         invite: verifiedInvite,
+        inviteCode,
       });
       if (session) {
         await promptForBiometricEnable(session, email);
