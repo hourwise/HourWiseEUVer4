@@ -26,7 +26,6 @@ test('evaluateLocationSample starts driving after sustained movement above thres
     movingConfirmMs: 1200,
     stationaryConfirmMs: 15000,
     accelScoreMax: 8,
-    lowSpeedMovementEvidence: false,
   });
 
   assert.equal(result.nextDriving, true);
@@ -52,7 +51,6 @@ test('evaluateLocationSample stops driving after stationary confirmation window'
     movingConfirmMs: 1200,
     stationaryConfirmMs: 15000,
     accelScoreMax: 8,
-    lowSpeedMovementEvidence: false,
   });
 
   assert.equal(result.nextDriving, false);
@@ -79,7 +77,6 @@ test('evaluateLocationSample accepts slightly weaker GPS accuracy for stop decis
     movingConfirmMs: 1200,
     stationaryConfirmMs: 1800,
     accelScoreMax: 8,
-    lowSpeedMovementEvidence: false,
   });
 
   assert.equal(result.shouldIgnore, false);
@@ -104,37 +101,10 @@ test('evaluateLocationSample still ignores weak GPS accuracy for driving start d
     movingConfirmMs: 1200,
     stationaryConfirmMs: 1800,
     accelScoreMax: 8,
-    lowSpeedMovementEvidence: false,
   });
 
   assert.equal(result.shouldIgnore, true);
   assert.equal(result.nextDriving, null);
-});
-
-test('evaluateLocationSample keeps driving during low-speed manoeuvres', () => {
-  const nowMs = Date.UTC(2026, 4, 14, 9, 40, 0);
-  const result = evaluateLocationSample({
-    nowMs,
-    accuracy: 5,
-    speedKmh: 3,
-    lastSpeedKmh: 12,
-    lastSpeedTs: nowMs - 1000,
-    isDriving: true,
-    movingSinceMs: 0,
-    stationarySinceMs: nowMs - 10000,
-    stillThresholdKmh: 4,
-    lowSpeedStopThresholdKmh: 6,
-    drivingThresholdKmh: 10,
-    immediateStartThresholdKmh: 14,
-    movingConfirmMs: 1200,
-    stationaryConfirmMs: 4500,
-    accelScoreMax: 8,
-    lowSpeedMovementEvidence: true,
-  });
-
-  assert.equal(result.nextDriving, null);
-  assert.equal(result.nextStationarySinceMs, 0);
-  assert.equal(result.nextDrivingScore, 8);
 });
 
 test('evaluateBackgroundSpeedDecision ignores stale background speed samples', () => {

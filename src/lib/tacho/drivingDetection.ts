@@ -60,7 +60,6 @@ export const evaluateLocationSample = ({
   movingConfirmMs,
   stationaryConfirmMs,
   accelScoreMax,
-  lowSpeedMovementEvidence,
 }: LocationSampleDecisionInput): LocationSampleDecision => {
   const maxAllowedAccuracy = isDriving
     ? MAX_STOP_LOCATION_ACCURACY_METERS
@@ -80,22 +79,8 @@ export const evaluateLocationSample = ({
   }
 
   const stopCandidateThreshold = Math.max(stillThresholdKmh, lowSpeedStopThresholdKmh);
-  const isSlowManoeuvre = isDriving && lowSpeedMovementEvidence;
   const isStopCandidate = isDriving && speedKmh <= stopCandidateThreshold;
   const isClearlyStill = speedKmh <= stillThresholdKmh;
-
-  if (isSlowManoeuvre) {
-    return {
-      shouldIgnore: false,
-      nextDriving: null,
-      drivingChangedAtMs: null,
-      nextMovingSinceMs: 0,
-      nextStationarySinceMs: 0,
-      nextDrivingScore: accelScoreMax,
-      lastSpeedKmh: speedKmh,
-      lastSpeedTs: nowMs,
-    };
-  }
 
   if (isClearlyStill || isStopCandidate) {
     const nextStationarySinceMs = stationarySinceMs === 0 ? nowMs : stationarySinceMs;

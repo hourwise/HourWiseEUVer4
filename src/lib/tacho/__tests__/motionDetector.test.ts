@@ -10,7 +10,6 @@ import {
 
 const config: MotionDetectorConfig = {
   stillThresholdKmh: 4,
-  lowSpeedStartThresholdKmh: 1,
   lowSpeedStopThresholdKmh: 6,
   drivingThresholdKmh: 10,
   immediateStartThresholdKmh: 14,
@@ -143,36 +142,6 @@ test('processLocationMotionSample uses computed zero speed to avoid sticky GPS h
   assert.equal(result.motionState.lastSpeedKmh, 0);
   assert.equal(result.motionState.lastSelectedSpeedSource, 'computed');
   assert.equal(result.motionState.pendingTransitionType, 'stationary');
-});
-
-test('processLocationMotionSample keeps driving during computed low-speed movement', () => {
-  const previousMs = Date.UTC(2026, 4, 17, 9, 32, 0);
-  const nowMs = previousMs + 5000;
-  const result = processLocationMotionSample({
-    nowMs,
-    accuracy: 8,
-    speedKmh: 0,
-    latitude: 51.50012,
-    longitude: -0.1000,
-    isDriving: true,
-    motionState: {
-      ...createInitialMotionState(),
-      lastLocationTs: previousMs,
-      lastLatitude: 51.5000,
-      lastLongitude: -0.1000,
-      lastAccuracyM: 8,
-      lastSpeedKmh: 12,
-      lastSpeedTs: previousMs,
-      stationarySinceMs: previousMs,
-      drivingScore: 8,
-    },
-    config,
-  });
-
-  assert.equal(result.nextDriving, null);
-  assert.equal(result.motionState.lastSelectedSpeedSource, 'computed');
-  assert.equal(result.motionState.stationarySinceMs, 0);
-  assert.equal(result.motionState.pendingTransitionType, null);
 });
 
 test('processLocationMotionSample ignores implausible computed GPS jumps', () => {

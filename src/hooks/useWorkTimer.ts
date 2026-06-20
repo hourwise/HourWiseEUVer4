@@ -73,12 +73,6 @@ import {
   processLocationMotionSample,
   type MotionDetectorConfig,
 } from '../lib/tacho/motionDetector';
-import {
-  LOW_SPEED_START_THRESHOLD_KMH,
-  createInitialLowSpeedYardDetectorState,
-  processLowSpeedYardAccelerometerSample,
-  processLowSpeedYardLocationSample,
-} from '../lib/tacho/lowSpeedYardDetector';
 import { reduceTachoEvent } from '../lib/tacho/reducer';
 import { deriveDisplayFromTachoState } from '../lib/tacho/selectors';
 import {
@@ -151,7 +145,6 @@ async function ensureNotificationSetup() {
 const BATTERY_PROMPT_KEY = 'battery_prompt_dismissed';
 const MOTION_DETECTOR_CONFIG: MotionDetectorConfig = {
   stillThresholdKmh: STILL_SPEED_THRESHOLD_KMH,
-  lowSpeedStartThresholdKmh: LOW_SPEED_START_THRESHOLD_KMH,
   lowSpeedStopThresholdKmh: LOW_SPEED_STOP_THRESHOLD_KMH,
   drivingThresholdKmh: DRIVING_SPEED_THRESHOLD_KMH,
   immediateStartThresholdKmh: DRIVING_IMMEDIATE_START_THRESHOLD_KMH,
@@ -344,7 +337,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
 
    const scheduledComplianceAlertsRef = useRef<ScheduledAlertDescriptor[]>([]);
   const scheduledDriveAlertsRef = useRef<ScheduledAlertDescriptor[]>([]);
-  const alertScheduleVersionRef = useRef<number>(0);
   const ukVoiceIdentifierRef = useRef<string | null>(null);
   const locationSubRef = useRef<Location.LocationSubscription | null>(null);
   const accelSubRef = useRef<any>(null);
@@ -361,7 +353,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const stationarySinceRef = useRef<number>(0);
   const pendingMotionTransitionTypeRef = useRef<'moving' | 'stationary' | null>(null);
   const pendingMotionTransitionStartedAtRef = useRef<number>(0);
-  const lowSpeedYardDetectorStateRef = useRef(createInitialLowSpeedYardDetectorState());
   const prevShiftElapsedRef = useRef<number>(0);
   const prevRemainingRef = useRef({
     work: getMaxWorkSeconds('6h'),
@@ -536,7 +527,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     lastSelectedSpeedSourceRef.current = 'none';
     pendingMotionTransitionTypeRef.current = null;
     pendingMotionTransitionStartedAtRef.current = 0;
-    lowSpeedYardDetectorStateRef.current = createInitialLowSpeedYardDetectorState();
   }, []);
 
   useEffect(() => {
@@ -712,7 +702,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, []);
 
   const cancelScheduledAlertsForScope = useCallback(async (scope: ScheduledAlertScope) => {
-    alertScheduleVersionRef.current += 1;
     const [persistedAlerts, legacyIds, scheduledRequests] = await Promise.all([
       scope === 'compliance' ? loadScheduledComplianceAlerts() : loadScheduledDriveAlerts(),
       scope === 'compliance'
@@ -764,7 +753,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const cancelAllScheduledAlertNotifications = useCallback(async (
     options?: { clearBackgroundState?: boolean },
   ) => {
-    alertScheduleVersionRef.current += 1;
     await cancelScheduledAlertsForScope('compliance');
     await cancelScheduledAlertsForScope('drive');
     await cancelAllTrackedHourwiseAlerts();
@@ -828,7 +816,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     desiredAlerts: DesiredScheduledAlert[],
     context: string,
   ) => {
-    const scheduleVersion = alertScheduleVersionRef.current;
     await ensureNotificationSetup();
 
     const scheduledRequests = await Notifications.getAllScheduledNotificationsAsync()
@@ -852,47 +839,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       )
     );
 
-    const scopeStillEligible =
-      scope === 'compliance'
-        ? statusRef.current === 'working' || statusRef.current === 'poa'
-        : statusRef.current === 'working' &&
-          isDrivingRef.current &&
-          !isDrivingDetectionPausedRef.current;
-
-    if (desiredAlerts.length > 0 && !scopeStillEligible) {
-      await clearScopeScheduledAlerts(scope);
-      appendTimerDiagnostic({
-        event: 'alerts',
-        source: context,
-        reason: `${scope}:not_eligible`,
-        snapshotAfter: buildTimerDiagnosticSnapshot(),
-        success: false,
-        details: {
-          scope,
-          desiredCount: desiredAlerts.length,
-          status: statusRef.current,
-          isDriving: isDrivingRef.current,
-          isDrivingDetectionPaused: isDrivingDetectionPausedRef.current,
-        },
-      });
-      return;
-    }
-
-    if (scheduleVersion !== alertScheduleVersionRef.current) {
-      appendTimerDiagnostic({
-        event: 'alerts',
-        source: context,
-        reason: `${scope}:aborted_by_cancel`,
-        snapshotAfter: buildTimerDiagnosticSnapshot(),
-        success: false,
-        details: {
-          scope,
-          desiredCount: desiredAlerts.length,
-        },
-      });
-      return;
-    }
-
     for (const alerts of scheduledByKey.values()) {
       if (alerts.length <= 1) continue;
       const [, ...duplicates] = alerts;
@@ -905,7 +851,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
 
     const nextPersistedAlerts: ScheduledAlertDescriptor[] = [];
     for (const desiredAlert of desiredAlerts) {
-      if (scheduleVersion !== alertScheduleVersionRef.current) return;
       const activeScheduledAlerts = (scheduledByKey.get(desiredAlert.scheduleKey) ?? [])
         .filter(alert => desiredKeys.has(alert.scheduleKey));
       if (activeScheduledAlerts.length > 0) {
@@ -914,18 +859,12 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       }
 
       try {
-        const scheduledAlert = await scheduleDesiredAlert(desiredAlert);
-        if (scheduleVersion !== alertScheduleVersionRef.current) {
-          await Notifications.cancelScheduledNotificationAsync(scheduledAlert.identifier).catch(() => {});
-          return;
-        }
-        nextPersistedAlerts.push(scheduledAlert);
+        nextPersistedAlerts.push(await scheduleDesiredAlert(desiredAlert));
       } catch (e) {
         console.warn(`Failed to schedule ${scope} alert ${desiredAlert.alertKey}:`, e);
       }
     }
 
-    if (scheduleVersion !== alertScheduleVersionRef.current) return;
     await saveScopeScheduledAlerts(scope, nextPersistedAlerts);
     appendTimerDiagnostic({
       event: 'alerts',
@@ -1718,9 +1657,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     if (result.state.isDriving === machineState.isDriving && result.commands.length === 0) return null;
 
     applyMachineStateToRefs(result.state);
-    if (result.state.isDriving) {
-      lowSpeedYardDetectorStateRef.current = createInitialLowSpeedYardDetectorState();
-    }
     syncStateFromRefs();
     onFlipped?.();
 
@@ -1741,57 +1677,27 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, [appendTimerDiagnostic, buildTimerDiagnosticSnapshot]);
 
   const toggleDrivingDetectionPause = useCallback(async () => {
-    const snapshotBefore = buildTimerDiagnosticSnapshot();
     const nextPaused = !isDrivingDetectionPausedRef.current;
     isDrivingDetectionPausedRef.current = nextPaused;
     setIsDrivingDetectionPaused(nextPaused);
     resetDrivingMotionState();
 
-    let success = true;
-    let errorSummary: string | null = null;
-
-    try {
-      await persistFromRefs();
-    } catch (error) {
-      success = false;
-      errorSummary = error instanceof Error ? error.message : String(error);
-      console.warn('Failed to persist driving detection pause state:', error);
-    }
-
-    try {
-      if (nextPaused) {
-        await cancelScheduledAlertsForScope('drive');
-      } else if (statusRef.current === 'working' && isDrivingRef.current) {
-        await buildDriveAlertSchedule();
+    if (nextPaused) {
+      if (statusRef.current === 'working' && isDrivingRef.current) {
+        commitAndFlipDriving(false);
+        return;
       }
-    } catch (error) {
-      success = false;
-      errorSummary = errorSummary ?? (error instanceof Error ? error.message : String(error));
-      console.warn('Failed to reconcile drive alerts after driving detection pause toggle:', error);
+      await persistFromRefs();
+      return;
     }
 
-    appendTimerDiagnostic({
-      event: 'tracking',
-      source: 'toggleDrivingDetectionPause',
-      reason: nextPaused ? 'paused' : 'resumed',
-      snapshotBefore,
-      snapshotAfter: buildTimerDiagnosticSnapshot(),
-      success,
-      errorSummary,
-      details: {
-        drivingDetectionPaused: nextPaused,
-        status: statusRef.current,
-        isDriving: isDrivingRef.current,
-      },
-    });
-  }, [
-    appendTimerDiagnostic,
-    buildDriveAlertSchedule,
-    buildTimerDiagnosticSnapshot,
-    cancelScheduledAlertsForScope,
-    persistFromRefs,
-    resetDrivingMotionState,
-  ]);
+    if (statusRef.current === 'working' && !isDrivingRef.current) {
+      commitAndFlipDriving(true, undefined, 'location', { bypassPause: true });
+      return;
+    }
+
+    await persistFromRefs();
+  }, [commitAndFlipDriving, persistFromRefs, resetDrivingMotionState]);
 
    useEffect(() => {
      const sub = AppState.addEventListener('change', async (next) => {
@@ -1835,11 +1741,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
          if (statusRef.current !== 'idle') {
            lastResumeRefreshAtRef.current = Date.now();
            await refreshSession();
-           if (statusRef.current === 'break') {
-             await cancelAllScheduledAlertNotifications();
-           } else {
-             await buildComplianceSchedule();
-           }
+           await buildComplianceSchedule();
            if (statusRef.current === 'working' && isDrivingRef.current && !isDrivingDetectionPausedRef.current) {
              await buildDriveAlertSchedule();
            } else {
@@ -1980,39 +1882,14 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
           let totalsAfter = { ...totalsRef.current };
           let nextDriving = isDrivingRef.current;
           let reducerEventApplied: string | null = null;
-          let lowSpeedYardReason: string | null = null;
           if (result.nextDriving !== null) {
             const reducedState = commitAndFlipDriving(result.nextDriving, undefined, 'location', {
               effectiveTransitionMs: result.drivingChangedAtMs,
             });
             if (reducedState) {
-              lowSpeedYardDetectorStateRef.current = createInitialLowSpeedYardDetectorState();
               totalsAfter = { ...reducedState.totals };
               nextDriving = reducedState.isDriving;
               reducerEventApplied = 'DRIVING_DECISION_RECEIVED';
-            }
-          } else if (statusRef.current === 'working' && !isDrivingRef.current) {
-            const lowSpeedResult = processLowSpeedYardLocationSample({
-              nowMs: sampleMs,
-              speedKmh: result.diagnostic.selectedSpeedKmh,
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-              accuracyM: loc.coords.accuracy ?? 9999,
-              isDriving: isDrivingRef.current,
-              state: lowSpeedYardDetectorStateRef.current,
-            });
-            lowSpeedYardDetectorStateRef.current = lowSpeedResult.state;
-            lowSpeedYardReason = lowSpeedResult.reason;
-            if (lowSpeedResult.shouldStartDriving) {
-              const reducedState = commitAndFlipDriving(true, undefined, 'location', {
-                effectiveTransitionMs: lowSpeedResult.drivingStartedAtMs,
-              });
-              if (reducedState) {
-                lowSpeedYardDetectorStateRef.current = createInitialLowSpeedYardDetectorState();
-                totalsAfter = { ...reducedState.totals };
-                nextDriving = reducedState.isDriving;
-                reducerEventApplied = 'LOW_SPEED_YARD_START';
-              }
             }
           }
           appendMotionDiagnosticsRing({
@@ -2035,9 +1912,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
             nextDriving,
             movingSinceMs: result.motionState.movingSinceMs || movingSinceBefore,
             stationarySinceMs: result.motionState.stationarySinceMs || stationarySinceBefore,
-            ignoredReason: result.diagnostic.ignoredReason || (
-              reducerEventApplied ? null : lowSpeedYardReason ? `low_speed:${lowSpeedYardReason}` : null
-            ),
+            ignoredReason: result.diagnostic.ignoredReason,
             reducerEventApplied,
             totalsBefore,
             totalsAfter,
@@ -2074,17 +1949,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
           config: MOTION_DETECTOR_CONFIG,
         });
         drivingScoreRef.current = result.motionState.drivingScore;
-        if (statusRef.current === 'working' && !isDrivingRef.current) {
-          lowSpeedYardDetectorStateRef.current = processLowSpeedYardAccelerometerSample({
-            nowMs: sampleMs,
-            x,
-            y,
-            z,
-            state: lowSpeedYardDetectorStateRef.current,
-          });
-        } else if (isDrivingRef.current) {
-          lowSpeedYardDetectorStateRef.current = createInitialLowSpeedYardDetectorState();
-        }
         let totalsAfter = { ...totalsRef.current };
         let nextDriving = isDrivingRef.current;
         let reducerEventApplied: string | null = null;
@@ -2173,7 +2037,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     });
 
     applyMachineStateToRefs(result.state);
-    lowSpeedYardDetectorStateRef.current = createInitialLowSpeedYardDetectorState();
     activitySegmentStartRef.current = transitionIso;
     syncStateFromRefs();
     vibrateAlert();
@@ -2252,8 +2115,6 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         await refreshSession();
         if (statusRef.current === 'idle') {
           await cancelAllScheduledAlertNotifications({ clearBackgroundState: true });
-        } else if (statusRef.current === 'break') {
-          await cancelAllScheduledAlertNotifications();
         } else {
           await buildComplianceSchedule();
           if (statusRef.current === 'working' && isDrivingRef.current) {
