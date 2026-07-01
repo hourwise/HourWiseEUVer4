@@ -190,10 +190,52 @@ test('DRIVING_DECISION_RECEIVED reclassifies delayed stop time as work', () => {
   });
 
   assert.equal(result.state.isDriving, false);
-  assert.equal(result.state.totals.driving, 123);
+  assert.equal(result.state.totals.driving, 128);
   assert.equal(result.state.totals.work, 140);
   assert.equal(result.state.workCycle, 140);
-  assert.equal(result.state.drivingCycle, 123);
+  assert.equal(result.state.drivingCycle, 128);
+});
+
+test('DRIVING_DECISION_RECEIVED can clear the current false driving segment without reducing work', () => {
+  const segmentStartMs = Date.UTC(2026, 4, 14, 10, 0, 0);
+  const nowMs = segmentStartMs + 120_000;
+  const state = createTachoStateFromSnapshot({
+    status: 'working',
+    sessionId: 's-manual-passenger',
+    timerMode: '6h',
+    workStartTime: '2026-05-14T08:00:00.000Z',
+    currentSegmentStart: new Date(segmentStartMs).toISOString(),
+    totals: { work: 3600, poa: 0, break: 0, driving: 600 },
+    legalBreakDisplayTotal: 0,
+    workCycle: 3600,
+    drivingCycle: 600,
+    has15minBreak: false,
+    isDriving: true,
+    breakStartMs: 0,
+    weeklyDrivingAccumulator: 0,
+    shiftExtensionsUsedThisWeek: 0,
+    maxShiftTimeSeconds: 13 * 3600,
+    dailyRestSecondsBeforeShift: 0,
+    reducedDailyRestTaken: false,
+    lastTickMs: segmentStartMs,
+    lastBreakDuration: 0,
+    lastBreakEndTime: 0,
+  });
+
+  const result = reduceTachoEvent(state, {
+    type: 'DRIVING_DECISION_RECEIVED',
+    nowMs,
+    nextDriving: false,
+    source: 'location',
+    effectiveTransitionMs: segmentStartMs - 8000,
+  });
+
+  assert.equal(result.state.status, 'working');
+  assert.equal(result.state.isDriving, false);
+  assert.equal(result.state.totals.work, 3720);
+  assert.equal(result.state.totals.driving, 600);
+  assert.equal(result.state.workCycle, 3720);
+  assert.equal(result.state.drivingCycle, 600);
 });
 
 test('DRIVING_DECISION_RECEIVED is ignored during manual break', () => {

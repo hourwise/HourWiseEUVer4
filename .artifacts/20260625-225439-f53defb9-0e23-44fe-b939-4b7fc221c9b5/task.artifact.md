@@ -1,0 +1,21 @@
+# Task Management
+
+- [/] Research UI Refresh and Brand System Implementation
+- [ ] Phase 1: Design Tokens
+    - [ ] Update `tailwind.config.js` with new colors, spacing, and radius
+- [ ] Phase 2: Core Components
+    - [ ] Create `BrandBackground` / `HWScreen` component
+    - [ ] Create `HWCard` component
+    - [ ] Create `HWButton` component
+    - [ ] Create `HWStatusPill` component
+    - [ ] Create `BrandLogo` component
+- [ ] Phase 3: Dashboard Refresh
+    - [ ] Refactor `Dashboard.tsx` to use new components
+    - [ ] Update Main Timer Card styling
+    - [ ] Add Today Summary tiles
+- [ ] Phase 4: App Shell & Navigation
+    - [ ] Update `AppNavigator.tsx` styling
+    - [ ] Refresh `SettingsScreen.tsx`
+- [ ] Phase 5: Verification
+    - [ ] Visual QA of all refreshed screens
+    - [ ] Verify timer logic remains functional

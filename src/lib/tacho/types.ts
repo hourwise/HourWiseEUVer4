@@ -370,6 +370,7 @@ export type LocationSampleDecisionInput = {
   movingSinceMs: number;
   stationarySinceMs: number;
   stillThresholdKmh: number;
+  activeDrivingStillThresholdKmh?: number;
   lowSpeedStopThresholdKmh: number;
   drivingThresholdKmh: number;
   immediateStartThresholdKmh: number;

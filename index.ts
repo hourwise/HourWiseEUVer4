@@ -116,6 +116,8 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
   if (!samples.length) return;
 
   const latestSample = samples[samples.length - 1];
+  const latestSampleAgeMs = receiptMs - latestSample.sampleTs;
+  const hasFreshLatestSample = latestSampleAgeMs <= BACKGROUND_SAMPLE_STALE_MS;
 
   await AsyncStorage.setItem(
     BACKGROUND_SPEED_KEY,
@@ -153,7 +155,9 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
       const totalsBefore = { ...machineState.totals };
       const previousDriving = machineState.isDriving;
       const isDuplicate = sample.sampleTs <= machineState.motion.lastLocationTs;
-      const isStale = receiptMs - sample.sampleTs > BACKGROUND_SAMPLE_STALE_MS;
+      const isStale =
+        !hasFreshLatestSample &&
+        receiptMs - sample.sampleTs > BACKGROUND_SAMPLE_STALE_MS;
       const canApplyStaleStop =
         isStale &&
         machineState.isDriving &&
@@ -219,6 +223,27 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
     }
   }
 
+  let forcedStaleDrivingStop = false;
+  if (
+    machineState.status === 'working' &&
+    machineState.isDriving &&
+    latestSampleAgeMs > BACKGROUND_SAMPLE_STALE_MS
+  ) {
+    const stopAtMs = Math.max(machineState.lastTickMs, latestSample.sampleTs);
+    const staleStopResult = reduceTachoEvent(machineState, {
+      type: 'DRIVING_DECISION_RECEIVED',
+      nowMs: stopAtMs,
+      nextDriving: false,
+      source: 'background',
+      effectiveTransitionMs: latestSample.sampleTs,
+    });
+    forcedStaleDrivingStop =
+      staleStopResult.state.isDriving !== machineState.isDriving ||
+      staleStopResult.commands.length > 0;
+    machineState = staleStopResult.state;
+    commands.push(...staleStopResult.commands);
+  }
+
   const tickResult = reduceTachoEvent(machineState, {
     type: 'TIMER_TICK',
     nowMs: receiptMs,
@@ -263,7 +288,9 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
       sampleCount: samples.length,
       diagnosticRecordCount: diagnosticRecords.length,
       latestSpeedKmh: latestSample.speedKmh ?? null,
-      latestSampleAgeMs: receiptMs - latestSample.sampleTs,
+      latestSampleAgeMs,
+      hasFreshLatestSample,
+      forcedStaleDrivingStop,
       commandTypes: commands.map(command => command.type),
     },
   });

@@ -54,7 +54,7 @@ export const evaluateLocationSample = ({
   movingSinceMs,
   stationarySinceMs,
   stillThresholdKmh,
-  lowSpeedStopThresholdKmh,
+  activeDrivingStillThresholdKmh = stillThresholdKmh,
   drivingThresholdKmh,
   immediateStartThresholdKmh,
   movingConfirmMs,
@@ -78,11 +78,10 @@ export const evaluateLocationSample = ({
     };
   }
 
-  const stopCandidateThreshold = Math.max(stillThresholdKmh, lowSpeedStopThresholdKmh);
-  const isStopCandidate = isDriving && speedKmh <= stopCandidateThreshold;
-  const isClearlyStill = speedKmh <= stillThresholdKmh;
+  const isActiveDrivingStill = isDriving && speedKmh <= activeDrivingStillThresholdKmh;
+  const isClearlyStill = isDriving ? isActiveDrivingStill : speedKmh <= stillThresholdKmh;
 
-  if (isClearlyStill || isStopCandidate) {
+  if (isClearlyStill) {
     const nextStationarySinceMs = stationarySinceMs === 0 ? nowMs : stationarySinceMs;
     const shouldStop = isDriving && nowMs - nextStationarySinceMs >= stationaryConfirmMs;
     return {

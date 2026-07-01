@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   AppState,
   Share,
+  Alert,
 } from 'react-native';
 import {
   Menu,
@@ -34,6 +35,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../providers/AuthProvider';
 import * as Notifications from 'expo-notifications';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 // --- Components ---
 import { DigitalClock } from '../components/DigitalClock';
@@ -406,12 +409,40 @@ export function Dashboard({ session, navigation }: { session: Session; navigatio
   const handleExportTimerDiagnostics = useCallback(async () => {
     try {
       const diagnostics = await exportTimerDiagnostics();
+      const exportDirectory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      if (!exportDirectory) {
+        await Share.share({
+          title: 'HourWise Timer Diagnostics',
+          message: diagnostics,
+        });
+        return;
+      }
+
+      const fileName = `hourwise-timer-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      const fileUri = `${exportDirectory}${fileName}`;
+      await FileSystem.writeAsStringAsync(fileUri, diagnostics, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          dialogTitle: 'HourWise Timer Diagnostics',
+          mimeType: 'application/json',
+          UTI: 'public.json',
+        });
+        return;
+      }
+
       await Share.share({
         title: 'HourWise Timer Diagnostics',
         message: diagnostics,
       });
     } catch (e) {
       console.warn('Failed to export timer diagnostics:', e);
+      Alert.alert(
+        'Diagnostics Export Failed',
+        e instanceof Error ? e.message : 'HourWise could not create the diagnostics export.',
+      );
     }
   }, [exportTimerDiagnostics]);
 

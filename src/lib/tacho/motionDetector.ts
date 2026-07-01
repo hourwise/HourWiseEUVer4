@@ -170,6 +170,7 @@ const getPendingTransition = ({
 
 export type MotionDetectorConfig = {
   stillThresholdKmh: number;
+  activeDrivingStillThresholdKmh: number;
   lowSpeedStopThresholdKmh: number;
   drivingThresholdKmh: number;
   immediateStartThresholdKmh: number;
@@ -250,6 +251,7 @@ export const processLocationMotionSample = ({
     movingSinceMs: motionState.movingSinceMs,
     stationarySinceMs: motionState.stationarySinceMs,
     stillThresholdKmh: config.stillThresholdKmh,
+    activeDrivingStillThresholdKmh: config.activeDrivingStillThresholdKmh,
     lowSpeedStopThresholdKmh: config.lowSpeedStopThresholdKmh,
     drivingThresholdKmh: config.drivingThresholdKmh,
     immediateStartThresholdKmh: config.immediateStartThresholdKmh,

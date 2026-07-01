@@ -14,7 +14,9 @@ import {
   ACCEL_STOP_THRESHOLD,
   BASE_STORAGE_KEY,
   BG_SPEED_KEY,
+  ACTIVE_DRIVING_STILL_THRESHOLD_KMH,
   DRIVING_SPEED_THRESHOLD_KMH,
+  DRIVING_STOP_TAIL_MS,
   DRIVING_IMMEDIATE_START_THRESHOLD_KMH,
   GPS_STALE_THRESHOLD_MS,
   LOW_SPEED_STOP_THRESHOLD_KMH,
@@ -145,6 +147,7 @@ async function ensureNotificationSetup() {
 const BATTERY_PROMPT_KEY = 'battery_prompt_dismissed';
 const MOTION_DETECTOR_CONFIG: MotionDetectorConfig = {
   stillThresholdKmh: STILL_SPEED_THRESHOLD_KMH,
+  activeDrivingStillThresholdKmh: ACTIVE_DRIVING_STILL_THRESHOLD_KMH,
   lowSpeedStopThresholdKmh: LOW_SPEED_STOP_THRESHOLD_KMH,
   drivingThresholdKmh: DRIVING_SPEED_THRESHOLD_KMH,
   immediateStartThresholdKmh: DRIVING_IMMEDIATE_START_THRESHOLD_KMH,
@@ -324,12 +327,14 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const isEndingRef = useRef<boolean>(false);
   const isPersistingRef = useRef<boolean>(false);
   const isRefreshingSessionRef = useRef<boolean>(false);
+  const isStatusTransitioningRef = useRef<boolean>(false);
   const suppressDriveStopSyncRef = useRef<boolean>(false);
   const lastDbCheckpointAtRef = useRef<number | null>(null);
   const activitySegmentStartRef = useRef<string | null>(null);
   const appStateRef = useRef(AppState.currentState);
   const lastResumeRefreshAtRef = useRef<number>(0);
   const resumeRefreshPromiseRef = useRef<Promise<void> | null>(null);
+  const timerMutationSeqRef = useRef<number>(0);
   const lastRestoreKeyRef = useRef<string | null>(null);
    const lastBreakDurationUiRef = useRef<number>(0);
    const lastBreakEndTimeRef = useRef<number>(0);
@@ -340,6 +345,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const ukVoiceIdentifierRef = useRef<string | null>(null);
   const locationSubRef = useRef<Location.LocationSubscription | null>(null);
   const accelSubRef = useRef<any>(null);
+  const isStartingTrackingRef = useRef<boolean>(false);
   const lastSpeedKmhRef = useRef<number>(0);
   const lastSpeedTsRef = useRef<number>(0);
   const lastLocationTsRef = useRef<number>(0);
@@ -1369,6 +1375,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   const refreshSession = useCallback(async () => {
     if (!userId || isStartingRef.current || isRefreshingSessionRef.current) return;
     isRefreshingSessionRef.current = true;
+    const refreshStartMutationSeq = timerMutationSeqRef.current;
     const refreshStartSnapshot = buildTimerDiagnosticSnapshot();
     let refreshSuccess = false;
     let refreshErrorSummary: string | null = null;
@@ -1402,6 +1409,25 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         .eq('user_id', userId)
         .is('end_time', null)
         .maybeSingle();
+
+      if (timerMutationSeqRef.current !== refreshStartMutationSeq) {
+        appendTimerDiagnostic({
+          event: 'resume_refresh',
+          source: 'refreshSession',
+          reason: 'local_mutation_superseded',
+          statusBefore: refreshStartSnapshot.status,
+          statusAfter: statusRef.current,
+          snapshotBefore: refreshStartSnapshot,
+          snapshotAfter: buildTimerDiagnosticSnapshot(),
+          success: true,
+          details: {
+            refreshStartMutationSeq,
+            currentMutationSeq: timerMutationSeqRef.current,
+          },
+        });
+        refreshSuccess = true;
+        return;
+      }
 
       if (error) {
         const persistedRuntimeState =
@@ -1656,6 +1682,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     });
     if (result.state.isDriving === machineState.isDriving && result.commands.length === 0) return null;
 
+    timerMutationSeqRef.current += 1;
     applyMachineStateToRefs(result.state);
     syncStateFromRefs();
     onFlipped?.();
@@ -1666,38 +1693,87 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, [applyMachineStateToRefs, createMachineStateFromRefs, executeReducerCommands, syncStateFromRefs]);
 
   const exportTimerDiagnostics = useCallback(async () => {
-    appendTimerDiagnostic({
+    await appendTimerDiagnosticsRing({
       event: 'resume_refresh',
       source: 'exportTimerDiagnostics',
       reason: 'manual_export',
       snapshotAfter: buildTimerDiagnosticSnapshot(),
       success: true,
+      ts: Date.now(),
+      sessionId: sessionIdRef.current,
     });
     return exportCombinedTimerDiagnostics();
-  }, [appendTimerDiagnostic, buildTimerDiagnosticSnapshot]);
+  }, [buildTimerDiagnosticSnapshot]);
 
   const toggleDrivingDetectionPause = useCallback(async () => {
+    const snapshotBefore = buildTimerDiagnosticSnapshot();
     const nextPaused = !isDrivingDetectionPausedRef.current;
     isDrivingDetectionPausedRef.current = nextPaused;
     setIsDrivingDetectionPaused(nextPaused);
+
+    if (nextPaused && statusRef.current === 'working' && isDrivingRef.current) {
+      const segmentStartMs = segmentStartRef.current
+        ? new Date(segmentStartRef.current).getTime()
+        : NaN;
+      const effectiveTransitionMs = Number.isFinite(segmentStartMs)
+        ? segmentStartMs - DRIVING_STOP_TAIL_MS
+        : Date.now();
+      commitAndFlipDriving(false, undefined, 'location', {
+        bypassPause: true,
+        effectiveTransitionMs,
+      });
+    } else if (!nextPaused && statusRef.current === 'working' && !isDrivingRef.current) {
+      commitAndFlipDriving(true, undefined, 'location', { bypassPause: true });
+    }
+
     resetDrivingMotionState();
 
-    if (nextPaused) {
-      if (statusRef.current === 'working' && isDrivingRef.current) {
-        commitAndFlipDriving(false);
-        return;
-      }
+    let success = true;
+    let errorSummary: string | null = null;
+
+    try {
       await persistFromRefs();
-      return;
+    } catch (error) {
+      success = false;
+      errorSummary = error instanceof Error ? error.message : String(error);
+      console.warn('Failed to persist driving detection pause state:', error);
     }
 
-    if (statusRef.current === 'working' && !isDrivingRef.current) {
-      commitAndFlipDriving(true, undefined, 'location', { bypassPause: true });
-      return;
+    try {
+      if (nextPaused) {
+        await cancelScheduledAlertsForScope('drive');
+      } else if (statusRef.current === 'working' && isDrivingRef.current) {
+        await buildDriveAlertSchedule();
+      }
+    } catch (error) {
+      success = false;
+      errorSummary = errorSummary ?? (error instanceof Error ? error.message : String(error));
+      console.warn('Failed to reconcile drive alerts after driving detection pause toggle:', error);
     }
 
-    await persistFromRefs();
-  }, [commitAndFlipDriving, persistFromRefs, resetDrivingMotionState]);
+    appendTimerDiagnostic({
+      event: 'tracking',
+      source: 'toggleDrivingDetectionPause',
+      reason: nextPaused ? 'paused' : 'resumed',
+      snapshotBefore,
+      snapshotAfter: buildTimerDiagnosticSnapshot(),
+      success,
+      errorSummary,
+      details: {
+        drivingDetectionPaused: nextPaused,
+        status: statusRef.current,
+        isDriving: isDrivingRef.current,
+      },
+    });
+  }, [
+    appendTimerDiagnostic,
+    buildDriveAlertSchedule,
+    buildTimerDiagnosticSnapshot,
+    cancelScheduledAlertsForScope,
+    commitAndFlipDriving,
+    persistFromRefs,
+    resetDrivingMotionState,
+  ]);
 
    useEffect(() => {
      const sub = AppState.addEventListener('change', async (next) => {
@@ -1801,6 +1877,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   ]);
 
   const stopTracking = useCallback(async () => {
+    isStartingTrackingRef.current = false;
     locationSubRef.current?.remove();
     accelSubRef.current?.remove();
     locationSubRef.current = null;
@@ -1821,6 +1898,8 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, [commitAndFlipDriving]);
 
   const startTracking = useCallback(async () => {
+    if (isStartingTrackingRef.current || locationSubRef.current || accelSubRef.current) return;
+    isStartingTrackingRef.current = true;
     try {
       const { status: foreStatus } = await Location.requestForegroundPermissionsAsync();
       if (foreStatus !== 'granted') return;
@@ -1828,6 +1907,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       locationSubRef.current = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 2, timeInterval: 1000 },
         (loc) => {
+          if (appStateRef.current !== 'active') return;
           if (isDrivingDetectionPausedRef.current) return;
           const receiptMs = Date.now();
           const sampleMs =
@@ -1921,6 +2001,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
       );
       Accelerometer.setUpdateInterval(800);
       accelSubRef.current = Accelerometer.addListener(({ x, y, z }) => {
+        if (appStateRef.current !== 'active') return;
         if (isDrivingDetectionPausedRef.current) return;
         const sampleMs = Date.now();
         const previousDriving = isDrivingRef.current;
@@ -2012,6 +2093,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         }
       }
     } catch (e) { console.error('Tracking setup failed', e); }
+    finally { isStartingTrackingRef.current = false; }
   }, [commitAndFlipDriving]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2020,70 +2102,78 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   }, [status]);
 
   const updateTotalsAndSwitchStatus = useCallback(async (newStatus: WorkStatus) => {
-    await cancelAllScheduledAlertNotifications();
-    while (isPersistingRef.current) { await new Promise(resolve => setTimeout(resolve, 50)); }
+    if (isStatusTransitioningRef.current) return;
+    isStatusTransitioningRef.current = true;
+    try {
+      await cancelAllScheduledAlertNotifications();
+      while (isPersistingRef.current) { await new Promise(resolve => setTimeout(resolve, 50)); }
 
-    const nowMs = Date.now();
-    const transitionIso = new Date(nowMs).toISOString();
-    const previousStatus = statusRef.current;
-    const snapshotBefore = buildTimerDiagnosticSnapshot();
-    const previousActivitySegmentStart =
-      activitySegmentStartRef.current || workStartRef.current || segmentStartRef.current;
-    const machineState = createMachineStateFromRefs(nowMs);
-    const result = reduceTachoEvent(machineState, {
-      type: 'STATUS_CHANGE_REQUESTED',
-      nowMs,
-      nextStatus: newStatus,
-    });
-
-    applyMachineStateToRefs(result.state);
-    activitySegmentStartRef.current = transitionIso;
-    syncStateFromRefs();
-    vibrateAlert();
-    appendTimerDiagnostic({
-      event: 'status_change',
-      source: 'updateTotalsAndSwitchStatus',
-      reason: `${previousStatus}->${newStatus}`,
-      statusBefore: previousStatus,
-      statusAfter: result.state.status,
-      snapshotBefore,
-      snapshotAfter: buildTimerDiagnosticSnapshot(),
-      success: true,
-      details: {
-        transitionTime: transitionIso,
-        previousActivitySegmentStart,
-        nextActivitySegmentStart: activitySegmentStartRef.current,
-        commandTypes: result.commands.map(command => command.type),
-      },
-    });
-
-    const syncCommand = result.commands.find(
-      (command): command is Extract<TachoCommand, { type: 'sync_session' }> =>
-        command.type === 'sync_session'
-    );
-
-    await persistFromRefs();
-    if (syncCommand && syncCommand.reason !== 'end_shift') {
-      await syncSessionToDb(syncCommand.reason, {
-        maxRetries: 2,
-        logLabel: `Immediate ${syncCommand.reason} sync failed:`,
-      });
-    }
-    if (userId && sessionIdRef.current) {
-      await workSessionSegmentService.recordStatusTransition({
-        userId,
-        sessionId: sessionIdRef.current,
-        previousStatus,
-        previousSegmentStart: previousActivitySegmentStart,
+      const nowMs = Date.now();
+      const transitionIso = new Date(nowMs).toISOString();
+      const previousStatus = statusRef.current;
+      const snapshotBefore = buildTimerDiagnosticSnapshot();
+      const previousActivitySegmentStart =
+        activitySegmentStartRef.current || workStartRef.current || segmentStartRef.current;
+      const machineState = createMachineStateFromRefs(nowMs);
+      const result = reduceTachoEvent(machineState, {
+        type: 'STATUS_CHANGE_REQUESTED',
+        nowMs,
         nextStatus: newStatus,
-        transitionTime: transitionIso,
       });
-    }
 
-    await executeReducerCommands(result.commands, {
-      skipPersist: true,
-      skipSyncSession: true,
-    });
+      timerMutationSeqRef.current += 1;
+      applyMachineStateToRefs(result.state);
+      activitySegmentStartRef.current = transitionIso;
+      syncStateFromRefs();
+      vibrateAlert();
+      appendTimerDiagnostic({
+        event: 'status_change',
+        source: 'updateTotalsAndSwitchStatus',
+        reason: `${previousStatus}->${newStatus}`,
+        statusBefore: previousStatus,
+        statusAfter: result.state.status,
+        snapshotBefore,
+        snapshotAfter: buildTimerDiagnosticSnapshot(),
+        success: true,
+        details: {
+          transitionTime: transitionIso,
+          previousActivitySegmentStart,
+          nextActivitySegmentStart: activitySegmentStartRef.current,
+          mutationSeq: timerMutationSeqRef.current,
+          commandTypes: result.commands.map(command => command.type),
+        },
+      });
+
+      const syncCommand = result.commands.find(
+        (command): command is Extract<TachoCommand, { type: 'sync_session' }> =>
+          command.type === 'sync_session'
+      );
+
+      await persistFromRefs();
+      if (syncCommand && syncCommand.reason !== 'end_shift') {
+        await syncSessionToDb(syncCommand.reason, {
+          maxRetries: 2,
+          logLabel: `Immediate ${syncCommand.reason} sync failed:`,
+        });
+      }
+      if (userId && sessionIdRef.current) {
+        await workSessionSegmentService.recordStatusTransition({
+          userId,
+          sessionId: sessionIdRef.current,
+          previousStatus,
+          previousSegmentStart: previousActivitySegmentStart,
+          nextStatus: newStatus,
+          transitionTime: transitionIso,
+        });
+      }
+
+      await executeReducerCommands(result.commands, {
+        skipPersist: true,
+        skipSyncSession: true,
+      });
+    } finally {
+      isStatusTransitioningRef.current = false;
+    }
   }, [
     appendTimerDiagnostic,
     cancelAllScheduledAlertNotifications,
@@ -2153,6 +2243,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
   useEffect(() => {
     const interval = setInterval(() => {
       if (isEndingRef.current || statusRef.current === 'idle') return;
+      if (appStateRef.current !== 'active') return;
       persistFromRefs();
     }, 20000);
     return () => clearInterval(interval);
@@ -2163,6 +2254,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
     if (!sessionId || status === 'idle') return;
     const interval = setInterval(async () => {
     if (isEndingRef.current || !sessionIdRef.current) return;
+      if (appStateRef.current !== 'active') return;
       try {
         await syncSessionToDb('checkpoint', { logLabel: 'Periodic session sync failed:' });
       } catch (e) { console.warn('Periodic session sync failed:', e); }
@@ -2271,6 +2363,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
         weeklyDrive: startedShift.prevWeeklyDriveRemaining,
         maxShiftTime: maxShiftTimeLimitRef.current,
       };
+      timerMutationSeqRef.current += 1;
       syncStateFromRefs();
 
       const startSessionPayload = {
@@ -2555,6 +2648,7 @@ export const useWorkTimer = (userId: string | undefined, timezone: string) => {
              await stopTracking();
               await cancelAllScheduledAlertNotifications({ clearBackgroundState: true });
 
+               timerMutationSeqRef.current += 1;
                applyMachineStateToRefs(createInitialTachoState(Date.now()));
                activitySegmentStartRef.current = null;
                isDrivingDetectionPausedRef.current = false;
